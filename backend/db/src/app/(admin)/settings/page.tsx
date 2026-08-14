@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 
-const inputCls = "w-full px-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-300 transition placeholder:text-gray-400";
+const inputCls = "w-full px-3 py-2 text-sm bg-gray-50 border border-lightstone rounded-xl focus:outline-none focus:ring-2 focus:ring-terracotta/30 focus:border-terracotta transition placeholder:text-warmgrey";
 
 function SectionHeader({ icon: Icon, title, desc, color }: { icon: any; title: string; desc: string; color: string }) {
   return (
@@ -16,8 +16,8 @@ function SectionHeader({ icon: Icon, title, desc, color }: { icon: any; title: s
         <Icon size={16} className="text-white" />
       </div>
       <div>
-        <h2 className="text-sm font-bold text-gray-900">{title}</h2>
-        <p className="text-xs text-gray-400 mt-0.5">{desc}</p>
+        <h2 className="text-sm font-bold text-charcoal">{title}</h2>
+        <p className="text-xs text-warmgrey mt-0.5">{desc}</p>
       </div>
     </div>
   );
@@ -30,7 +30,7 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: () => void 
       aria-checked={checked}
       onClick={onChange}
       className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors shrink-0 ${
-        checked ? "bg-indigo-600" : "bg-gray-200"
+        checked ? "bg-terracotta" : "bg-lightstone"
       }`}
     >
       <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow-sm transition-transform ${
@@ -114,12 +114,12 @@ export default function SettingsPage() {
     <div className="max-w-2xl space-y-4 pb-8">
 
       {/* Profile card — avatar + name hero */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+      <div className="bg-white rounded-2xl border border-lightstone shadow-sm overflow-hidden">
         {/* Banner */}
-        <div className="relative h-24 bg-gradient-to-r from-indigo-500 via-violet-500 to-indigo-600">
+        <div className="relative h-24 bg-gradient-to-r from-terracotta via-terracotta to-terracotta">
           {/* Avatar overlapping banner bottom */}
           <div className="absolute -bottom-8 left-6">
-            <div className="w-16 h-16 rounded-2xl bg-indigo-600 ring-4 ring-white flex items-center justify-center text-white text-xl font-extrabold shadow-md">
+            <div className="w-16 h-16 rounded-2xl bg-terracotta ring-4 ring-white flex items-center justify-center text-white text-xl font-extrabold shadow-md">
               {initials}
             </div>
           </div>
@@ -128,19 +128,19 @@ export default function SettingsPage() {
           {/* Space for the overlapping avatar + name row */}
           <div className="flex items-start justify-between mt-10 mb-5">
             <div>
-              <p className="text-base font-bold text-gray-900">{profile.name || "—"}</p>
-              <p className="text-xs text-gray-400 mt-0.5">{profile.email || "—"}</p>
+              <p className="text-base font-bold text-charcoal">{profile.name || "—"}</p>
+              <p className="text-xs text-warmgrey mt-0.5">{profile.email || "—"}</p>
             </div>
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-indigo-50 text-indigo-700 text-xs font-semibold rounded-xl ring-1 ring-indigo-200 mt-1">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-accent-50 text-terracotta text-xs font-semibold rounded-xl ring-1 ring-terracotta/20 mt-1">
               <ShieldCheck size={12} />
               {profile.role || "admin"}
             </span>
           </div>
 
-          <SectionHeader icon={User} title="Profile Settings" desc="Update your display name and email" color="bg-indigo-500" />
+          <SectionHeader icon={User} title="Profile Settings" desc="Update your display name and email" color="bg-terracotta" />
 
           {error && (
-            <div className="mb-4 flex items-center gap-2 px-3 py-2.5 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
+            <div className="mb-4 flex items-center gap-2 px-3 py-2.5 bg-dustyrose/10 border border-dustyrose/20 rounded-xl text-sm text-rosewood">
               <AlertCircle size={14} className="shrink-0" /> {error}
             </div>
           )}
@@ -148,15 +148,15 @@ export default function SettingsPage() {
           <div className="space-y-3">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1.5">Full Name</label>
+                <label className="block text-xs font-semibold text-warmgrey mb-1.5">Full Name</label>
                 <input type="text" value={profile.name}
                   onChange={e => setProfile({ ...profile, name: e.target.value })}
                   placeholder="Your name" className={inputCls} />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1.5">Email Address</label>
+                <label className="block text-xs font-semibold text-warmgrey mb-1.5">Email Address</label>
                 <div className="relative">
-                  <Mail size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <Mail size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-warmgrey" />
                   <input type="email" value={profile.email}
                     onChange={e => setProfile({ ...profile, email: e.target.value })}
                     placeholder="you@example.com" className={`${inputCls} pl-8`} />
@@ -164,7 +164,7 @@ export default function SettingsPage() {
               </div>
             </div>
             <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1.5">Role</label>
+              <label className="block text-xs font-semibold text-warmgrey mb-1.5">Role</label>
               <input type="text" value={profile.role} readOnly
                 className={`${inputCls} cursor-not-allowed opacity-60`} />
             </div>
@@ -174,8 +174,8 @@ export default function SettingsPage() {
             <button onClick={handleSaveProfile} disabled={loading}
               className={`inline-flex items-center gap-2 px-5 py-2 text-sm font-bold rounded-xl transition shadow-sm disabled:opacity-60 ${
                 saved
-                  ? "bg-emerald-500 text-white shadow-emerald-200"
-                  : "bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-200"
+                  ? "bg-sage text-white shadow-soft"
+                  : "bg-terracotta hover:bg-accent-700 text-white shadow-soft"
               }`}>
               {saved ? <CheckCircle size={14} /> : <Save size={14} />}
               {loading ? "Saving…" : saved ? "Saved!" : "Save Profile"}
@@ -185,9 +185,9 @@ export default function SettingsPage() {
       </div>
 
       {/* Notifications */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-        <SectionHeader icon={Bell} title="Notification Preferences" desc="Choose what alerts you receive" color="bg-amber-500" />
-        <div className="space-y-0 divide-y divide-gray-50">
+      <div className="bg-white rounded-2xl border border-lightstone shadow-sm p-6">
+        <SectionHeader icon={Bell} title="Notification Preferences" desc="Choose what alerts you receive" color="bg-terracotta" />
+        <div className="space-y-0 divide-y divide-lightstone/50">
           {[
             { key: "emailOrders",  label: "New order emails",          desc: "Receive an email whenever a new booking is placed." },
             { key: "emailUsers",   label: "New user registrations",    desc: "Get notified when a new customer signs up."          },
@@ -196,8 +196,8 @@ export default function SettingsPage() {
           ].map(({ key, label, desc }) => (
             <div key={key} className="flex items-center justify-between gap-4 py-3.5 first:pt-0 last:pb-0">
               <div>
-                <p className="text-sm font-semibold text-gray-800">{label}</p>
-                <p className="text-xs text-gray-400 mt-0.5">{desc}</p>
+                <p className="text-sm font-semibold text-charcoal">{label}</p>
+                <p className="text-xs text-warmgrey mt-0.5">{desc}</p>
               </div>
               <Toggle
                 checked={notifications[key as keyof typeof notifications]}
@@ -209,16 +209,16 @@ export default function SettingsPage() {
       </div>
 
       {/* Change Password */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-        <SectionHeader icon={Lock} title="Change Password" desc="Keep your account secure with a strong password" color="bg-violet-500" />
+      <div className="bg-white rounded-2xl border border-lightstone shadow-sm p-6">
+        <SectionHeader icon={Lock} title="Change Password" desc="Keep your account secure with a strong password" color="bg-terracotta" />
 
         {passwordError && (
-          <div className="mb-4 flex items-center gap-2 px-3 py-2.5 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
+          <div className="mb-4 flex items-center gap-2 px-3 py-2.5 bg-dustyrose/10 border border-dustyrose/20 rounded-xl text-sm text-rosewood">
             <AlertCircle size={14} className="shrink-0" /> {passwordError}
           </div>
         )}
         {passwordSuccess && (
-          <div className="mb-4 flex items-center gap-2 px-3 py-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-sm text-emerald-700">
+          <div className="mb-4 flex items-center gap-2 px-3 py-2.5 bg-sage/10 border border-emerald-200 rounded-xl text-sm text-sage">
             <CheckCircle size={14} className="shrink-0" /> {passwordSuccess}
           </div>
         )}
@@ -230,7 +230,7 @@ export default function SettingsPage() {
             { field: "confirm", label: "Confirm New Password", placeholder: "Repeat new password"      },
           ] as const).map(({ field, label, placeholder }) => (
             <div key={field}>
-              <label className="block text-xs font-semibold text-gray-600 mb-1.5">{label}</label>
+              <label className="block text-xs font-semibold text-warmgrey mb-1.5">{label}</label>
               <div className="relative">
                 <input
                   type={showPw[field] ? "text" : "password"}
@@ -241,29 +241,29 @@ export default function SettingsPage() {
                 />
                 <button type="button"
                   onClick={() => setShowPw(p => ({ ...p, [field]: !p[field] }))}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition">
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-warmgrey hover:text-warmgrey transition">
                   {showPw[field] ? <EyeOff size={14} /> : <Eye size={14} />}
                 </button>
               </div>
             </div>
           ))}
           <button onClick={handleChangePassword} disabled={passwordLoading}
-            className="w-full mt-1 py-2.5 text-sm font-bold bg-violet-600 hover:bg-violet-700 text-white rounded-xl transition shadow-sm shadow-violet-200 disabled:opacity-60">
+            className="w-full mt-1 py-2.5 text-sm font-bold bg-terracotta hover:bg-accent-700 text-white rounded-xl transition shadow-sm shadow-soft disabled:opacity-60">
             {passwordLoading ? "Updating…" : "Update Password"}
           </button>
         </div>
       </div>
 
       {/* Danger zone — sign out */}
-      <div className="bg-white rounded-2xl border border-red-100 shadow-sm p-6">
-        <SectionHeader icon={LogOut} title="Session" desc="Sign out of the admin panel" color="bg-rose-500" />
+      <div className="bg-white rounded-2xl border border-dustyrose/20 shadow-sm p-6">
+        <SectionHeader icon={LogOut} title="Session" desc="Sign out of the admin panel" color="bg-dustyrose" />
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-sm font-semibold text-gray-800">Sign out</p>
-            <p className="text-xs text-gray-400 mt-0.5">You will be redirected to the login page.</p>
+            <p className="text-sm font-semibold text-charcoal">Sign out</p>
+            <p className="text-xs text-warmgrey mt-0.5">You will be redirected to the login page.</p>
           </div>
           <button onClick={logout}
-            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-bold bg-red-50 text-red-600 hover:bg-red-600 hover:text-white rounded-xl ring-1 ring-red-200 transition">
+            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-bold bg-dustyrose/10 text-rosewood hover:bg-dustyrose hover:text-white rounded-xl ring-1 ring-dustyrose/20 transition">
             <LogOut size={13} /> Sign Out
           </button>
         </div>

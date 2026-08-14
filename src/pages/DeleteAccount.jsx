@@ -26,7 +26,7 @@ export default function DeleteAccount() {
         <div className="max-w-3xl mx-auto px-6">
           <IonCard className="rounded-2xl">
             <IonCardContent>
-              <p className="mb-3 font-semibold text-brand-900">
+              <p className="mb-3 font-semibold text-charcoal">
                 To delete your Kynd account and associated data, please follow
                 either of the steps below:
               </p>
@@ -39,12 +39,12 @@ export default function DeleteAccount() {
                     <p>Open the Kynd app → Profile → Settings → Delete account.</p>
                   </IonLabel>
                 </IonItem>
-                <IonItem href="mailto:help@getkynd.app">
+                <IonItem href="mailto:help@kynd.sg">
                   <IonIcon icon={mailOutline} slot="start" color="success" />
                   <IonLabel className="ion-text-wrap">
                     <h3>Email request</h3>
                     <p>
-                      Write to <strong>help@getkynd.app</strong> from the email
+                      Write to <strong>help@kynd.sg</strong> from the email
                       registered with your account.
                     </p>
                   </IonLabel>
@@ -63,7 +63,7 @@ export default function DeleteAccount() {
               <IonButton
                 expand="block"
                 color="danger"
-                href="mailto:help@getkynd.app?subject=Delete%20my%20Kynd%20account"
+                href="mailto:help@kynd.sg?subject=Delete%20my%20Kynd%20account"
                 className="mt-4"
               >
                 Request account deletion

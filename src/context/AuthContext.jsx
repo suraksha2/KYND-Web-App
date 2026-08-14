@@ -1,16 +1,61 @@
-import { createContext, useContext, useEffect, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useState } from 'react'
 import { API_BASE } from '../lib/api'
 
 const AuthContext = createContext(null)
 const USER_KEY = 'kynd.auth.user.v1'
 
+/**
+ * Session tokens are `base64url(payload).signature` and expire server-side after
+ * 8 hours (SESSION_MAX_AGE_SECONDS). The payload is readable — not trusted —
+ * client-side, which lets us drop a dead session instead of rendering a
+ * signed-in UI whose every API call comes back 401.
+ */
+function sessionExpiresAt(token) {
+  if (typeof token !== 'string') return null
+  const [payload] = token.split('.')
+  if (!payload) return null
+  try {
+    const b64 = payload.replace(/-/g, '+').replace(/_/g, '/')
+    const { exp } = JSON.parse(atob(b64.padEnd(Math.ceil(b64.length / 4) * 4, '=')))
+    return typeof exp === 'number' ? exp * 1000 : null
+  } catch { return null }
+}
+
+/** Returns the session only while its token is still valid, otherwise null. */
+const liveSession = (session) => {
+  const expiresAt = sessionExpiresAt(session?.token)
+  return expiresAt && expiresAt > Date.now() ? session : null
+}
+
+function readStoredSession() {
+  try {
+    const raw = localStorage.getItem(USER_KEY)
+    if (!raw) return { session: null, expired: false }
+    const session = liveSession(JSON.parse(raw))
+    return { session, expired: !session }
+  } catch { return { session: null, expired: false } }
+}
+
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(() => {
-    try {
-      const raw = localStorage.getItem(USER_KEY)
-      return raw ? JSON.parse(raw) : null
-    } catch { return null }
-  })
+  const [stored] = useState(readStoredSession)
+  const [user, setUser] = useState(stored.session)
+  const [sessionExpired, setSessionExpired] = useState(stored.expired)
+
+  // Drop the session and flag it, so the UI can say why the user was signed out
+  // instead of silently showing an empty account.
+  const expireSession = useCallback(() => {
+    setUser(null)
+    setSessionExpired(true)
+  }, [])
+
+  // Sign out the moment the token expires, so a long-lived tab never keeps
+  // firing requests that the backend will reject.
+  useEffect(() => {
+    const expiresAt = sessionExpiresAt(user?.token)
+    if (!expiresAt) return
+    const timer = setTimeout(expireSession, Math.max(0, expiresAt - Date.now()))
+    return () => clearTimeout(timer)
+  }, [user?.token, expireSession])
 
   useEffect(() => {
     try {
@@ -27,7 +72,7 @@ export function AuthProvider({ children }) {
     const onStorage = (e) => {
       if (e.key !== USER_KEY) return
       try {
-        setUser(e.newValue ? JSON.parse(e.newValue) : null)
+        setUser(e.newValue ? liveSession(JSON.parse(e.newValue)) : null)
       } catch {
         setUser(null)
       }
@@ -52,6 +97,7 @@ export function AuthProvider({ children }) {
 
     const session = { name: data.name, email: data.email, id: data.id, role: data.role, token: data.token }
     setUser(session)
+    setSessionExpired(false)
     return session
   }
 
@@ -70,10 +116,15 @@ export function AuthProvider({ children }) {
 
     const session = { name: data.name, email: data.email, id: data.id, role: data.role, token: data.token }
     setUser(session)
+    setSessionExpired(false)
     return session
   }
 
-  const logout = () => setUser(null)
+  // Stable identity so consumers can depend on it inside effects.
+  const logout = useCallback(() => {
+    setUser(null)
+    setSessionExpired(false)
+  }, [])
 
   const requestPasswordReset = async ({ email }) => {
     const normalizedEmail = String(email).trim().toLowerCase()
@@ -110,7 +161,7 @@ export function AuthProvider({ children }) {
   const isAdmin = !!user && (user.role === 'admin' || user.role === 'super_admin')
 
   return (
-    <AuthContext.Provider value={{ user, token: user?.token || null, isAuthenticated: !!user, isAdmin, signup, login, logout, requestPasswordReset, resetPassword }}>
+    <AuthContext.Provider value={{ user, token: user?.token || null, isAuthenticated: !!user, isAdmin, sessionExpired, signup, login, logout, expireSession, requestPasswordReset, resetPassword }}>
       {children}
     </AuthContext.Provider>
   )

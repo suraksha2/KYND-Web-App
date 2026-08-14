@@ -17,18 +17,18 @@ type User = {
 const initialUsers: User[] = [];
 
 const statusStyles: Record<string, string> = {
-  Active: "bg-green-100 text-green-700",
-  Inactive: "bg-gray-100 text-gray-600",
-  Suspended: "bg-red-100 text-red-600",
+  Active: "bg-sage/10 text-sage",
+  Inactive: "bg-accent-50 text-warmgrey",
+  Suspended: "bg-dustyrose/10 text-rosewood",
 };
 
 const roleColors: Record<string, string> = {
-  Admin: "text-indigo-600 bg-indigo-50",
-  Editor: "text-orange-600 bg-orange-50",
-  Viewer: "text-gray-600 bg-gray-100",
+  Admin: "text-terracotta bg-accent-50",
+  Editor: "text-terracotta bg-accent-100",
+  Viewer: "text-warmgrey bg-accent-50",
 };
 
-const avatarColors = ["bg-indigo-500", "bg-emerald-500", "bg-orange-500", "bg-pink-500", "bg-teal-500"];
+const avatarColors = ["bg-terracotta", "bg-sage", "bg-terracotta", "bg-dustyrose", "bg-sage"];
 
 const defaultForm = { name: "", email: "", role: "Viewer", status: "Active" };
 
@@ -76,7 +76,7 @@ export default function UsersPage() {
   if (loading) {
     return (
       <div className="space-y-4">
-        <div className="text-gray-500 text-sm">Loading users...</div>
+        <div className="text-warmgrey text-sm">Loading users...</div>
       </div>
     );
   }
@@ -114,29 +114,29 @@ export default function UsersPage() {
       {/* Toolbar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="relative">
-          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-warmgrey" />
           <input
             type="text"
             placeholder="Search users..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 w-64"
+            className="pl-9 pr-4 py-2 text-sm border border-lightstone rounded-lg focus:outline-none focus:ring-2 focus:ring-terracotta w-64"
           />
         </div>
         <button
           onClick={() => setShowModal(true)}
-          className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition">
+          className="flex items-center gap-2 bg-terracotta hover:bg-accent-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition">
           <UserPlus size={15} />
           Add User
         </button>
       </div>
 
       {/* Table */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+      <div className="bg-white rounded-xl shadow-sm border border-lightstone overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-left text-gray-500 bg-gray-50 border-b border-gray-100">
+              <tr className="text-left text-warmgrey bg-gray-50 border-b border-lightstone">
                 {["User", "Role", "Status", "Joined", "Actions"].map((h) => (
                   <th key={h} className="px-5 py-3 font-medium">{h}</th>
                 ))}
@@ -144,15 +144,15 @@ export default function UsersPage() {
             </thead>
             <tbody>
               {filtered.map((user, i) => (
-                <tr key={user.id} className="border-b border-gray-50 hover:bg-gray-50 transition">
+                <tr key={user.id} className="border-b border-lightstone/50 hover:bg-accent-50 transition">
                   <td className="px-5 py-3">
                     <div className="flex items-center gap-3">
                       <div className={clsx("w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0", avatarColors[i % avatarColors.length])}>
                         {user.avatar}
                       </div>
                       <div>
-                        <p className="font-medium text-gray-800">{user.name}</p>
-                        <p className="text-xs text-gray-400">{user.email}</p>
+                        <p className="font-medium text-charcoal">{user.name}</p>
+                        <p className="text-xs text-warmgrey">{user.email}</p>
                       </div>
                     </div>
                   </td>
@@ -166,10 +166,10 @@ export default function UsersPage() {
                       {user.status}
                     </span>
                   </td>
-                  <td className="px-5 py-3 text-gray-500">{user.joined}</td>
+                  <td className="px-5 py-3 text-warmgrey">{user.joined}</td>
                   <td className="px-5 py-3">
-                    <button className="p-1.5 hover:bg-gray-100 rounded-lg transition">
-                      <MoreVertical size={16} className="text-gray-400" />
+                    <button className="p-1.5 hover:bg-accent-50 rounded-lg transition">
+                      <MoreVertical size={16} className="text-warmgrey" />
                     </button>
                   </td>
                 </tr>
@@ -178,51 +178,51 @@ export default function UsersPage() {
           </table>
         </div>
         {filtered.length === 0 && (
-          <p className="text-center text-gray-400 py-10">No users found.</p>
+          <p className="text-center text-warmgrey py-10">No users found.</p>
         )}
       </div>
     </div>
 
       {/* Add User Modal */}
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-charcoal/40">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4 p-6">
             <div className="flex items-center justify-between mb-5">
-              <h2 className="text-base font-semibold text-gray-800">Add New User</h2>
-              <button onClick={handleClose} className="p-1.5 hover:bg-gray-100 rounded-lg transition">
-                <X size={16} className="text-gray-500" />
+              <h2 className="text-base font-semibold text-charcoal">Add New User</h2>
+              <button onClick={handleClose} className="p-1.5 hover:bg-accent-50 rounded-lg transition">
+                <X size={16} className="text-warmgrey" />
               </button>
             </div>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
+                <label className="block text-sm font-medium text-warmgrey mb-1">Full Name</label>
                 <input
                   type="text"
                   placeholder="e.g. John Doe"
                   value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="w-full px-3 py-2 text-sm border border-lightstone rounded-lg focus:outline-none focus:ring-2 focus:ring-terracotta"
                 />
-                {errors.name && <p className="text-xs text-red-500 mt-1">{errors.name}</p>}
+                {errors.name && <p className="text-xs text-rosewood mt-1">{errors.name}</p>}
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                <label className="block text-sm font-medium text-warmgrey mb-1">Email</label>
                 <input
                   type="text"
                   placeholder="e.g. john@example.com"
                   value={form.email}
                   onChange={(e) => setForm({ ...form, email: e.target.value })}
-                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="w-full px-3 py-2 text-sm border border-lightstone rounded-lg focus:outline-none focus:ring-2 focus:ring-terracotta"
                 />
-                {errors.email && <p className="text-xs text-red-500 mt-1">{errors.email}</p>}
+                {errors.email && <p className="text-xs text-rosewood mt-1">{errors.email}</p>}
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
+                  <label className="block text-sm font-medium text-warmgrey mb-1">Role</label>
                   <select
                     value={form.role}
                     onChange={(e) => setForm({ ...form, role: e.target.value })}
-                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="w-full px-3 py-2 text-sm border border-lightstone rounded-lg focus:outline-none focus:ring-2 focus:ring-terracotta"
                   >
                     <option>Admin</option>
                     <option>Editor</option>
@@ -230,11 +230,11 @@ export default function UsersPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                  <label className="block text-sm font-medium text-warmgrey mb-1">Status</label>
                   <select
                     value={form.status}
                     onChange={(e) => setForm({ ...form, status: e.target.value })}
-                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="w-full px-3 py-2 text-sm border border-lightstone rounded-lg focus:outline-none focus:ring-2 focus:ring-terracotta"
                   >
                     <option>Active</option>
                     <option>Inactive</option>
@@ -243,10 +243,10 @@ export default function UsersPage() {
                 </div>
               </div>
               <div className="flex justify-end gap-2 pt-2">
-                <button type="button" onClick={handleClose} className="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition">
+                <button type="button" onClick={handleClose} className="px-4 py-2 text-sm font-medium text-warmgrey bg-accent-50 hover:bg-lightstone rounded-lg transition">
                   Cancel
                 </button>
-                <button type="submit" className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition">
+                <button type="submit" className="px-4 py-2 text-sm font-medium text-white bg-terracotta hover:bg-accent-700 rounded-lg transition">
                   Add User
                 </button>
               </div>

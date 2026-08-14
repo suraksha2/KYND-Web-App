@@ -24,8 +24,8 @@ export default function Support() {
     {
       icon: mailOutline,
       title: 'Email us',
-      detail: 'help@getkynd.app',
-      href: 'mailto:help@getkynd.app',
+      detail: 'help@kynd.sg',
+      href: 'mailto:help@kynd.sg',
       cta: 'Compose mail',
     },
     {
@@ -59,7 +59,7 @@ export default function Support() {
                       icon={c.icon}
                       style={{ fontSize: 32, color: 'var(--ion-color-success, #16a34a)' }}
                     />
-                    <h3 className="mt-3 font-semibold text-brand-900">{c.title}</h3>
+                    <h3 className="mt-3 font-semibold text-charcoal">{c.title}</h3>
                     <IonText color="medium">
                       <p className="text-sm mt-1">{c.detail}</p>
                     </IonText>

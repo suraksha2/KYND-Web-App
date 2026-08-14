@@ -285,14 +285,14 @@ export default function CityServicesPage() {
 
   // Status badge helper
   function StatusBadge({ status }: { status?: ServiceStatus | string }) {
-    if (!status) return <span className="text-gray-300 text-xs">—</span>;
+    if (!status) return <span className="text-warmgrey text-xs">—</span>;
     const cfg: Record<string, { cls: string; dot: string }> = {
-      Active:    { cls: "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200", dot: "bg-emerald-500" },
-      Pending:   { cls: "bg-amber-50 text-amber-700 ring-1 ring-amber-200",       dot: "bg-amber-400"  },
-      Suspended: { cls: "bg-red-50 text-red-600 ring-1 ring-red-200",             dot: "bg-red-500"    },
-      Completed: { cls: "bg-blue-50 text-blue-700 ring-1 ring-blue-200",          dot: "bg-blue-500"   },
+      Active:    { cls: "bg-sage/10 text-sage ring-1 ring-sage/20", dot: "bg-sage" },
+      Pending:   { cls: "bg-accent-100 text-accent-700 ring-1 ring-terracotta/20",       dot: "bg-terracotta"  },
+      Suspended: { cls: "bg-dustyrose/10 text-rosewood ring-1 ring-dustyrose/20",             dot: "bg-dustyrose"    },
+      Completed: { cls: "bg-accent-50 text-terracotta ring-1 ring-terracotta/20",          dot: "bg-terracotta"   },
     };
-    const s = cfg[status] ?? { cls: "bg-gray-100 text-gray-500 ring-1 ring-gray-200", dot: "bg-gray-400" };
+    const s = cfg[status] ?? { cls: "bg-accent-50 text-warmgrey ring-1 ring-lightstone", dot: "bg-lightstone" };
     return (
       <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-[11px] font-semibold ${s.cls}`}>
         <span className={`w-1.5 h-1.5 rounded-full ${s.dot}`} />
@@ -313,34 +313,34 @@ export default function CityServicesPage() {
       {/* Stat cards */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
         {[
-          { label: "Total Cities",      value: totalCities,   icon: Building2, color: "bg-indigo-500"  },
-          { label: "City Services",     value: totalSvc,      icon: MapPin,    color: "bg-emerald-500" },
-          { label: "Active Services",   value: activeSvc,     icon: RefreshCw, color: "bg-violet-500"  },
-          { label: "Suspended",         value: suspendedSvc,  icon: Trash2,    color: "bg-rose-500"    },
+          { label: "Total Cities",      value: totalCities,   icon: Building2, color: "bg-terracotta"  },
+          { label: "City Services",     value: totalSvc,      icon: MapPin,    color: "bg-sage" },
+          { label: "Active Services",   value: activeSvc,     icon: RefreshCw, color: "bg-terracotta"  },
+          { label: "Suspended",         value: suspendedSvc,  icon: Trash2,    color: "bg-dustyrose"    },
         ].map(({ label, value, icon: Icon, color }) => (
-          <div key={label} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+          <div key={label} className="bg-white rounded-2xl border border-lightstone shadow-sm p-5">
             <div className="mb-3">
               <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${color}`}>
                 <Icon size={18} className="text-white" />
               </div>
             </div>
-            <p className="text-xl font-bold text-gray-900">{value}</p>
-            <p className="text-sm text-gray-500 mt-0.5">{label}</p>
+            <p className="text-xl font-bold text-charcoal">{value}</p>
+            <p className="text-sm text-warmgrey mt-0.5">{label}</p>
           </div>
         ))}
       </div>
 
       {/* Table card */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+      <div className="bg-white rounded-2xl border border-lightstone shadow-sm overflow-hidden">
 
         {/* Toolbar */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-5 py-4 border-b border-gray-100">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-5 py-4 border-b border-lightstone">
           <div className="flex items-center gap-3 flex-1 flex-wrap">
             {/* Search */}
             <div className="relative">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-warmgrey" />
               <input
-                className="pl-8 pr-4 py-2 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/50 w-60 transition"
+                className="pl-8 pr-4 py-2 text-sm bg-gray-50 border border-lightstone rounded-xl focus:outline-none focus:ring-2 focus:ring-terracotta/30 w-60 transition"
                 placeholder="Search city, service…"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
@@ -352,8 +352,8 @@ export default function CityServicesPage() {
                 <button key={s} onClick={() => setStatusFilter(s as ServiceStatus | "All")}
                   className={`px-3 py-1.5 text-xs font-semibold rounded-xl transition ${
                     statusFilter === s
-                      ? "bg-indigo-600 text-white shadow-sm"
-                      : "bg-gray-100 text-gray-500 hover:bg-gray-200"
+                      ? "bg-terracotta text-white shadow-sm"
+                      : "bg-accent-50 text-warmgrey hover:bg-lightstone"
                   }`}>
                   {s}
                 </button>
@@ -363,12 +363,12 @@ export default function CityServicesPage() {
           {/* Actions */}
           <div className="flex items-center gap-2 shrink-0">
             <button onClick={() => { fetchServices(); fetchCities(); }}
-              className="p-2 rounded-xl hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition" title="Refresh">
+              className="p-2 rounded-xl hover:bg-accent-50 text-warmgrey hover:text-warmgrey transition" title="Refresh">
               <RefreshCw size={15} />
             </button>
             <button
               onClick={() => { setEditingCity(null); setCityModalOpen(true); }}
-              className="inline-flex items-center gap-1.5 text-sm font-semibold bg-indigo-600 hover:bg-indigo-700 text-white px-3.5 py-2 rounded-xl transition shadow-sm shadow-indigo-200"
+              className="inline-flex items-center gap-1.5 text-sm font-semibold bg-terracotta hover:bg-accent-700 text-white px-3.5 py-2 rounded-xl transition shadow-sm shadow-soft"
             >
               <Plus size={14} /> Add City
             </button>
@@ -377,7 +377,7 @@ export default function CityServicesPage() {
 
         {/* Errors */}
         {(error || cityError) && (
-          <div className="px-5 py-3 bg-red-50 text-red-600 text-sm border-b border-red-100">
+          <div className="px-5 py-3 bg-dustyrose/10 text-rosewood text-sm border-b border-dustyrose/20">
             {error || cityError}
           </div>
         )}
@@ -388,41 +388,41 @@ export default function CityServicesPage() {
             <div className="flex flex-col items-center gap-3">
               <div className="flex gap-1.5">
                 {[0,1,2].map(i => (
-                  <div key={i} className="w-2 h-2 rounded-full bg-indigo-400 animate-bounce"
+                  <div key={i} className="w-2 h-2 rounded-full bg-terracotta animate-bounce"
                     style={{ animationDelay: `${i * 0.15}s` }} />
                 ))}
               </div>
-              <p className="text-sm text-gray-400">Loading data…</p>
+              <p className="text-sm text-warmgrey">Loading data…</p>
             </div>
           </div>
         ) : filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 text-gray-300 gap-2">
+          <div className="flex flex-col items-center justify-center py-16 text-warmgrey gap-2">
             <Building2 size={32} />
-            <p className="text-sm text-gray-400">No records found.</p>
+            <p className="text-sm text-warmgrey">No records found.</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-gray-100">
+                <tr className="border-b border-lightstone">
                   {["City", "Areas", "Services", "Status", "Added", "Actions"].map(h => (
-                    <th key={h} className="px-4 py-3 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap">
+                    <th key={h} className="px-4 py-3 text-left text-[11px] font-semibold text-warmgrey uppercase tracking-wide whitespace-nowrap">
                       {h}
                     </th>
                   ))}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-50">
+              <tbody className="divide-y divide-lightstone/50">
                 {filtered.map((row) => (
-                  <tr key={row.key} className="hover:bg-gray-50/60 transition group">
+                  <tr key={row.key} className="hover:bg-accent-50/60 transition group">
 
                     {/* City */}
                     <td className="px-4 py-3 whitespace-nowrap">
                       <div className="flex items-center gap-2.5">
-                        <div className="w-7 h-7 rounded-lg bg-indigo-100 flex items-center justify-center shrink-0">
-                          <Building2 size={13} className="text-indigo-600" />
+                        <div className="w-7 h-7 rounded-lg bg-accent-100 flex items-center justify-center shrink-0">
+                          <Building2 size={13} className="text-terracotta" />
                         </div>
-                        <span className="font-semibold text-gray-800 text-xs">{row.cityName}</span>
+                        <span className="font-semibold text-charcoal text-xs">{row.cityName}</span>
                       </div>
                     </td>
 
@@ -431,22 +431,22 @@ export default function CityServicesPage() {
                       {row.kind === "city" && row.city ? (
                         <button
                           onClick={() => { setSelectedCityForAreas(row.city!); setAreasModalOpen(true); }}
-                          className="inline-flex items-center gap-1.5 text-xs text-indigo-600 hover:text-indigo-800 font-medium hover:underline transition"
+                          className="inline-flex items-center gap-1.5 text-xs text-terracotta hover:text-accent-700 font-medium hover:underline transition"
                           title="Manage areas"
                         >
                           <MapPin size={11} />
                           {row.pinCode}
                         </button>
                       ) : (
-                        <span className="text-xs text-gray-400">{row.pinCode}</span>
+                        <span className="text-xs text-warmgrey">{row.pinCode}</span>
                       )}
                     </td>
 
                     {/* Services */}
                     <td className="px-4 py-3 max-w-[200px]">
-                      <p className="text-xs font-semibold text-gray-800 truncate">{row.serviceName}</p>
+                      <p className="text-xs font-semibold text-charcoal truncate">{row.serviceName}</p>
                       {row.serviceDescription && row.serviceDescription !== row.serviceName && (
-                        <p className="text-[11px] text-gray-400 truncate mt-0.5">{row.serviceDescription}</p>
+                        <p className="text-[11px] text-warmgrey truncate mt-0.5">{row.serviceDescription}</p>
                       )}
                     </td>
 
@@ -456,7 +456,7 @@ export default function CityServicesPage() {
                     </td>
 
                     {/* Date */}
-                    <td className="px-4 py-3 text-xs text-gray-400 whitespace-nowrap">
+                    <td className="px-4 py-3 text-xs text-warmgrey whitespace-nowrap">
                       {formatDate(row.addedAt)}
                     </td>
 
@@ -470,8 +470,8 @@ export default function CityServicesPage() {
                             disabled={row.service.status === "Suspended" || banningServiceId === row.service.id}
                             className={`px-2 py-1 text-[11px] font-semibold rounded-lg transition ${
                               row.service.status === "Suspended"
-                                ? "bg-gray-100 text-gray-400 cursor-not-allowed"
-                                : "bg-amber-50 text-amber-700 hover:bg-amber-100 ring-1 ring-amber-200"
+                                ? "bg-accent-50 text-warmgrey cursor-not-allowed"
+                                : "bg-accent-100 text-accent-700 hover:bg-accent-100 ring-1 ring-terracotta/20"
                             }`}
                           >
                             {banningServiceId === row.service.id
@@ -489,7 +489,7 @@ export default function CityServicesPage() {
                               setEditingCity(row.city); setCityModalOpen(true);
                             }
                           }}
-                          className="p-1.5 rounded-lg text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition" title="Edit"
+                          className="p-1.5 rounded-lg text-warmgrey hover:text-terracotta hover:bg-accent-50 transition" title="Edit"
                         >
                           <Pencil size={13} />
                         </button>
@@ -500,7 +500,7 @@ export default function CityServicesPage() {
                             if (row.kind === "service" && row.service) setDeleteConfirm(row.service.id);
                             else if (row.kind === "city" && row.city) setCityDeleteId(row.city.id);
                           }}
-                          className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition" title="Delete"
+                          className="p-1.5 rounded-lg text-warmgrey hover:text-rosewood hover:bg-dustyrose/10 transition" title="Delete"
                         >
                           <Trash2 size={13} />
                         </button>
@@ -515,8 +515,8 @@ export default function CityServicesPage() {
 
         {/* Footer */}
         {!loading && !citiesLoading && filtered.length > 0 && (
-          <div className="px-4 py-3 border-t border-gray-50 text-xs text-gray-400">
-            Showing <span className="font-semibold text-gray-600">{filtered.length}</span> of <span className="font-semibold text-gray-600">{tableRows.length}</span> records
+          <div className="px-4 py-3 border-t border-lightstone/50 text-xs text-warmgrey">
+            Showing <span className="font-semibold text-warmgrey">{filtered.length}</span> of <span className="font-semibold text-warmgrey">{tableRows.length}</span> records
           </div>
         )}
       </div>
@@ -548,22 +548,22 @@ export default function CityServicesPage() {
       {/* Delete city confirm */}
       {cityDeleteId && (
         <ModalPortal>
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm mx-4 p-6 border border-gray-100 space-y-4">
-            <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center">
-              <Trash2 size={18} className="text-red-600" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-charcoal/20">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm mx-4 p-6 border border-lightstone space-y-4">
+            <div className="w-10 h-10 rounded-xl bg-dustyrose/10 flex items-center justify-center">
+              <Trash2 size={18} className="text-rosewood" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-gray-900">Delete City?</h3>
-              <p className="text-sm text-gray-500 mt-1">This action cannot be undone.</p>
+              <h3 className="text-base font-bold text-charcoal">Delete City?</h3>
+              <p className="text-sm text-warmgrey mt-1">This action cannot be undone.</p>
             </div>
             <div className="flex justify-end gap-2">
               <button onClick={() => setCityDeleteId(null)}
-                className="px-4 py-2 text-sm font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-xl transition">
+                className="px-4 py-2 text-sm font-semibold text-warmgrey bg-accent-50 hover:bg-lightstone rounded-xl transition">
                 Cancel
               </button>
               <button onClick={() => handleDeleteCity(cityDeleteId)} disabled={deletingCity}
-                className="px-4 py-2 text-sm font-bold bg-red-600 hover:bg-red-700 text-white rounded-xl transition disabled:opacity-60">
+                className="px-4 py-2 text-sm font-bold bg-dustyrose hover:bg-dustyrose text-white rounded-xl transition disabled:opacity-60">
                 {deletingCity ? "Deleting…" : "Delete"}
               </button>
             </div>
@@ -575,18 +575,18 @@ export default function CityServicesPage() {
       {/* Delete service confirm */}
       {deleteConfirm && (
         <ModalPortal>
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm mx-4 p-6 border border-gray-100 space-y-4">
-            <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center">
-              <Trash2 size={18} className="text-red-600" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-charcoal/20">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm mx-4 p-6 border border-lightstone space-y-4">
+            <div className="w-10 h-10 rounded-xl bg-dustyrose/10 flex items-center justify-center">
+              <Trash2 size={18} className="text-rosewood" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-gray-900">Delete Service?</h3>
-              <p className="text-sm text-gray-500 mt-1">This will permanently remove this city service.</p>
+              <h3 className="text-base font-bold text-charcoal">Delete Service?</h3>
+              <p className="text-sm text-warmgrey mt-1">This will permanently remove this city service.</p>
             </div>
             <div className="flex justify-end gap-2">
               <button onClick={() => setDeleteConfirm(null)}
-                className="px-4 py-2 text-sm font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-xl transition">
+                className="px-4 py-2 text-sm font-semibold text-warmgrey bg-accent-50 hover:bg-lightstone rounded-xl transition">
                 Cancel
               </button>
               <button
@@ -599,7 +599,7 @@ export default function CityServicesPage() {
                   }
                 }}
                 disabled={deleting}
-                className="px-4 py-2 text-sm font-bold bg-red-600 hover:bg-red-700 text-white rounded-xl transition disabled:opacity-60">
+                className="px-4 py-2 text-sm font-bold bg-dustyrose hover:bg-dustyrose text-white rounded-xl transition disabled:opacity-60">
                 {deleting ? "Deleting…" : "Delete"}
               </button>
             </div>

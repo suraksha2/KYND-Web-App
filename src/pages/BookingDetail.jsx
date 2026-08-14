@@ -32,11 +32,11 @@ function toLocalInput(iso) {
 }
 
 function StatusBanner({ booking }) {
-  let cls = 'bg-brand-50 text-brand-700 border-brand-100'
+  let cls = 'bg-accent-50 text-terracotta border-accent-100'
   let Icon = Calendar
   let label = 'Scheduled'
-  if (booking.status === 'cancelled') { cls = 'bg-rose-50 text-rose-700 border-rose-100'; Icon = XCircle; label = 'Cancelled' }
-  else if (booking.status === 'completed') { cls = 'bg-emerald-50 text-emerald-700 border-emerald-100'; Icon = CheckCircle2; label = 'Completed' }
+  if (booking.status === 'cancelled') { cls = 'bg-red-50 text-red-700 border-red-100'; Icon = XCircle; label = 'Cancelled' }
+  else if (booking.status === 'completed') { cls = 'bg-sage/10 text-sage border-sage/20'; Icon = CheckCircle2; label = 'Completed' }
   else if (booking.schedule === 'instant') { cls = 'bg-amber-50 text-amber-700 border-amber-100'; Icon = Zap; label = 'In progress — Pro on the way' }
   else if (booking.schedule === 'recurring') { cls = 'bg-indigo-50 text-indigo-700 border-indigo-100'; Icon = Repeat; label = `Recurring · ${booking.cadence}` }
   return (
@@ -56,6 +56,7 @@ export default function BookingDetail() {
   const [showCancel, setShowCancel] = useState(false)
   const [newAt, setNewAt] = useState(() => toLocalInput(booking?.scheduledAt) || '')
   const [reason, setReason] = useState('')
+  const [imgFailed, setImgFailed] = useState({})
 
   const minDt = useMemo(() => toLocalInput(new Date(Date.now() + 60 * 60 * 1000).toISOString()), [])
 
@@ -84,15 +85,15 @@ export default function BookingDetail() {
       <div className="max-w-2xl mx-auto px-5">
         <button
           onClick={() => navigate(-1)}
-          className="inline-flex items-center gap-1.5 text-sm text-neutral-500 hover:text-brand-700 mb-3"
+          className="inline-flex items-center gap-1.5 text-sm text-warmgrey hover:text-terracotta mb-3"
         >
           <ArrowLeft className="w-4 h-4" /> Back
         </button>
 
         <div className="flex items-start justify-between gap-3">
           <div>
-            <h1 className="text-2xl md:text-3xl font-extrabold text-neutral-900">Booking details</h1>
-            <p className="mt-1 text-xs text-neutral-500">ID #{booking.bookingId}</p>
+            <h1 className="font-heading text-2xl md:text-3xl font-extrabold text-charcoal">Booking details</h1>
+            <p className="mt-1 text-xs text-warmgrey">ID #{booking.bookingId}</p>
           </div>
         </div>
 
@@ -100,76 +101,87 @@ export default function BookingDetail() {
           <StatusBanner booking={booking} />
         </div>
 
-        <div className="mt-5 rounded-2xl bg-white ring-1 ring-neutral-100 p-5 space-y-3">
+        <div className="mt-5 rounded-2xl bg-white ring-1 ring-lightstone p-5 space-y-3">
           <div className="flex items-start gap-3">
-            <Clock className="w-4 h-4 text-brand-700 mt-0.5" />
+            <Clock className="w-4 h-4 text-terracotta mt-0.5" />
             <div>
-              <div className="text-xs text-neutral-500">When</div>
-              <div className="text-sm font-semibold text-neutral-900">{whenText}</div>
+              <div className="text-xs text-warmgrey">When</div>
+              <div className="text-sm font-semibold text-charcoal">{whenText}</div>
             </div>
           </div>
           <div className="flex items-start gap-3">
-            <MapPin className="w-4 h-4 text-brand-700 mt-0.5" />
+            <MapPin className="w-4 h-4 text-terracotta mt-0.5" />
             <div>
-              <div className="text-xs text-neutral-500">Where</div>
-              <div className="text-sm font-semibold text-neutral-900">
+              <div className="text-xs text-warmgrey">Where</div>
+              <div className="text-sm font-semibold text-charcoal">
                 {booking.contact?.address}, {booking.contact?.city} {booking.contact?.pincode}
               </div>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="flex items-start gap-3">
-              <User className="w-4 h-4 text-brand-700 mt-0.5" />
+              <User className="w-4 h-4 text-terracotta mt-0.5" />
               <div className="min-w-0">
-                <div className="text-xs text-neutral-500">Name</div>
-                <div className="text-sm font-semibold text-neutral-900 truncate">{booking.contact?.name}</div>
+                <div className="text-xs text-warmgrey">Name</div>
+                <div className="text-sm font-semibold text-charcoal truncate">{booking.contact?.name}</div>
               </div>
             </div>
             <div className="flex items-start gap-3">
-              <Phone className="w-4 h-4 text-brand-700 mt-0.5" />
+              <Phone className="w-4 h-4 text-terracotta mt-0.5" />
               <div className="min-w-0">
-                <div className="text-xs text-neutral-500">Phone</div>
-                <a href={`tel:${booking.contact?.phone}`} className="text-sm font-semibold text-neutral-900">{booking.contact?.phone}</a>
+                <div className="text-xs text-warmgrey">Phone</div>
+                <a href={`tel:${booking.contact?.phone}`} className="text-sm font-semibold text-charcoal">{booking.contact?.phone}</a>
               </div>
             </div>
           </div>
         </div>
 
-        <div className="mt-5 rounded-2xl bg-white ring-1 ring-neutral-100 p-5">
-          <h2 className="font-bold text-neutral-900">Services</h2>
+        <div className="mt-5 rounded-2xl bg-white ring-1 ring-lightstone p-5">
+          <h2 className="font-heading font-bold text-charcoal">Services</h2>
           <ul className="mt-3 divide-y">
-            {booking.items?.map(it => (
-              <li key={it.slug} className="py-3 flex items-center gap-3">
-                {(() => {
-                  const Icon = iconForService(it.name)
-                  return <Icon className="w-12 h-12 rounded-lg bg-neutral-100 p-2.5 text-cocoa shrink-0" strokeWidth={1.5} />
-                })()}
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-semibold text-neutral-900 truncate">{it.name}</div>
-                  <div className="text-xs text-neutral-500">Qty {it.qty}{it.duration ? ` · ${it.duration}` : ''}</div>
-                </div>
-                <div className="text-sm font-semibold text-neutral-900">S${(it.priceFrom * it.qty).toFixed(2)}</div>
-              </li>
-            ))}
+            {booking.items?.map(it => {
+              const Icon = iconForService(it.name)
+              const showImage = it.img && !imgFailed[it.slug]
+              return (
+                <li key={it.slug} className="py-3 flex items-center gap-3">
+                  {showImage ? (
+                    <img
+                      src={it.img}
+                      alt={it.name}
+                      onError={() => setImgFailed(f => ({ ...f, [it.slug]: true }))}
+                      className="w-12 h-12 rounded-lg bg-warmlinen shrink-0 object-cover"
+                      loading="lazy"
+                    />
+                  ) : (
+                    <Icon className="w-12 h-12 rounded-lg bg-warmlinen p-2.5 text-charcoal shrink-0" strokeWidth={1.5} />
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-semibold text-charcoal truncate">{it.name}</div>
+                    <div className="text-xs text-warmgrey">Qty {it.qty}{it.duration ? ` · ${it.duration}` : ''}</div>
+                  </div>
+                  <div className="text-sm font-semibold text-charcoal">S${(it.priceFrom * it.qty).toFixed(2)}</div>
+                </li>
+              )
+            })}
           </ul>
           <div className="mt-3 pt-3 border-t flex items-center justify-between">
-            <div className="flex items-center gap-2 text-sm text-neutral-700">
-              <PIcon className="w-4 h-4 text-brand-700" /> {paymentLabel(booking.payment)}
+            <div className="flex items-center gap-2 text-sm text-charcoal">
+              <PIcon className="w-4 h-4 text-terracotta" /> {paymentLabel(booking.payment)}
             </div>
-            <div className="font-bold text-neutral-900">Total · S${booking.total}</div>
+            <div className="font-bold text-charcoal">Total · S${booking.total}</div>
           </div>
         </div>
 
         {booking.history?.length > 0 && (
-          <div className="mt-5 rounded-2xl bg-white ring-1 ring-neutral-100 p-5">
-            <h2 className="font-bold text-neutral-900">Activity</h2>
+          <div className="mt-5 rounded-2xl bg-white ring-1 ring-lightstone p-5">
+            <h2 className="font-heading font-bold text-charcoal">Activity</h2>
             <ol className="mt-3 space-y-2">
               {booking.history.map((h, i) => (
-                <li key={i} className="text-xs text-neutral-600 flex gap-2">
-                  <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-brand-600 shrink-0" />
+                <li key={i} className="text-xs text-warmgrey flex gap-2">
+                  <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-terracotta shrink-0" />
                   <div>
-                    <div className="font-semibold text-neutral-800 capitalize">{h.type}</div>
-                    <div className="text-neutral-500">{new Date(h.at).toLocaleString()}{h.note ? ` — ${h.note}` : ''}</div>
+                    <div className="font-semibold text-charcoal capitalize">{h.type}</div>
+                    <div className="text-warmgrey">{new Date(h.at).toLocaleString()}{h.note ? ` — ${h.note}` : ''}</div>
                   </div>
                 </li>
               ))}
@@ -182,19 +194,19 @@ export default function BookingDetail() {
             <button
               onClick={() => setShowReschedule(true)}
               disabled={!isReschedulable(booking)}
-              className="inline-flex items-center justify-center gap-2 rounded-full bg-white ring-1 ring-neutral-200 hover:ring-brand-300 text-neutral-900 font-semibold py-3 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              className="inline-flex items-center justify-center gap-2 rounded-full bg-white ring-1 ring-lightstone hover:ring-terracotta text-charcoal font-semibold py-3 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <RotateCcw className="w-4 h-4" /> Reschedule
             </button>
             <button
               onClick={() => setShowCancel(true)}
               disabled={!isCancellable(booking)}
-              className="inline-flex items-center justify-center gap-2 rounded-full bg-rose-600 hover:bg-rose-700 text-white font-semibold py-3 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              className="inline-flex items-center justify-center gap-2 rounded-full bg-red-600 hover:bg-red-700 text-white font-semibold py-3 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <XCircle className="w-4 h-4" /> Cancel booking
             </button>
             {!isReschedulable(booking) && booking.schedule !== 'instant' && booking.schedule !== 'recurring' && (
-              <p className="sm:col-span-2 text-[11px] text-neutral-500 flex items-center gap-1">
+              <p className="sm:col-span-2 text-[11px] text-warmgrey flex items-center gap-1">
                 <AlertTriangle className="w-3 h-3" /> Reschedule unavailable for past or in-progress bookings.
               </p>
             )}
@@ -208,24 +220,24 @@ export default function BookingDetail() {
           <div onClick={(e) => e.stopPropagation()} className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl">
             <div className="flex items-start justify-between">
               <div>
-                <h3 className="font-bold text-neutral-900">Reschedule booking</h3>
-                <p className="text-xs text-neutral-500 mt-0.5">Pick a new date & time.</p>
+                <h3 className="font-bold text-charcoal">Reschedule booking</h3>
+                <p className="text-xs text-warmgrey mt-0.5">Pick a new date & time.</p>
               </div>
-              <button onClick={() => setShowReschedule(false)} className="text-neutral-400 hover:text-neutral-700"><X className="w-4 h-4" /></button>
+              <button onClick={() => setShowReschedule(false)} className="text-warmgrey/70 hover:text-charcoal"><X className="w-4 h-4" /></button>
             </div>
             <label className="block mt-4">
-              <span className="block text-xs font-semibold text-neutral-700 mb-1.5">New date & time</span>
+              <span className="block text-xs font-semibold text-charcoal mb-1.5">New date & time</span>
               <input
                 type="datetime-local"
                 min={minDt}
                 value={newAt}
                 onChange={(e) => setNewAt(e.target.value)}
-                className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm focus:outline-none focus:border-brand-600"
+                className="w-full rounded-lg border border-lightstone px-3 py-2 text-sm focus:outline-none focus:border-terracotta focus:ring-2 focus:ring-terracotta/25"
               />
             </label>
             <div className="mt-5 flex gap-2">
-              <button onClick={() => setShowReschedule(false)} className="flex-1 rounded-full bg-neutral-100 hover:bg-neutral-200 text-neutral-800 font-semibold py-2.5 text-sm">Back</button>
-              <button onClick={onConfirmReschedule} disabled={!newAt} className="flex-1 rounded-full bg-brand-400 hover:bg-brand-500 disabled:opacity-50 text-cocoa font-semibold py-2.5 text-sm">Confirm</button>
+              <button onClick={() => setShowReschedule(false)} className="flex-1 rounded-full bg-warmlinen hover:bg-lightstone text-charcoal font-semibold py-2.5 text-sm">Back</button>
+              <button onClick={onConfirmReschedule} disabled={!newAt} className="flex-1 rounded-full bg-terracotta hover:bg-charcoal disabled:opacity-50 text-white font-semibold py-2.5 text-sm">Confirm</button>
             </div>
           </div>
         </div>
@@ -237,24 +249,24 @@ export default function BookingDetail() {
           <div onClick={(e) => e.stopPropagation()} className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl">
             <div className="flex items-start justify-between">
               <div>
-                <h3 className="font-bold text-neutral-900">Cancel this booking?</h3>
-                <p className="text-xs text-neutral-500 mt-0.5">This cannot be undone.</p>
+                <h3 className="font-bold text-charcoal">Cancel this booking?</h3>
+                <p className="text-xs text-warmgrey mt-0.5">This cannot be undone.</p>
               </div>
-              <button onClick={() => setShowCancel(false)} className="text-neutral-400 hover:text-neutral-700"><X className="w-4 h-4" /></button>
+              <button onClick={() => setShowCancel(false)} className="text-warmgrey/70 hover:text-charcoal"><X className="w-4 h-4" /></button>
             </div>
             <label className="block mt-4">
-              <span className="block text-xs font-semibold text-neutral-700 mb-1.5">Reason (optional)</span>
+              <span className="block text-xs font-semibold text-charcoal mb-1.5">Reason (optional)</span>
               <textarea
                 rows={3}
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
                 placeholder="Plans changed, found another option, etc."
-                className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm focus:outline-none focus:border-brand-600"
+                className="w-full rounded-lg border border-lightstone px-3 py-2 text-sm focus:outline-none focus:border-terracotta focus:ring-2 focus:ring-terracotta/25"
               />
             </label>
             <div className="mt-5 flex gap-2">
-              <button onClick={() => setShowCancel(false)} className="flex-1 rounded-full bg-neutral-100 hover:bg-neutral-200 text-neutral-800 font-semibold py-2.5 text-sm">Keep booking</button>
-              <button onClick={onConfirmCancel} className="flex-1 rounded-full bg-rose-600 hover:bg-rose-700 text-white font-semibold py-2.5 text-sm">Cancel booking</button>
+              <button onClick={() => setShowCancel(false)} className="flex-1 rounded-full bg-warmlinen hover:bg-lightstone text-charcoal font-semibold py-2.5 text-sm">Keep booking</button>
+              <button onClick={onConfirmCancel} className="flex-1 rounded-full bg-red-600 hover:bg-red-700 text-white font-semibold py-2.5 text-sm">Cancel booking</button>
             </div>
           </div>
         </div>

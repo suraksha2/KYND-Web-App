@@ -4,36 +4,42 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        sans: ['"Plus Jakarta Sans"', 'ui-sans-serif', 'system-ui', 'sans-serif']
+        sans: ['"Plus Jakarta Sans"', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        heading: ['"Sora"', 'ui-sans-serif', 'system-ui', 'sans-serif']
       },
       colors: {
-        // Kynd brand — butter yellow ramp (primary)
-        brand: {
-          50:  '#fffaf0',
-          100: '#fff2d6',
-          200: '#ffe6ad',
-          300: '#ffdd8a',
-          400: '#ffd76a',
-          500: '#f5c542',
-          600: '#e6ac1f',
-          700: '#c08c16',
-          800: '#8f6810',
-          900: '#5c430a'
+        // Core Palette
+        warmlinen: '#F5F1EA',
+        terracotta: '#A95F45',
+        sage: '#7A8D72',
+        charcoal: '#2B2926',
+        lightstone: '#D6CEC2',
+        warmgrey: '#70685E',
+        
+        // Pink Accent Options (for tertiary use only)
+        dustyrose: '#C58A8A',
+        desertrose: '#B97B7B',
+        blushclay: '#D2A2A0',
+        mutedmauve: '#A8848A',
+        rosewood: '#99636A',
+        
+        // Terracotta accent ramp (replaces pink)
+        accent: {
+          50: '#FDF5F2',
+          100: '#FCECE6',
+          200: '#F5D0C0',
+          300: '#EAB098',
+          400: '#D88A75',
+          500: '#A95F45', // Primary terracotta
+          600: '#8B4D3A',
+          700: '#6E3F2F',
+          800: '#513324',
+          900: '#342719'
         },
-        // Cocoa brown — text / dark surfaces
-        cocoa: {
-          DEFAULT: '#4a2e1f',
-          50:  '#f6f1ee',
-          100: '#e7dad2',
-          400: '#8a6552',
-          600: '#5c3a28',
-          700: '#4a2e1f',
-          800: '#3a2418',
-          900: '#2a1a12'
-        },
-        cream: '#fff7eb',   // Soft White
-        oat:   '#e7ded1',   // Oat Beige
-        warmgrey: '#f2f2f2' // Warm Grey
+        
+        // Legacy colors for compatibility
+        cream: '#F5F1EA',
+        oat: '#E7DED1'
       },
       boxShadow: {
         soft: '0 10px 30px -10px rgba(74, 46, 31, 0.18)'

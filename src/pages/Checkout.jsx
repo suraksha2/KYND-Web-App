@@ -3,20 +3,22 @@ import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { CreditCard, Wallet, Banknote, ShieldCheck } from 'lucide-react'
 import { useCart } from '../context/CartContext'
 import { useBookings } from '../context/BookingsContext'
+import { useAuth } from '../context/AuthContext'
 import { API_ORIGIN as API_BASE } from '../lib/api'
 
 const Field = ({ label, children }) => (
   <label className="block">
-    <span className="block text-xs font-semibold text-neutral-700 mb-1.5">{label}</span>
+    <span className="block text-xs font-semibold text-charcoal mb-1.5">{label}</span>
     {children}
   </label>
 )
 
-const inputCls = 'w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm focus:outline-none focus:border-brand-600'
+const inputCls = 'w-full rounded-lg border border-lightstone px-3 py-2 text-sm focus:outline-none focus:border-terracotta focus:ring-2 focus:ring-terracotta/25'
 
 export default function Checkout() {
   const { items, subtotal, clear } = useCart()
   const { addBooking } = useBookings()
+  const { token } = useAuth()
   const { state } = useLocation()
   const navigate = useNavigate()
   const [name, setName] = useState('')
@@ -89,7 +91,7 @@ export default function Checkout() {
   const cadence = state?.cadence || 'weekly'
 
   const buildOrder = () => {
-    const bookingId = 'HLP' + Math.random().toString(36).slice(2, 8).toUpperCase()
+    const bookingId = 'KYND' + Math.random().toString(36).slice(2, 8).toUpperCase()
     return {
       bookingId,
       items,
@@ -103,9 +105,12 @@ export default function Checkout() {
 
   // Persist the booking on the backend and route to the confirmation page.
   const finalizeBooking = async (order) => {
+    const headers = { 'Content-Type': 'application/json' }
+    if (token) headers['Authorization'] = `Bearer ${token}`
     const response = await fetch(`${API_BASE}/api/bookings`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
+      credentials: 'include',
       body: JSON.stringify(order)
     })
     const data = await response.json()
@@ -195,27 +200,27 @@ export default function Checkout() {
   return (
     <section className="pt-32 md:pt-36 pb-16">
       <div className="max-w-5xl mx-auto px-6">
-        <nav className="text-xs text-neutral-500 mb-4">
-          <Link to="/" className="hover:text-brand-700">Home</Link>
+        <nav className="text-xs text-warmgrey mb-4">
+          <Link to="/" className="hover:text-accent-700">Home</Link>
           <span className="mx-1.5">›</span>
-          <Link to="/cart" className="hover:text-brand-700">Cart</Link>
+          <Link to="/cart" className="hover:text-accent-700">Cart</Link>
           <span className="mx-1.5">›</span>
-          <span className="text-neutral-700">Checkout</span>
+          <span className="text-charcoal">Checkout</span>
         </nav>
-        <h1 className="text-3xl md:text-4xl font-extrabold text-neutral-900">Checkout</h1>
+        <h1 className="font-heading text-3xl md:text-4xl font-extrabold text-charcoal">Checkout</h1>
 
         <form onSubmit={submit} className="mt-8 grid lg:grid-cols-[1fr_360px] gap-8">
           <div className="space-y-6">
-            <div className="rounded-2xl bg-white ring-1 ring-neutral-100 p-5">
-              <h2 className="font-bold text-neutral-900">Contact</h2>
+            <div className="rounded-2xl bg-white ring-1 ring-lightstone p-5">
+              <h2 className="font-heading font-bold text-charcoal">Contact</h2>
               <div className="mt-4 grid sm:grid-cols-2 gap-4">
                 <Field label="Full name"><input className={inputCls} value={name} onChange={e => setName(e.target.value)} required /></Field>
                 <Field label="Phone"><input className={inputCls} type="tel" value={phone} onChange={e => setPhone(e.target.value)} required /></Field>
               </div>
             </div>
 
-            <div className="rounded-2xl bg-white ring-1 ring-neutral-100 p-5">
-              <h2 className="font-bold text-neutral-900">Service address</h2>
+            <div className="rounded-2xl bg-white ring-1 ring-lightstone p-5">
+              <h2 className="font-heading font-bold text-charcoal">Service address</h2>
               <div className="mt-4 grid gap-4">
                 <Field label="Address"><textarea rows={2} className={inputCls} value={address} onChange={e => setAddress(e.target.value)} required /></Field>
                 <div className="grid sm:grid-cols-2 gap-4">
@@ -247,8 +252,8 @@ export default function Checkout() {
               </div>
             </div>
 
-            <div className="rounded-2xl bg-white ring-1 ring-neutral-100 p-5">
-              <h2 className="font-bold text-neutral-900">Payment method</h2>
+            <div className="rounded-2xl bg-white ring-1 ring-lightstone p-5">
+              <h2 className="font-heading font-bold text-charcoal">Payment method</h2>
               <div className="mt-4 grid sm:grid-cols-3 gap-3">
                 {[
                   { id: 'upi', label: 'UPI', icon: Wallet },
@@ -258,33 +263,33 @@ export default function Checkout() {
                   const active = pay === p.id
                   const Icon = p.icon
                   return (
-                    <button key={p.id} type="button" onClick={() => setPay(p.id)} className={`rounded-xl border p-3 text-left transition ${active ? 'border-brand-600 bg-brand-50 ring-2 ring-brand-600/20' : 'border-neutral-200 bg-white hover:border-brand-300'}`}>
-                      <Icon className={`w-4 h-4 ${active ? 'text-brand-700' : 'text-neutral-500'}`} />
-                      <div className="mt-2 text-sm font-semibold text-neutral-900">{p.label}</div>
+                    <button key={p.id} type="button" onClick={() => setPay(p.id)} className={`rounded-xl border p-3 text-left transition ${active ? 'border-terracotta bg-accent-50 ring-2 ring-terracotta/20' : 'border-lightstone bg-white hover:border-terracotta'}`}>
+                      <Icon className={`w-4 h-4 ${active ? 'text-terracotta' : 'text-warmgrey'}`} />
+                      <div className="mt-2 text-sm font-semibold text-charcoal">{p.label}</div>
                     </button>
                   )
                 })}
               </div>
-              <p className="mt-3 flex items-center gap-1.5 text-[11px] text-neutral-500"><ShieldCheck className="w-3.5 h-3.5 text-brand-600" /> {pay === 'cod' ? 'Pay the professional in cash after the service.' : 'Secure online payment processed by Airwallex.'}</p>
+              <p className="mt-3 flex items-center gap-1.5 text-[11px] text-warmgrey"><ShieldCheck className="w-3.5 h-3.5 text-terracotta" /> {pay === 'cod' ? 'Pay the professional in cash after the service.' : 'Secure online payment processed by Airwallex.'}</p>
             </div>
           </div>
 
           <aside className="lg:sticky lg:top-28 self-start">
-            <div className="rounded-2xl bg-white ring-1 ring-neutral-100 p-5 shadow-soft">
-              <h3 className="font-bold text-neutral-900">Summary</h3>
+            <div className="rounded-2xl bg-white ring-1 ring-lightstone p-5 shadow-soft">
+              <h3 className="font-bold text-charcoal">Summary</h3>
               <ul className="mt-4 space-y-2 text-sm">
                 {items.map(it => (
-                  <li key={it.slug} className="flex justify-between gap-2 text-neutral-700">
+                  <li key={it.slug} className="flex justify-between gap-2 text-charcoal">
                     <span className="truncate">{it.name} × {it.qty}</span>
                     <span>S${(it.priceFrom * it.qty).toFixed(2)}</span>
                   </li>
                 ))}
               </ul>
-              <div className="mt-4 pt-4 border-t text-xs text-neutral-500">{scheduleLabel}</div>
-              <div className="mt-3 flex justify-between font-bold text-neutral-900">
+              <div className="mt-4 pt-4 border-t text-xs text-warmgrey">{scheduleLabel}</div>
+              <div className="mt-3 flex justify-between font-bold text-charcoal">
                 <span>Total</span><span>S${subtotal.toFixed(2)}</span>
               </div>
-              <button disabled={submitting} className="mt-5 w-full rounded-full bg-brand-400 hover:bg-brand-500 disabled:opacity-60 text-cocoa font-semibold py-3 transition">
+              <button disabled={submitting} className="mt-5 w-full rounded-full bg-terracotta hover:bg-charcoal disabled:opacity-60 text-white font-semibold py-3 transition">
                 {submitting
                   ? 'Processing…'
                   : pay === 'cod'

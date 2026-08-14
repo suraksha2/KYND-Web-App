@@ -22,6 +22,7 @@ import ResetPassword from './pages/ResetPassword'
 import Account from './pages/Account'
 import Bookings from './pages/Bookings'
 import BookingDetail from './pages/BookingDetail'
+import SubcategoryDetail from './pages/SubcategoryDetail'
 
 // Sync user ID from AuthContext to CartContext for per-user cart persistence
 function AuthCartSync() {
@@ -60,6 +61,7 @@ export default function App() {
         <Route path="/account" element={<Account />} />
         <Route path="/bookings" element={<Bookings />} />
         <Route path="/bookings/:id" element={<BookingDetail />} />
+        <Route path="/help/:id" element={<SubcategoryDetail />} />
         <Route path="/tnc" element={<TnC />} />
         <Route path="/privacy-policy" element={<PrivacyPolicy />} />
         <Route path="/cancellation-policy" element={<CancellationPolicy />} />

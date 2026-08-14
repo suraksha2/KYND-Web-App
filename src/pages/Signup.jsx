@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Eye, EyeOff, Mail, Lock, User, Loader2, Check } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
+import KyndWordmark from '../components/KyndWordmark'
 
 const scorePassword = (pwd) => {
   let score = 0
@@ -29,7 +30,7 @@ export default function Signup() {
 
   const strength = useMemo(() => scorePassword(password), [password])
   const strengthLabel = ['Too short', 'Weak', 'Okay', 'Good', 'Strong'][strength]
-  const strengthColor = ['bg-neutral-200', 'bg-red-400', 'bg-amber-400', 'bg-lime-500', 'bg-brand-600'][strength]
+  const strengthColor = ['bg-lightstone', 'bg-red-400', 'bg-amber-400', 'bg-lime-500', 'bg-terracotta'][strength]
 
   const onSubmit = async (e) => {
     e.preventDefault()
@@ -50,11 +51,11 @@ export default function Signup() {
   return (
     <section className="pt-28 md:pt-32 pb-16 min-h-screen">
       <div className="max-w-md mx-auto px-5 sm:px-6">
-        <div className="bg-white rounded-3xl ring-1 ring-neutral-100 shadow-soft p-6 sm:p-8">
+        <div className="bg-white rounded-3xl ring-1 ring-lightstone shadow-soft p-6 sm:p-8">
           <div className="text-center">
-            <Link to="/" className="text-cocoa font-extrabold text-3xl tracking-tight">Kynd</Link>
-            <h1 className="mt-4 text-2xl sm:text-3xl font-extrabold text-neutral-900">Create your account</h1>
-            <p className="mt-1.5 text-sm text-neutral-500">Book trusted home services in minutes.</p>
+            <Link to="/"><KyndWordmark className="text-3xl" /></Link>
+            <h1 className="font-heading mt-4 text-2xl sm:text-3xl font-extrabold text-charcoal">Create your account</h1>
+            <p className="mt-1.5 text-sm text-warmgrey">Book trusted home services in minutes.</p>
           </div>
 
           {error && (
@@ -65,9 +66,9 @@ export default function Signup() {
 
           <form onSubmit={onSubmit} className="mt-6 space-y-4" noValidate>
             <div>
-              <label htmlFor="name" className="block text-xs font-semibold text-neutral-700 mb-1.5">Full name</label>
+              <label htmlFor="name" className="block text-xs font-semibold text-charcoal mb-1.5">Full name</label>
               <div className="relative">
-                <User className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-400" />
+                <User className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-warmgrey/70" />
                 <input
                   id="name"
                   type="text"
@@ -76,15 +77,15 @@ export default function Signup() {
                   value={name}
                   onChange={e => setName(e.target.value)}
                   placeholder="Jane Doe"
-                  className="w-full rounded-xl border border-neutral-200 bg-white pl-10 pr-3 py-3 text-sm focus:outline-none focus:border-brand-600 focus:ring-2 focus:ring-brand-600/15"
+                  className="w-full rounded-xl border border-lightstone bg-white pl-10 pr-3 py-3 text-sm focus:outline-none focus:border-terracotta focus:ring-2 focus:ring-terracotta/25"
                 />
               </div>
             </div>
 
             <div>
-              <label htmlFor="email" className="block text-xs font-semibold text-neutral-700 mb-1.5">Email</label>
+              <label htmlFor="email" className="block text-xs font-semibold text-charcoal mb-1.5">Email</label>
               <div className="relative">
-                <Mail className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-400" />
+                <Mail className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-warmgrey/70" />
                 <input
                   id="email"
                   type="email"
@@ -94,15 +95,15 @@ export default function Signup() {
                   value={email}
                   onChange={e => setEmail(e.target.value)}
                   placeholder="you@example.com"
-                  className="w-full rounded-xl border border-neutral-200 bg-white pl-10 pr-3 py-3 text-sm focus:outline-none focus:border-brand-600 focus:ring-2 focus:ring-brand-600/15"
+                  className="w-full rounded-xl border border-lightstone bg-white pl-10 pr-3 py-3 text-sm focus:outline-none focus:border-terracotta focus:ring-2 focus:ring-terracotta/25"
                 />
               </div>
             </div>
 
             <div>
-              <label htmlFor="password" className="block text-xs font-semibold text-neutral-700 mb-1.5">Password</label>
+              <label htmlFor="password" className="block text-xs font-semibold text-charcoal mb-1.5">Password</label>
               <div className="relative">
-                <Lock className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-400" />
+                <Lock className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-warmgrey/70" />
                 <input
                   id="password"
                   type={showPwd ? 'text' : 'password'}
@@ -112,31 +113,31 @@ export default function Signup() {
                   value={password}
                   onChange={e => setPassword(e.target.value)}
                   placeholder="At least 6 characters"
-                  className="w-full rounded-xl border border-neutral-200 bg-white pl-10 pr-11 py-3 text-sm focus:outline-none focus:border-brand-600 focus:ring-2 focus:ring-brand-600/15"
+                  className="w-full rounded-xl border border-lightstone bg-white pl-10 pr-11 py-3 text-sm focus:outline-none focus:border-terracotta focus:ring-2 focus:ring-terracotta/25"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPwd(s => !s)}
                   aria-label={showPwd ? 'Hide password' : 'Show password'}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-neutral-400 hover:text-neutral-700"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-warmgrey/70 hover:text-charcoal"
                 >
                   {showPwd ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
               {password && (
                 <div className="mt-2">
-                  <div className="h-1.5 w-full bg-neutral-100 rounded-full overflow-hidden">
+                  <div className="h-1.5 w-full bg-warmlinen rounded-full overflow-hidden">
                     <div className={`h-full ${strengthColor} transition-all`} style={{ width: `${(strength / 4) * 100}%` }} />
                   </div>
-                  <div className="mt-1 text-[11px] text-neutral-500">{strengthLabel}</div>
+                  <div className="mt-1 text-[11px] text-warmgrey">{strengthLabel}</div>
                 </div>
               )}
             </div>
 
             <div>
-              <label htmlFor="confirm" className="block text-xs font-semibold text-neutral-700 mb-1.5">Confirm password</label>
+              <label htmlFor="confirm" className="block text-xs font-semibold text-charcoal mb-1.5">Confirm password</label>
               <div className="relative">
-                <Lock className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-400" />
+                <Lock className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-warmgrey/70" />
                 <input
                   id="confirm"
                   type={showPwd ? 'text' : 'password'}
@@ -145,42 +146,42 @@ export default function Signup() {
                   value={confirm}
                   onChange={e => setConfirm(e.target.value)}
                   placeholder="Re-enter your password"
-                  className="w-full rounded-xl border border-neutral-200 bg-white pl-10 pr-11 py-3 text-sm focus:outline-none focus:border-brand-600 focus:ring-2 focus:ring-brand-600/15"
+                  className="w-full rounded-xl border border-lightstone bg-white pl-10 pr-11 py-3 text-sm focus:outline-none focus:border-terracotta focus:ring-2 focus:ring-terracotta/25"
                 />
                 {confirm && confirm === password && (
-                  <Check className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-brand-600" />
+                  <Check className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-terracotta" />
                 )}
               </div>
             </div>
 
-            <label className="flex items-start gap-2 text-sm text-neutral-600 select-none">
+            <label className="flex items-start gap-2 text-sm text-warmgrey select-none">
               <input
                 type="checkbox"
                 checked={accept}
                 onChange={e => setAccept(e.target.checked)}
-                className="mt-0.5 w-4 h-4 rounded border-neutral-300 text-brand-600 focus:ring-brand-600"
+                className="mt-0.5 w-4 h-4 rounded border-lightstone text-terracotta focus:ring-terracotta"
               />
               <span>
                 I agree to the{' '}
-                <Link to="/tnc" className="font-medium text-brand-700 hover:text-brand-800">Terms</Link>
+                <Link to="/tnc" className="font-medium text-terracotta hover:text-charcoal">Terms</Link>
                 {' '}and{' '}
-                <Link to="/privacy-policy" className="font-medium text-brand-700 hover:text-brand-800">Privacy Policy</Link>.
+                <Link to="/privacy-policy" className="font-medium text-terracotta hover:text-charcoal">Privacy Policy</Link>.
               </span>
             </label>
 
             <button
               type="submit"
               disabled={loading}
-              className="w-full inline-flex items-center justify-center gap-2 rounded-full bg-brand-400 hover:bg-brand-500 disabled:opacity-60 disabled:cursor-not-allowed text-cocoa font-semibold py-3 transition"
+              className="w-full inline-flex items-center justify-center gap-2 rounded-full bg-terracotta hover:bg-charcoal disabled:opacity-60 disabled:cursor-not-allowed text-white font-semibold py-3 transition"
             >
               {loading && <Loader2 className="w-4 h-4 animate-spin" />}
               {loading ? 'Creating account…' : 'Create account'}
             </button>
           </form>
 
-          <p className="mt-6 text-center text-sm text-neutral-600">
+          <p className="mt-6 text-center text-sm text-warmgrey">
             Already have an account?{' '}
-            <Link to="/login" className="font-semibold text-brand-700 hover:text-brand-800">Sign in</Link>
+            <Link to="/login" className="font-semibold text-terracotta hover:text-charcoal">Sign in</Link>
           </p>
         </div>
       </div>

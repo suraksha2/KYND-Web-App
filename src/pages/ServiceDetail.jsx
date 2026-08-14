@@ -1,97 +1,130 @@
 import { useState, useEffect } from 'react'
 import { useParams, Link, Navigate, useNavigate } from 'react-router-dom'
-import { Check, X, ShoppingBag, Zap, Clock, Tag } from 'lucide-react'
+import { Check, X, ChevronLeft, Heart, Star, ShieldCheck } from 'lucide-react'
 import CitiesGrid from '../components/CitiesGrid'
 import { useCart } from '../context/CartContext'
 import { useServices } from '../context/ServicesContext'
 import { iconForService } from '../lib/serviceIcon'
+import { localServiceImage, servicePeopleImage } from '../lib/serviceImage'
+import { taglineForService } from '../lib/serviceTagline'
 import { API_BASE } from '../lib/api'
 import { DownloadCta } from './Home'
 
-const BookingCard = ({ svc }) => {
+/* ---------- Sticky bottom booking bar ---------- */
+const StickyBookingBar = ({ svc }) => {
   const { addItem } = useCart()
   const navigate = useNavigate()
-  const [added, setAdded] = useState(false)
-  const onAdd = () => { addItem(svc); setAdded(true); setTimeout(() => setAdded(false), 1500) }
-  const onBook = () => { addItem(svc); navigate('/cart') }
+  const onChooseTime = () => { addItem(svc); navigate('/cart') }
   return (
-    <div className="rounded-2xl bg-white ring-1 ring-neutral-100 shadow-soft p-4 w-full md:w-[320px]">
-      <div className="flex items-center justify-between">
-        <div className="text-xs font-semibold tracking-widest text-brand-700">FROM</div>
-        <div className="inline-flex items-center gap-1 text-[11px] text-neutral-500"><Clock className="w-3 h-3" /> {svc.duration}</div>
-      </div>
-      <div className="mt-1 flex items-baseline gap-2">
-        <div className="text-3xl font-extrabold text-neutral-900">{svc.pricingFrom}</div>
-        <div className="text-xs text-neutral-500">flat · per visit</div>
-      </div>
-      <div className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-brand-50 text-brand-700 text-[11px] font-semibold px-2.5 py-1">
-        <Zap className="w-3 h-3" /> Pro arrives in ~15 min
-      </div>
-      <div className="mt-4 grid grid-cols-2 gap-2">
-        <button onClick={onAdd} className={`rounded-full font-semibold text-sm py-2.5 transition ${added ? 'bg-brand-50 text-brand-700' : 'bg-neutral-900 hover:bg-neutral-800 text-white'}`}>
-          {added ? 'Added ✓' : 'Add to cart'}
-        </button>
-        <button onClick={onBook} className="rounded-full bg-brand-400 hover:bg-brand-500 text-cocoa font-semibold text-sm py-2.5 transition">
-          Book now
+    <div className="fixed bottom-[calc(76px_+_var(--safe-bottom))] md:bottom-0 left-0 right-0 z-50 bg-white/95 backdrop-blur border-t border-lightstone shadow-[0_-8px_24px_-12px_rgba(74,46,31,0.25)]">
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-4">
+        <div className="min-w-0">
+          <div className="text-[11px] font-medium text-warmgrey">From</div>
+          <div className="font-heading text-lg font-extrabold text-charcoal truncate">
+            {svc.pricingFrom}
+            <span className="ml-1 text-sm font-medium text-warmgrey">/ hr</span>
+          </div>
+        </div>
+        <button
+          onClick={onChooseTime}
+          className="shrink-0 inline-flex items-center justify-center rounded-full bg-terracotta hover:bg-charcoal text-white font-semibold text-sm px-6 sm:px-8 py-3 transition"
+        >
+          Choose a time
         </button>
       </div>
-      <p className="mt-3 flex items-center gap-1 text-[11px] text-neutral-500"><Tag className="w-3 h-3" /> Transparent flat pricing. No advance.</p>
     </div>
   )
 }
 
-/* ---------- Compact hero matching the reference screenshot ---------- */
+/* ---------- Full-width hero with photo, Top Rated badge and trust row ---------- */
 const ServiceHero = ({ svc }) => {
   const HeroIcon = iconForService(svc.name)
+  const [liked, setLiked] = useState(false)
+
+  // The service detail hero uses the backend people photo first, then falls back
+  // to the product image (home page tile) and bundled local artwork.
+  const sources = [servicePeopleImage(svc.slug || svc.name), svc.img, localServiceImage(svc.slug || svc.name)].filter(Boolean)
+  const [sourceIndex, setSourceIndex] = useState(0)
+  const heroSrc = sources[sourceIndex] ?? null
+
+  const rating = svc.rating || 4.8
+  const reviewCount = svc.reviewCount || 236
+
   return (
-  <section className="relative overflow-hidden bg-white pt-28 md:pt-32 pb-10">
-    {/* soft green corner blobs to match the screenshot */}
-    <div className="absolute -top-24 -left-24 w-72 h-72 rounded-full bg-brand-100/70 blur-3xl pointer-events-none" />
-    <div className="absolute -bottom-24 -right-24 w-72 h-72 rounded-full bg-brand-100/70 blur-3xl pointer-events-none" />
+    <section className="bg-warmlinen pb-6 sm:pb-8">
+      {/* Hero image is full-bleed edge-to-edge, like the reference screenshot. */}
+      <div className="relative w-full aspect-[4/3] sm:aspect-[3/2] lg:aspect-[16/9] min-h-[260px] max-h-[78vh] lg:max-h-[680px] overflow-hidden bg-lightstone">
+        {heroSrc ? (
+          <img
+            src={heroSrc}
+            alt={svc.name}
+            fetchpriority="high"
+            decoding="async"
+            onError={() => setSourceIndex(i => i + 1)}
+            className="absolute inset-0 w-full h-full object-cover object-center"
+          />
+        ) : (
+          <div className="absolute inset-0 grid place-items-center">
+            <HeroIcon className="w-20 h-20 sm:w-24 sm:h-24 text-terracotta" strokeWidth={1.5} />
+          </div>
+        )}
 
-    <div className="relative max-w-5xl mx-auto px-6">
-      {/* breadcrumbs */}
-      <nav className="text-xs text-neutral-500 mb-6">
-        <Link to="/" className="hover:text-brand-700">Home</Link>
-        <span className="mx-1.5">›</span>
-        <Link to="/services" className="hover:text-brand-700">Services</Link>
-        <span className="mx-1.5">›</span>
-        <span className="text-neutral-700">{svc.name}</span>
-      </nav>
-
-      <div className="grid md:grid-cols-[1fr_auto] gap-8 items-start">
-        <div>
-          <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight text-neutral-900 leading-[1.05]">
-            {svc.name}
-          </h1>
-          <p className="mt-4 text-neutral-600 max-w-md text-sm md:text-base">
-            {svc.short}
-          </p>
-          <div className="mt-5 flex items-center gap-3 flex-wrap">
-            <div className="flex items-center gap-1 text-xs text-neutral-500">
-              <span className="text-amber-400">★★★★★</span>
-              <span>{svc.rating || 4.9} from <strong className="text-neutral-700">{svc.reviewCount ? `${svc.reviewCount.toLocaleString()}+` : '15,000+'}</strong> homes</span>
-            </div>
-          </div>
-          <div className="mt-5 w-full md:w-[260px] aspect-[4/3] rounded-3xl overflow-hidden bg-neutral-100 shadow-soft md:hidden grid place-items-center">
-            <HeroIcon className="w-16 h-16 md:w-20 md:h-20 text-cocoa" strokeWidth={1.75} />
-          </div>
-          <div className="mt-6">
-            <BookingCard svc={svc} />
-          </div>
+        {/* Top overlay buttons */}
+        <div className="absolute top-3 sm:top-4 left-4 sm:left-6 right-4 sm:right-6 flex items-center justify-between">
+          <Link
+            to="/services"
+            className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-white/90 text-charcoal grid place-items-center shadow-soft hover:bg-white transition"
+            aria-label="Back"
+          >
+            <ChevronLeft className="w-5 h-5 sm:w-6 sm:h-6" strokeWidth={2} />
+          </Link>
+          <button
+            onClick={() => setLiked(!liked)}
+            className={`w-9 h-9 sm:w-10 sm:h-10 rounded-full grid place-items-center shadow-soft transition ${liked ? 'bg-terracotta text-white' : 'bg-white/90 text-charcoal hover:bg-white'}`}
+            aria-label={liked ? 'Remove from favorites' : 'Add to favorites'}
+          >
+            <Heart className={`w-5 h-5 sm:w-6 sm:h-6 ${liked ? 'fill-current' : ''}`} strokeWidth={2} />
+          </button>
         </div>
 
-        {/* tile image (rounded-3xl) - desktop */}
-        <div className="hidden md:block w-full md:w-[260px] aspect-[4/3] rounded-3xl overflow-hidden bg-neutral-100 shadow-soft grid place-items-center">
-          <HeroIcon className="w-16 h-16 md:w-20 md:h-20 text-cocoa" strokeWidth={1.75} />
+        {/* Bottom-left rating pill */}
+        <div className="absolute bottom-3 sm:bottom-4 left-4 sm:left-6">
+          <div className="inline-flex items-center gap-1.5 rounded-full bg-charcoal/80 backdrop-blur-sm text-white text-[11px] sm:text-xs font-bold px-2.5 sm:px-3 py-1 sm:py-1.5">
+            <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+            Top Rated · {Number(rating).toFixed(1)} ({reviewCount.toLocaleString()} reviews)
+          </div>
         </div>
       </div>
-    </div>
-  </section>
+
+      {/* Title + tagline + trust pills — contained below the image */}
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 pt-4 sm:pt-5 md:pt-6">
+        <h1 className="font-heading text-2xl sm:text-3xl md:text-4xl font-extrabold text-charcoal leading-[1.1]">
+          {svc.name}
+        </h1>
+        <p className="mt-1.5 sm:mt-2 text-warmgrey text-sm sm:text-base">
+          {taglineForService(svc.name)}
+        </p>
+
+        <div className="mt-4 sm:mt-5 grid grid-cols-3 gap-2 sm:gap-3">
+          <div className="flex items-start gap-1.5 rounded-2xl bg-white border border-lightstone p-2.5 sm:p-3 shadow-soft">
+            <ShieldCheck className="w-4 h-4 sm:w-5 sm:h-5 text-terracotta shrink-0" strokeWidth={2} />
+            <span className="text-[10px] sm:text-xs font-semibold text-charcoal leading-tight">Background Checked</span>
+          </div>
+          <div className="flex items-start gap-1.5 rounded-2xl bg-white border border-lightstone p-2.5 sm:p-3 shadow-soft">
+            <Check className="w-4 h-4 sm:w-5 sm:h-5 text-terracotta shrink-0" strokeWidth={3} />
+            <span className="text-[10px] sm:text-xs font-semibold text-charcoal leading-tight">Insured Service</span>
+          </div>
+          <div className="flex items-start gap-1.5 rounded-2xl bg-white border border-lightstone p-2.5 sm:p-3 shadow-soft">
+            <Star className="w-4 h-4 sm:w-5 sm:h-5 text-terracotta shrink-0" strokeWidth={2} />
+            <span className="text-[10px] sm:text-xs font-semibold text-charcoal leading-tight">Satisfaction Guaranteed</span>
+          </div>
+        </div>
+      </div>
+    </section>
   )
 }
 
-/* ---------- What's included / Not included two-column block ---------- */
+/* ---------- What's included ---------- */
 const Inclusions = ({ svc }) => {
   const notIncluded = svc.notIncluded || [
     'Specialty deep-clean services such as ceiling, exterior facade or fumigation',
@@ -101,73 +134,62 @@ const Inclusions = ({ svc }) => {
     'Anything outside the scope of the booked service',
     'No-stage rescue / handling of belongings beyond reach'
   ]
-  return (
-    <section className="py-12 bg-neutral-50">
-      <div className="max-w-5xl mx-auto px-6 grid md:grid-cols-2 gap-10">
-        <div>
-          <h2 className="flex items-center gap-2 text-xl md:text-2xl font-extrabold text-brand-900">
-            <span className="w-6 h-6 rounded-full bg-brand-400 text-cocoa grid place-items-center">
-              <Check className="w-4 h-4" strokeWidth={3} />
-            </span>
-            What's included
-          </h2>
-          <ul className="mt-5 space-y-2.5 text-sm text-neutral-700">
-            {svc.bullets.map((b, i) => (
-              <li key={i} className="flex gap-2">
-                <span className="text-brand-600 font-bold">•</span>
-                <span>{b}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-        <div>
-          <h2 className="flex items-center gap-2 text-xl md:text-2xl font-extrabold text-neutral-700">
-            <span className="w-6 h-6 rounded-full bg-neutral-300 text-white grid place-items-center">
-              <X className="w-4 h-4" strokeWidth={3} />
-            </span>
-            Not included
-          </h2>
-          <ul className="mt-5 space-y-2.5 text-sm text-neutral-500">
-            {notIncluded.map((b, i) => (
-              <li key={i} className="flex gap-2">
-                <span className="text-neutral-400 font-bold">•</span>
-                <span>{b}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      </div>
-    </section>
-  )
-}
 
-/* ---------- "More ways to keep your home clean" — icon-tile grid of other services ---------- */
-const MoreServices = ({ currentSlug, allServices }) => {
-  const others = allServices.filter(s => s.slug !== currentSlug)
+  // Use the backend image first (same as home-page tiles), then fall back to the
+  // bundled local artwork if the backend has no image or it fails to load.
+  const sources = [svc.img, localServiceImage(svc.slug || svc.name)].filter(Boolean)
+  const [sourceIndex, setSourceIndex] = useState(0)
+  const sideImg = sources[sourceIndex] ?? null
+
   return (
-    <section className="py-14 bg-neutral-50">
-      <div className="max-w-5xl mx-auto px-6">
-        <h2 className="text-3xl md:text-4xl font-extrabold text-neutral-900 leading-tight">
-          More ways to keep your<br />home clean
+    <section className="py-6 sm:py-8 bg-warmlinen">
+      <div className="max-w-5xl mx-auto px-4 sm:px-6">
+        <h2 className="font-heading text-xl sm:text-2xl font-extrabold text-charcoal">
+          What&apos;s included
         </h2>
-        <div className="mt-8 grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3 md:gap-4">
-          {others.map(s => (
-            <Link
-              key={s.id}
-              to={`/services/${s.slug}`}
-              className="group rounded-2xl bg-white p-3 md:p-4 hover:shadow-soft transition flex flex-col items-center text-center"
-            >
-              <div className="w-full aspect-square rounded-xl overflow-hidden bg-neutral-100 grid place-items-center">
-                {(() => {
-                  const Icon = iconForService(s.name)
-                  return <Icon className="w-10 h-10 md:w-12 md:h-12 text-cocoa group-hover:scale-[1.08] transition duration-300" strokeWidth={1.75} />
-                })()}
+
+        <div className="mt-4 sm:mt-5 flex flex-col sm:flex-row gap-4 sm:gap-6">
+          {/* Checklist */}
+          <div className="flex-1">
+            <ul className="space-y-3 sm:space-y-4">
+              {svc.bullets.map((b, i) => (
+                <li key={i} className="flex items-start gap-3 text-sm sm:text-base text-charcoal">
+                  <span className="mt-0.5 shrink-0 w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-terracotta text-white grid place-items-center">
+                    <Check className="w-3 h-3 sm:w-4 sm:h-4" strokeWidth={3} />
+                  </span>
+                  {b}
+                </li>
+              ))}
+            </ul>
+
+            <hr className="my-6 sm:my-8 border-lightstone" />
+
+            <h3 className="font-heading text-base sm:text-lg font-extrabold text-charcoal">Not included</h3>
+            <ul className="mt-3 sm:mt-4 space-y-2.5 sm:space-y-3 text-sm text-warmgrey">
+              {notIncluded.map((b, i) => (
+                <li key={i} className="flex items-start gap-2">
+                  <X className="shrink-0 w-4 h-4 mt-0.5 text-warmgrey/70" strokeWidth={2.5} />
+                  {b}
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* Side image */}
+          {sideImg && (
+            <div className="shrink-0 w-full sm:w-44 md:w-56 lg:w-64">
+              <div className="aspect-square rounded-2xl overflow-hidden bg-lightstone">
+                <img
+                  src={sideImg}
+                alt={svc.name}
+                loading="lazy"
+                decoding="async"
+                onError={() => setSourceIndex(i => i + 1)}
+                className="w-full h-full object-cover object-center"
+              />
               </div>
-              <div className="mt-2 text-[11px] md:text-xs font-medium text-neutral-700 leading-snug">
-                {s.name}
-              </div>
-            </Link>
-          ))}
+            </div>
+          )}
         </div>
       </div>
     </section>
@@ -237,7 +259,7 @@ export default function ServiceDetail() {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="text-neutral-500">Loading...</div>
+        <div className="text-warmgrey">Loading...</div>
       </div>
     )
   }
@@ -248,7 +270,7 @@ export default function ServiceDetail() {
   const filteredCities = availableCities
 
   return (
-    <div>
+    <div className="pb-24">
       <ServiceHero svc={svc} />
       <Inclusions svc={svc} />
       {filteredCities.length > 0 ? (
@@ -260,17 +282,17 @@ export default function ServiceDetail() {
       ) : (
         <section className="py-14 bg-white">
           <div className="max-w-6xl mx-auto px-6">
-            <h2 className="text-3xl md:text-5xl font-extrabold tracking-tight text-neutral-900">
+            <h2 className="font-heading text-3xl md:text-5xl font-extrabold tracking-tight text-charcoal">
               No cities available for this service yet
             </h2>
-            <p className="mt-4 text-neutral-600">
+            <p className="mt-4 text-warmgrey">
               This service is not currently available in any cities. Please check back later.
             </p>
           </div>
         </section>
       )}
-      <MoreServices currentSlug={svc.slug} allServices={services} />
       <DownloadCta />
+      <StickyBookingBar svc={svc} />
     </div>
   )
 }

@@ -51,7 +51,7 @@ export default function DashboardPage() {
       change: "12.5%",
       positive: true,
       icon: DollarSign,
-      color: "bg-indigo-500",
+      color: "bg-terracotta",
       href: "/analytics",
     },
     {
@@ -60,7 +60,7 @@ export default function DashboardPage() {
       change: "8.2%",
       positive: true,
       icon: Users,
-      color: "bg-emerald-500",
+      color: "bg-sage",
       href: "/clients",
     },
     {
@@ -69,7 +69,7 @@ export default function DashboardPage() {
       change: "3.1%",
       positive: false,
       icon: ShoppingCart,
-      color: "bg-orange-500",
+      color: "bg-terracotta",
       href: "/orders",
     },
     {
@@ -78,16 +78,16 @@ export default function DashboardPage() {
       change: `${Math.abs(stats.growthRate).toFixed(1)}%`,
       positive: stats.growthRate >= 0,
       icon: TrendingUp,
-      color: "bg-violet-500",
+      color: "bg-sage",
       href: "/analytics",
     },
   ];
 
   const todayCards = [
-    { title: "Today's Bookings", value: stats.todayOrders.toString(),     icon: ShoppingCart, color: "bg-blue-500",  href: "/orders" },
-    { title: "Upcoming",         value: stats.processingToday.toString(), icon: Clock,        color: "bg-amber-500", href: "/orders" },
-    { title: "Cancelled Today",  value: stats.pendingToday.toString(),    icon: AlertCircle,  color: "bg-rose-500",  href: "/orders" },
-    { title: "All Completed",    value: stats.completedTotal.toString(),  icon: CheckCircle,  color: "bg-green-500", href: "/orders" },
+    { title: "Today's Bookings", value: stats.todayOrders.toString(),     icon: ShoppingCart, color: "bg-terracotta",  href: "/orders" },
+    { title: "Upcoming",         value: stats.processingToday.toString(), icon: Clock,        color: "bg-sage",        href: "/orders" },
+    { title: "Cancelled Today",  value: stats.pendingToday.toString(),    icon: AlertCircle,  color: "bg-dustyrose",   href: "/orders" },
+    { title: "All Completed",    value: stats.completedTotal.toString(),  icon: CheckCircle,  color: "bg-sage",        href: "/orders" },
   ];
 
   if (loading) {
@@ -96,10 +96,10 @@ export default function DashboardPage() {
         <div className="flex flex-col items-center gap-3">
           <div className="flex gap-1.5">
             {[0,1,2].map(i => (
-              <div key={i} className="w-2 h-2 rounded-full bg-indigo-500 animate-bounce" style={{ animationDelay: `${i * 0.15}s` }} />
+              <div key={i} className="w-2 h-2 rounded-full bg-terracotta animate-bounce" style={{ animationDelay: `${i * 0.15}s` }} />
             ))}
           </div>
-          <p className="text-sm text-gray-400">Loading dashboard…</p>
+          <p className="text-sm text-warmgrey">Loading dashboard…</p>
         </div>
       </div>
     );
@@ -111,15 +111,15 @@ export default function DashboardPage() {
       {/* Page title row */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-bold text-gray-900">Overview</h2>
-          <p className="text-sm text-gray-400 mt-0.5">
+          <h2 className="text-xl font-bold text-charcoal">Overview</h2>
+          <p className="text-sm text-warmgrey mt-0.5">
             {new Date().toLocaleDateString("en-IN", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
           </p>
         </div>
         <button
           onClick={() => fetchStats(true)}
           disabled={refreshing}
-          className="inline-flex items-center gap-1.5 text-xs font-semibold text-gray-500 hover:text-gray-800 bg-white border border-gray-200 hover:border-gray-300 px-3 py-2 rounded-xl transition shadow-sm disabled:opacity-50"
+          className="inline-flex items-center gap-1.5 text-xs font-semibold text-warmgrey hover:text-charcoal bg-white border border-lightstone hover:border-terracotta px-3 py-2 rounded-xl transition shadow-soft disabled:opacity-50"
         >
           <RefreshCw size={12} className={refreshing ? "animate-spin" : ""} />
           Refresh
@@ -135,7 +135,7 @@ export default function DashboardPage() {
 
       {/* Today's snapshot */}
       <div>
-        <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Today's Activity</p>
+        <p className="text-xs font-semibold text-warmgrey uppercase tracking-widest mb-3">Today's Activity</p>
         <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
           {todayCards.map((stat) => (
             <StatCard key={stat.title} {...stat} change="" positive={true} />
@@ -145,16 +145,16 @@ export default function DashboardPage() {
 
       {/* Charts row */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-        <div className="xl:col-span-2 bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+        <div className="xl:col-span-2 bg-white rounded-2xl border border-lightstone shadow-soft p-5">
           <RevenueChart />
         </div>
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+        <div className="bg-white rounded-2xl border border-lightstone shadow-soft p-5">
           <TopServices />
         </div>
       </div>
 
       {/* Recent Orders */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+      <div className="bg-white rounded-2xl border border-lightstone shadow-soft p-5">
         <RecentOrders />
       </div>
 

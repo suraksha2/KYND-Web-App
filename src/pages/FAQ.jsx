@@ -11,10 +11,10 @@ const items = [
   { q: 'Can I stack multiple tasks?', a: 'Yes — sweeping, mopping, utensils, ironing — combined into one booking handled by a single Pro in one visit.' },
   { q: 'Do you support recurring bookings?', a: 'Yes — daily, weekly, or a custom cadence. The system auto-assigns the best available trained Pro for every visit.' },
   { q: 'Are the Pros verified?', a: 'Every Kynd Pro completes a formal training program and a thorough background check before their first booking.' },
-  { q: 'What if I am not satisfied?', a: 'Reach support immediately on +91 9910483315 or help@getkynd.app. We resolve, send a replacement Pro if needed, and refund where appropriate.' },
+  { q: 'What if I am not satisfied?', a: 'Reach support immediately on +91 9910483315 or help@kynd.sg. We resolve, send a replacement Pro if needed, and refund where appropriate.' },
   { q: 'How is pricing calculated?', a: 'Transparent and shown upfront in the app — per visit, no per-bedroom multipliers, no hidden charges, no advance deposits.' },
   { q: 'Which cities is Kynd in?', a: '15 Indian cities: Ahmedabad, Bangalore, Chennai, Delhi, Faridabad, Ghaziabad, Gurgaon, Hyderabad, Jaipur, Kolkata, Mumbai, Navi Mumbai, Noida, Pune, and Thane.' },
-  { q: 'How do I contact support?', a: 'Call +91 9910483315 or email help@getkynd.app.' }
+  { q: 'How do I contact support?', a: 'Call +91 9910483315 or email help@kynd.sg.' }
 ]
 
 export default function FAQ() {
@@ -27,14 +27,14 @@ export default function FAQ() {
           {items.map((it, i) => {
             const isOpen = open === i
             return (
-              <div key={i} className="rounded-2xl bg-white border border-neutral-100 shadow-sm">
+              <div key={i} className="rounded-2xl bg-white border border-lightstone shadow-sm">
                 <button onClick={() => setOpen(isOpen ? -1 : i)} className="w-full flex items-center justify-between gap-4 px-5 py-4 text-left">
-                  <span className="font-medium text-brand-900">{it.q}</span>
-                  <span className={`w-7 h-7 grid place-items-center rounded-full bg-neutral-900 text-white transition ${isOpen ? 'rotate-180' : ''}`}>
+                  <span className="font-medium text-charcoal">{it.q}</span>
+                  <span className={`w-7 h-7 grid place-items-center rounded-full bg-charcoal text-white transition ${isOpen ? 'rotate-180' : ''}`}>
                     <ChevronDown className="w-4 h-4" />
                   </span>
                 </button>
-                {isOpen && <div className="px-5 pb-5 text-sm text-neutral-600 -mt-1">{it.a}</div>}
+                {isOpen && <div className="px-5 pb-5 text-sm text-warmgrey -mt-1">{it.a}</div>}
               </div>
             )
           })}

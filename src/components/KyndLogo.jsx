@@ -1,13 +1,13 @@
 /**
  * Kynd brand mark — two friendly figures nestled inside a heart.
  * `variant` controls the color treatment:
- *  - 'color'  : butter-yellow heart + cocoa figures (light backgrounds)
- *  - 'dark'   : cocoa heart + butter figures (used on light surfaces where a solid mark is wanted)
+ *  - 'color'  : terracotta heart + charcoal figures (light backgrounds)
+ *  - 'dark'   : charcoal heart + terracotta figures (used on light surfaces where a solid mark is wanted)
  *  - 'white'  : all white (for dark backgrounds)
  */
 export default function KyndLogo({ variant = 'color', className = '' }) {
-  const heart = variant === 'white' ? '#ffffff' : variant === 'dark' ? '#4a2e1f' : '#ffd76a'
-  const figures = variant === 'white' ? '#4a2e1f' : variant === 'dark' ? '#ffd76a' : '#4a2e1f'
+  const heart = variant === 'white' ? '#ffffff' : variant === 'dark' ? '#2B2926' : '#A95F45'
+  const figures = variant === 'white' ? '#2B2926' : variant === 'dark' ? '#A95F45' : '#2B2926'
 
   return (
     <svg viewBox="0 0 64 64" className={className} role="img" aria-label="Kynd">

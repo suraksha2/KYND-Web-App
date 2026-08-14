@@ -12,14 +12,14 @@ import {
 } from "lucide-react";
 import clsx from "clsx";
 
-const BAR_COLORS = ["#6366f1", "#818cf8", "#a5b4fc", "#c7d2fe", "#ddd6fe", "#e0e7ff"];
+const BAR_COLORS = ["#A95F45", "#A95F45", "#A95F45", "#A95F45", "#A95F45", "#A95F45"];
 
 function GrowthBadge({ value }: { value: number }) {
   const positive = value >= 0;
   return (
     <span className={clsx(
       "inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-lg",
-      positive ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-600"
+      positive ? "bg-sage/10 text-sage" : "bg-dustyrose/10 text-rosewood"
     )}>
       {positive ? <TrendingUp size={11} /> : <TrendingDown size={11} />}
       {positive ? "+" : ""}{value}%
@@ -29,8 +29,8 @@ function GrowthBadge({ value }: { value: number }) {
 
 const tooltipStyle = {
   borderRadius: "12px",
-  border: "1px solid #f1f5f9",
-  boxShadow: "0 4px 16px rgba(0,0,0,0.08)",
+  border: "1px solid #D6CEC2",
+  boxShadow: "0 4px 16px rgba(43,41,38,0.08)",
   fontSize: "12px",
   padding: "8px 12px",
 };
@@ -60,11 +60,11 @@ export default function AnalyticsPage() {
         <div className="flex flex-col items-center gap-3">
           <div className="flex gap-1.5">
             {[0,1,2].map(i => (
-              <div key={i} className="w-2 h-2 rounded-full bg-indigo-400 animate-bounce"
+              <div key={i} className="w-2 h-2 rounded-full bg-terracotta animate-bounce"
                 style={{ animationDelay: `${i * 0.15}s` }} />
             ))}
           </div>
-          <p className="text-sm text-gray-400">Loading analytics…</p>
+          <p className="text-sm text-warmgrey">Loading analytics…</p>
         </div>
       </div>
     );
@@ -78,14 +78,14 @@ export default function AnalyticsPage() {
 
   // Status donut data
   const statusLabels: Record<string, { label: string; color: string }> = {
-    completed: { label: "Completed", color: "#10b981" },
-    upcoming:  { label: "Upcoming",  color: "#6366f1" },
-    cancelled: { label: "Cancelled", color: "#ef4444" },
+    completed: { label: "Completed", color: "#7A8D72" },
+    upcoming:  { label: "Upcoming",  color: "#A95F45" },
+    cancelled: { label: "Cancelled", color: "#C58A8A" },
   };
   const donutData = statusBreak.map((r: any) => ({
     name:  (statusLabels[r.status]?.label ?? r.status),
     value: Number(r.count),
-    color: statusLabels[r.status]?.color ?? "#9ca3af",
+    color: statusLabels[r.status]?.color ?? "#70685E",
   }));
   const totalBookings = donutData.reduce((s: number, d: any) => s + d.value, 0);
 
@@ -104,42 +104,42 @@ export default function AnalyticsPage() {
           {
             label: "Total Revenue",
             value: `S$${Number(kpi.totalRevenue ?? 0).toLocaleString("en-SG")}`,
-            icon: DollarSign, color: "bg-indigo-500",
+            icon: DollarSign, color: "bg-terracotta",
             badge: <GrowthBadge value={kpi.revenueGrowth ?? 0} />,
             sub: "vs last month",
           },
           {
             label: "Total Bookings",
             value: Number(kpi.totalOrders ?? 0).toLocaleString(),
-            icon: ShoppingCart, color: "bg-emerald-500",
+            icon: ShoppingCart, color: "bg-sage",
             badge: <GrowthBadge value={kpi.ordersGrowth ?? 0} />,
             sub: "vs last month",
           },
           {
             label: "Unique Customers",
             value: Number(kpi.uniqueCustomers ?? 0).toLocaleString(),
-            icon: Users, color: "bg-violet-500",
+            icon: Users, color: "bg-terracotta",
             badge: null,
             sub: `${kpi.last30Days ?? 0} in last 30 days`,
           },
           {
             label: "Avg. Order Value",
             value: `S$${Number(kpi.avgOrderValue ?? 0).toLocaleString("en-SG")}`,
-            icon: Star, color: "bg-amber-500",
+            icon: Star, color: "bg-terracotta",
             badge: null,
             sub: "from completed bookings",
           },
         ].map(({ label, value, icon: Icon, color, badge, sub }) => (
-          <div key={label} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+          <div key={label} className="bg-white rounded-2xl border border-lightstone shadow-sm p-5">
             <div className="flex items-start justify-between mb-3">
               <div className={clsx("w-10 h-10 rounded-xl flex items-center justify-center", color)}>
                 <Icon size={18} className="text-white" />
               </div>
               {badge}
             </div>
-            <p className="text-xl font-bold text-gray-900">{value}</p>
-            <p className="text-sm text-gray-500 mt-0.5">{label}</p>
-            <p className="text-[11px] text-gray-400 mt-1">{sub}</p>
+            <p className="text-xl font-bold text-charcoal">{value}</p>
+            <p className="text-sm text-warmgrey mt-0.5">{label}</p>
+            <p className="text-[11px] text-warmgrey mt-1">{sub}</p>
           </div>
         ))}
       </div>
@@ -147,17 +147,17 @@ export default function AnalyticsPage() {
       {/* Quick stats strip */}
       <div className="grid grid-cols-3 gap-4">
         {[
-          { label: "Today",       value: kpi.todayOrders ?? 0, icon: Clock,         cls: "text-indigo-600 bg-indigo-50" },
-          { label: "Last 7 days", value: kpi.last7Days   ?? 0, icon: ShoppingCart,  cls: "text-emerald-600 bg-emerald-50" },
-          { label: "Last 30 days",value: kpi.last30Days  ?? 0, icon: TrendingUp,    cls: "text-violet-600 bg-violet-50" },
+          { label: "Today",       value: kpi.todayOrders ?? 0, icon: Clock,         cls: "text-terracotta bg-accent-50" },
+          { label: "Last 7 days", value: kpi.last7Days   ?? 0, icon: ShoppingCart,  cls: "text-sage bg-sage/10" },
+          { label: "Last 30 days",value: kpi.last30Days  ?? 0, icon: TrendingUp,    cls: "text-terracotta bg-accent-50" },
         ].map(({ label, value, icon: Icon, cls }) => (
-          <div key={label} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex items-center gap-4">
+          <div key={label} className="bg-white rounded-2xl border border-lightstone shadow-sm p-4 flex items-center gap-4">
             <div className={clsx("w-9 h-9 rounded-xl flex items-center justify-center shrink-0", cls)}>
               <Icon size={16} />
             </div>
             <div>
-              <p className="text-lg font-bold text-gray-900">{value}</p>
-              <p className="text-xs text-gray-400">{label}</p>
+              <p className="text-lg font-bold text-charcoal">{value}</p>
+              <p className="text-xs text-warmgrey">{label}</p>
             </div>
           </div>
         ))}
@@ -166,17 +166,17 @@ export default function AnalyticsPage() {
       {/* Main chart + Status donut */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
         {/* Revenue / Orders trend */}
-        <div className="xl:col-span-2 bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+        <div className="xl:col-span-2 bg-white rounded-2xl border border-lightstone shadow-sm p-5">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h2 className="text-sm font-bold text-gray-900">Performance Trend</h2>
-              <p className="text-xs text-gray-400 mt-0.5">Last 12 months</p>
+              <h2 className="text-sm font-bold text-charcoal">Performance Trend</h2>
+              <p className="text-xs text-warmgrey mt-0.5">Last 12 months</p>
             </div>
-            <div className="flex bg-gray-100 rounded-xl p-0.5 gap-0.5">
+            <div className="flex bg-accent-50 rounded-xl p-0.5 gap-0.5">
               {(["revenue", "orders"] as const).map(t => (
                 <button key={t} onClick={() => setChartTab(t)}
                   className={clsx("px-3 py-1.5 text-xs font-semibold rounded-lg transition capitalize",
-                    chartTab === t ? "bg-white text-indigo-600 shadow-sm" : "text-gray-500 hover:text-gray-700")}>
+                    chartTab === t ? "bg-white text-terracotta shadow-sm" : "text-warmgrey hover:text-terracotta")}>
                   {t}
                 </button>
               ))}
@@ -186,32 +186,32 @@ export default function AnalyticsPage() {
             <AreaChart data={monthly} margin={{ top: 5, right: 5, left: 0, bottom: 0 }}>
               <defs>
                 <linearGradient id="grad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%"  stopColor="#6366f1" stopOpacity={0.15} />
-                  <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
+                  <stop offset="5%"  stopColor="#A95F45" stopOpacity={0.15} />
+                  <stop offset="95%" stopColor="#A95F45" stopOpacity={0} />
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f8fafc" />
-              <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false}
+              <CartesianGrid strokeDasharray="3 3" stroke="#F5F1EA" />
+              <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#70685E" }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fontSize: 11, fill: "#70685E" }} axisLine={false} tickLine={false}
                 tickFormatter={v => chartTab === "revenue" ? `S$${(v/1000).toFixed(0)}k` : String(v)} />
               <Tooltip contentStyle={tooltipStyle}
                 formatter={(v: number) => chartTab === "revenue"
                   ? [`S$${Number(v).toLocaleString("en-SG")}`, "Revenue"]
                   : [v, "Bookings"]} />
-              <Area type="monotone" dataKey={chartTab} stroke="#6366f1" strokeWidth={2.5}
-                fill="url(#grad)" dot={false} activeDot={{ r: 5, fill: "#6366f1" }} />
+              <Area type="monotone" dataKey={chartTab} stroke="#A95F45" strokeWidth={2.5}
+                fill="url(#grad)" dot={false} activeDot={{ r: 5, fill: "#A95F45" }} />
             </AreaChart>
           </ResponsiveContainer>
         </div>
 
         {/* Booking status donut */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+        <div className="bg-white rounded-2xl border border-lightstone shadow-sm p-5">
           <div className="mb-3">
-            <h2 className="text-sm font-bold text-gray-900">Booking Status</h2>
-            <p className="text-xs text-gray-400 mt-0.5">All time breakdown</p>
+            <h2 className="text-sm font-bold text-charcoal">Booking Status</h2>
+            <p className="text-xs text-warmgrey mt-0.5">All time breakdown</p>
           </div>
           {donutData.length === 0 ? (
-            <div className="flex items-center justify-center h-40 text-sm text-gray-300">No data</div>
+            <div className="flex items-center justify-center h-40 text-sm text-warmgrey">No data</div>
           ) : (
             <>
               <ResponsiveContainer width="100%" height={180}>
@@ -234,11 +234,11 @@ export default function AnalyticsPage() {
                   <div key={d.name} className="flex items-center justify-between text-xs">
                     <div className="flex items-center gap-2">
                       <span className="w-2.5 h-2.5 rounded-sm inline-block" style={{ backgroundColor: d.color }} />
-                      <span className="text-gray-600">{d.name}</span>
+                      <span className="text-warmgrey">{d.name}</span>
                     </div>
                     <div className="flex items-center gap-2">
-                      <span className="font-semibold text-gray-800">{d.value}</span>
-                      <span className="text-gray-400">
+                      <span className="font-semibold text-charcoal">{d.value}</span>
+                      <span className="text-warmgrey">
                         {totalBookings > 0 ? Math.round((d.value / totalBookings) * 100) : 0}%
                       </span>
                     </div>
@@ -254,15 +254,15 @@ export default function AnalyticsPage() {
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
 
         {/* Top Services bar list */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+        <div className="bg-white rounded-2xl border border-lightstone shadow-sm p-5">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h2 className="text-sm font-bold text-gray-900">Top Services</h2>
-              <p className="text-xs text-gray-400 mt-0.5">By number of bookings</p>
+              <h2 className="text-sm font-bold text-charcoal">Top Services</h2>
+              <p className="text-xs text-warmgrey mt-0.5">By number of bookings</p>
             </div>
           </div>
           {topServices.length === 0 ? (
-            <p className="text-sm text-gray-300 text-center py-8">No service data</p>
+            <p className="text-sm text-warmgrey text-center py-8">No service data</p>
           ) : (
             <div className="space-y-3">
               {topServices.map((s: any, i: number) => {
@@ -275,14 +275,14 @@ export default function AnalyticsPage() {
                           style={{ backgroundColor: BAR_COLORS[i % BAR_COLORS.length] }}>
                           {i + 1}
                         </span>
-                        <span className="text-gray-700 font-medium truncate max-w-[160px]">{s.name}</span>
+                        <span className="text-warmgrey font-medium truncate max-w-[160px]">{s.name}</span>
                       </div>
                       <div className="flex items-center gap-3 shrink-0">
-                        <span className="text-gray-400">{s.count} bookings</span>
-                        <span className="text-gray-500 font-semibold">S${Number(s.revenue).toLocaleString("en-SG")}</span>
+                        <span className="text-warmgrey">{s.count} bookings</span>
+                        <span className="text-warmgrey font-semibold">S${Number(s.revenue).toLocaleString("en-SG")}</span>
                       </div>
                     </div>
-                    <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                    <div className="h-1.5 bg-accent-50 rounded-full overflow-hidden">
                       <div className="h-full rounded-full transition-all duration-500"
                         style={{ width: `${pct}%`, backgroundColor: BAR_COLORS[i % BAR_COLORS.length] }} />
                     </div>
@@ -294,15 +294,15 @@ export default function AnalyticsPage() {
         </div>
 
         {/* Top Cities */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+        <div className="bg-white rounded-2xl border border-lightstone shadow-sm p-5">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h2 className="text-sm font-bold text-gray-900">Top Cities</h2>
-              <p className="text-xs text-gray-400 mt-0.5">By booking volume</p>
+              <h2 className="text-sm font-bold text-charcoal">Top Cities</h2>
+              <p className="text-xs text-warmgrey mt-0.5">By booking volume</p>
             </div>
           </div>
           {topCities.length === 0 ? (
-            <p className="text-sm text-gray-300 text-center py-8">No city data</p>
+            <p className="text-sm text-warmgrey text-center py-8">No city data</p>
           ) : (
             <div className="space-y-3">
               {topCities.map((c: any, i: number) => {
@@ -311,18 +311,18 @@ export default function AnalyticsPage() {
                   <div key={c.city}>
                     <div className="flex items-center justify-between text-xs mb-1">
                       <div className="flex items-center gap-2">
-                        <div className="w-5 h-5 rounded-md bg-indigo-50 flex items-center justify-center">
-                          <MapPin size={10} className="text-indigo-500" />
+                        <div className="w-5 h-5 rounded-md bg-accent-50 flex items-center justify-center">
+                          <MapPin size={10} className="text-terracotta" />
                         </div>
-                        <span className="text-gray-700 font-medium">{c.city}</span>
+                        <span className="text-warmgrey font-medium">{c.city}</span>
                       </div>
                       <div className="flex items-center gap-3 shrink-0">
-                        <span className="text-gray-400">{c.bookings} bookings</span>
-                        <span className="text-gray-500 font-semibold">S${Number(c.revenue).toLocaleString("en-SG")}</span>
+                        <span className="text-warmgrey">{c.bookings} bookings</span>
+                        <span className="text-warmgrey font-semibold">S${Number(c.revenue).toLocaleString("en-SG")}</span>
                       </div>
                     </div>
-                    <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                      <div className="h-full rounded-full bg-indigo-400 transition-all duration-500"
+                    <div className="h-1.5 bg-accent-50 rounded-full overflow-hidden">
+                      <div className="h-full rounded-full bg-terracotta transition-all duration-500"
                         style={{ width: `${pct}%` }} />
                     </div>
                   </div>
@@ -334,51 +334,51 @@ export default function AnalyticsPage() {
       </div>
 
       {/* Monthly breakdown table */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+      <div className="bg-white rounded-2xl border border-lightstone shadow-sm overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-lightstone">
           <div>
-            <h2 className="text-sm font-bold text-gray-900">Monthly Breakdown</h2>
-            <p className="text-xs text-gray-400 mt-0.5">Revenue, orders and completion rate by month</p>
+            <h2 className="text-sm font-bold text-charcoal">Monthly Breakdown</h2>
+            <p className="text-xs text-warmgrey mt-0.5">Revenue, orders and completion rate by month</p>
           </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-gray-100">
+              <tr className="border-b border-lightstone">
                 {["Month", "Bookings", "Completed", "Cancelled", "Revenue", "Completion Rate"].map(h => (
-                  <th key={h} className="px-4 py-3 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap">{h}</th>
+                  <th key={h} className="px-4 py-3 text-left text-[11px] font-semibold text-warmgrey uppercase tracking-wide whitespace-nowrap">{h}</th>
                 ))}
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-50">
+            <tbody className="divide-y divide-lightstone/50">
               {monthly.map((row: any) => {
                 const total     = Number(row.orders    ?? 0);
                 const completed = Number(row.completed ?? 0);
                 const cancelled = Number(row.cancelled ?? 0);
                 const rate      = total > 0 ? Math.round((completed / total) * 100) : 0;
                 return (
-                  <tr key={`${row.yr}-${row.monthNum}`} className="hover:bg-gray-50/60 transition">
-                    <td className="px-4 py-3 font-semibold text-gray-800 whitespace-nowrap">{row.month} {row.yr ?? ""}</td>
-                    <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{total}</td>
+                  <tr key={`${row.yr}-${row.monthNum}`} className="hover:bg-accent-50/60 transition">
+                    <td className="px-4 py-3 font-semibold text-charcoal whitespace-nowrap">{row.month} {row.yr ?? ""}</td>
+                    <td className="px-4 py-3 text-warmgrey whitespace-nowrap">{total}</td>
                     <td className="px-4 py-3 whitespace-nowrap">
-                      <span className="inline-flex items-center gap-1 text-emerald-700 font-medium">
+                      <span className="inline-flex items-center gap-1 text-sage font-medium">
                         <CheckCircle size={12} />{completed}
                       </span>
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap">
-                      <span className="inline-flex items-center gap-1 text-red-500 font-medium">
+                      <span className="inline-flex items-center gap-1 text-rosewood font-medium">
                         <XCircle size={12} />{cancelled}
                       </span>
                     </td>
-                    <td className="px-4 py-3 font-semibold text-gray-900 whitespace-nowrap">
+                    <td className="px-4 py-3 font-semibold text-charcoal whitespace-nowrap">
                       S${Number(row.revenue ?? 0).toLocaleString("en-SG")}
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap">
                       <div className="flex items-center gap-2">
-                        <div className="w-20 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                          <div className="h-full bg-emerald-400 rounded-full" style={{ width: `${rate}%` }} />
+                        <div className="w-20 h-1.5 bg-accent-50 rounded-full overflow-hidden">
+                          <div className="h-full bg-sage rounded-full" style={{ width: `${rate}%` }} />
                         </div>
-                        <span className="text-xs text-gray-500">{rate}%</span>
+                        <span className="text-xs text-warmgrey">{rate}%</span>
                       </div>
                     </td>
                   </tr>
@@ -386,7 +386,7 @@ export default function AnalyticsPage() {
               })}
               {monthly.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-10 text-center text-sm text-gray-400">No monthly data available.</td>
+                  <td colSpan={6} className="px-4 py-10 text-center text-sm text-warmgrey">No monthly data available.</td>
                 </tr>
               )}
             </tbody>

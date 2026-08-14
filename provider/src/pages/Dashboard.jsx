@@ -1,33 +1,21 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
-  Wrench, LogOut, RefreshCw, Loader2, Calendar, Clock, MapPin,
-  Phone, User, IndianRupee, CheckCircle2, XCircle, CircleDot, AlertCircle,
+  Menu, RefreshCw, Loader2, CircleDot, AlertCircle, CalendarCheck,
+  CheckCircle2, Wallet, TrendingUp, Mail, User, LogOut,
 } from 'lucide-react'
 import { useAuth, API_BASE } from '../context/AuthContext'
+import { Sidebar, MobileDrawer, MobileTabBar } from '../components/Sidebar'
+import MetricCard from '../components/MetricCard'
+import TrendChart from '../components/TrendChart'
+import BookingCard from '../components/BookingCard'
+import { bookingDate, bookingTotal, formatSgd, isSameDay, lastSevenDays } from '../utils/bookings'
 
-const STATUS_META = {
-  upcoming: { label: 'Upcoming', className: 'bg-amber-100 text-amber-800', icon: CircleDot },
-  completed: { label: 'Completed', className: 'bg-green-100 text-green-800', icon: CheckCircle2 },
-  cancelled: { label: 'Cancelled', className: 'bg-red-100 text-red-700', icon: XCircle },
-}
-
-function parseItems(items) {
-  try {
-    const parsed = typeof items === 'string' ? JSON.parse(items) : items
-    return Array.isArray(parsed) ? parsed : []
-  } catch {
-    return []
-  }
-}
-
-function formatDateTime(value) {
-  if (!value) return null
-  const d = new Date(value)
-  if (Number.isNaN(d.getTime())) return String(value)
-  return d.toLocaleString(undefined, {
-    day: 'numeric', month: 'short', year: 'numeric',
-    hour: 'numeric', minute: '2-digit',
-  })
+const SECTION_COPY = {
+  dashboard: { title: 'Dashboard', subtitle: 'Your work at a glance.' },
+  bookings: { title: 'Bookings', subtitle: 'Jobs assigned to you by the Kynd team.' },
+  earnings: { title: 'Earnings', subtitle: 'Payouts from the jobs you have completed.' },
+  schedule: { title: 'Schedule', subtitle: 'Everything still on your calendar.' },
+  profile: { title: 'Profile', subtitle: 'Your provider account details.' },
 }
 
 export default function Dashboard() {
@@ -38,6 +26,8 @@ export default function Dashboard() {
   const [error, setError] = useState('')
   const [filter, setFilter] = useState('all')
   const [updatingId, setUpdatingId] = useState(null)
+  const [section, setSection] = useState('dashboard')
+  const [drawerOpen, setDrawerOpen] = useState(false)
 
   const authFetch = (url, options = {}) =>
     fetch(url, {
@@ -98,6 +88,32 @@ export default function Dashboard() {
     [bookings, filter]
   )
 
+  const days = useMemo(() => lastSevenDays(bookings), [bookings])
+
+  const metrics = useMemo(() => {
+    const today = new Date()
+    const todayCount = bookings.filter((b) => isSameDay(bookingDate(b), today)).length
+    const weekEarnings = days.reduce((sum, d) => sum + d.earnings, 0)
+    const lifetimeEarnings = bookings
+      .filter((b) => b.status === 'completed')
+      .reduce((sum, b) => sum + bookingTotal(b), 0)
+    const finished = counts.completed + counts.cancelled
+    const completionRate = finished > 0 ? Math.round((counts.completed / finished) * 100) : null
+    return { todayCount, weekEarnings, lifetimeEarnings, completionRate }
+  }, [bookings, days, counts])
+
+  const upcomingSorted = useMemo(() => {
+    return bookings
+      .filter((b) => b.status === 'upcoming')
+      .sort((a, b) => {
+        const da = bookingDate(a)
+        const db = bookingDate(b)
+        if (!da) return 1
+        if (!db) return -1
+        return da - db
+      })
+  }, [bookings])
+
   const tabs = [
     { id: 'all', label: 'All' },
     { id: 'upcoming', label: 'Upcoming' },
@@ -105,180 +121,234 @@ export default function Dashboard() {
     { id: 'cancelled', label: 'Cancelled' },
   ]
 
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
-      {/* Header */}
-      <header className="sticky top-0 z-10 bg-white/95 backdrop-blur border-b border-gray-200 shadow-sm">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3 min-w-0">
-            <img src="/logo.png" alt="Kynd Logo" className="h-10 w-auto shrink-0" />
-            <div className="min-w-0">
-              <p className="font-extrabold text-cocoa text-xl leading-tight truncate">Kynd Provider</p>
-              <p className="text-sm text-gray-500 truncate">{user?.name || user?.email}</p>
-            </div>
+  const copy = SECTION_COPY[section] || SECTION_COPY.dashboard
+
+  const metricCards = (
+    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+      <MetricCard
+        icon={CalendarCheck}
+        label="Today's bookings"
+        value={metrics.todayCount}
+        hint={`${counts.upcoming} upcoming in total`}
+      />
+      <MetricCard
+        icon={CheckCircle2}
+        label="Completed"
+        value={counts.completed}
+        hint={`of ${counts.all} assigned`}
+      />
+      <MetricCard
+        icon={Wallet}
+        label="Earnings (this week)"
+        value={formatSgd(metrics.weekEarnings)}
+        hint={`${formatSgd(metrics.lifetimeEarnings)} all time`}
+      />
+      <MetricCard
+        icon={TrendingUp}
+        label="Completion rate"
+        value={metrics.completionRate === null ? '—' : `${metrics.completionRate}%`}
+        hint={metrics.completionRate === null ? 'No finished jobs yet' : `${counts.cancelled} cancelled`}
+      />
+    </div>
+  )
+
+  const renderBookingList = (list, emptyText) => {
+    if (loading) {
+      return (
+        <div className="bg-white rounded-2xl border border-lightstone flex items-center justify-center h-[320px]">
+          <div className="text-center">
+            <Loader2 className="w-8 h-8 animate-spin text-terracotta mx-auto mb-3" />
+            <p className="text-warmgrey">Loading tasks...</p>
           </div>
-          <div className="flex items-center gap-2 sm:gap-3">
+        </div>
+      )
+    }
+    if (list.length === 0) {
+      return (
+        <div className="bg-white rounded-2xl border border-lightstone flex flex-col items-center justify-center h-[320px] text-center px-6">
+          <div className="w-16 h-16 rounded-full bg-warmlinen flex items-center justify-center mb-4">
+            <CircleDot className="w-8 h-8 text-warmgrey" />
+          </div>
+          <p className="font-heading text-lg font-bold text-charcoal">No tasks here</p>
+          <p className="text-warmgrey text-sm mt-1">{emptyText}</p>
+        </div>
+      )
+    }
+    return (
+      <div className="space-y-4">
+        {list.map((b) => (
+          <BookingCard
+            key={b.id}
+            booking={b}
+            updating={updatingId === b.id}
+            onUpdate={updateStatus}
+          />
+        ))}
+      </div>
+    )
+  }
+
+  const filterTabs = (
+    <div className="bg-white inline-flex rounded-2xl p-2 border border-lightstone gap-2 flex-wrap">
+      {tabs.map((t) => (
+        <button
+          key={t.id}
+          onClick={() => setFilter(t.id)}
+          className={`px-5 py-2.5 rounded-xl text-sm font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-terracotta/40 ${
+            filter === t.id ? 'bg-terracotta text-white' : 'text-warmgrey hover:bg-accent-50 hover:text-terracotta'
+          }`}
+        >
+          {t.label}
+          <span className="ml-2 text-xs opacity-80">{counts[t.id] ?? 0}</span>
+        </button>
+      ))}
+    </div>
+  )
+
+  return (
+    <div className="min-h-screen bg-warmlinen">
+      <Sidebar section={section} onSelect={setSection} user={user} onLogout={logout} />
+      <MobileDrawer
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        section={section}
+        onSelect={setSection}
+        user={user}
+        onLogout={logout}
+      />
+
+      <div className="lg:pl-64">
+        <header className="sticky top-0 z-20 bg-warmlinen/95 backdrop-blur border-b border-lightstone">
+          <div className="px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3 min-w-0">
+              <button
+                onClick={() => setDrawerOpen(true)}
+                aria-label="Open menu"
+                className="lg:hidden p-2 -ml-2 rounded-lg text-charcoal hover:bg-white focus:outline-none focus:ring-2 focus:ring-terracotta/40"
+              >
+                <Menu className="w-5 h-5" />
+              </button>
+              <div className="min-w-0">
+                <h1 className="font-heading text-xl sm:text-2xl font-bold text-charcoal truncate">{copy.title}</h1>
+                <p className="text-sm text-warmgrey truncate">{copy.subtitle}</p>
+              </div>
+            </div>
             <button
               onClick={loadBookings}
-              className="inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-100 transition-colors"
+              disabled={loading}
+              className="inline-flex items-center gap-2 rounded-xl border border-lightstone bg-white px-4 py-2.5 text-sm font-semibold text-charcoal hover:bg-accent-50 hover:text-terracotta disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-terracotta/40 transition-colors shrink-0"
             >
-              <RefreshCw className="w-4 h-4" />
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
               <span className="hidden sm:inline">Refresh</span>
             </button>
-            <button
-              onClick={logout}
-              className="inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium text-red-600 hover:bg-red-50 transition-colors"
-            >
-              <LogOut className="w-4 h-4" />
-              <span className="hidden sm:inline">Sign out</span>
-            </button>
           </div>
-        </div>
-      </header>
+        </header>
 
-      <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="mb-8">
-          <h1 className="text-3xl sm:text-4xl font-extrabold text-cocoa">My Tasks</h1>
-          <p className="text-gray-500 mt-2 text-base">Jobs assigned to you by the Kynd team.</p>
-        </div>
-
-        {/* Filter tabs */}
-        <div className="bg-white inline-flex rounded-2xl p-2 shadow-sm mb-8 gap-2 flex-wrap">
-          {tabs.map((t) => (
-            <button
-              key={t.id}
-              onClick={() => setFilter(t.id)}
-              className={`px-5 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${
-                filter === t.id
-                  ? 'bg-brand-500 text-cocoa shadow-md'
-                  : 'text-gray-600 hover:bg-gray-100'
-              }`}
-            >
-              {t.label}
-              <span className="ml-2 text-xs opacity-70 bg-white/20 px-2 py-0.5 rounded-full">{counts[t.id] ?? 0}</span>
-            </button>
-          ))}
-        </div>
-
-        {error && (
-          <div className="mb-6 rounded-2xl bg-red-50 border border-red-100 text-red-700 text-sm px-5 py-4 flex items-center gap-3">
-            <AlertCircle className="w-5 h-5 shrink-0" />
-            {error}
-          </div>
-        )}
-
-        {/* Content */}
-        <div className="bg-white rounded-3xl border border-gray-100 min-h-[400px] overflow-hidden shadow-sm">
-          {loading ? (
-            <div className="flex items-center justify-center h-[400px]">
-              <div className="text-center">
-                <Loader2 className="w-8 h-8 animate-spin text-brand-500 mx-auto mb-3" />
-                <p className="text-gray-500">Loading tasks...</p>
-              </div>
-            </div>
-          ) : visible.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-[400px] text-center px-6">
-              <div className="w-20 h-20 rounded-full bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center mb-4">
-                <CircleDot className="w-10 h-10 text-gray-400" />
-              </div>
-              <p className="text-gray-600 text-lg font-medium">No tasks here</p>
-              <p className="text-gray-400 text-sm mt-1">Assigned jobs will show up on this screen.</p>
-            </div>
-          ) : (
-            <div className="p-6 sm:p-8 space-y-4">
-              {visible.map((b) => (
-                <TaskCard
-                  key={b.id}
-                  booking={b}
-                  updating={updatingId === b.id}
-                  onUpdate={updateStatus}
-                />
-              ))}
+        <main className="px-4 sm:px-6 lg:px-8 py-6 pb-24 lg:pb-10 space-y-6">
+          {error && (
+            <div className="rounded-2xl bg-red-50 border border-red-100 text-red-700 text-sm px-5 py-4 flex items-center gap-3">
+              <AlertCircle className="w-5 h-5 shrink-0" />
+              {error}
             </div>
           )}
-        </div>
-      </main>
-    </div>
-  )
-}
 
-function TaskCard({ booking, updating, onUpdate }) {
-  const items = parseItems(booking.items)
-  const meta = STATUS_META[booking.status] || STATUS_META.upcoming
-  const StatusIcon = meta.icon
-  const when = formatDateTime(booking.scheduled_at) || formatDateTime(booking.placed_at)
+          {section === 'dashboard' && (
+            <>
+              {metricCards}
+              <TrendChart days={days} />
+              <section className="space-y-4">
+                <div className="flex items-center justify-between gap-4">
+                  <h2 className="font-heading text-lg font-bold text-charcoal">Recent bookings</h2>
+                  <button
+                    onClick={() => setSection('bookings')}
+                    className="text-sm font-semibold text-terracotta hover:text-accent-600 focus:outline-none focus:ring-2 focus:ring-terracotta/40 rounded-lg px-2 py-1"
+                  >
+                    View all
+                  </button>
+                </div>
+                {renderBookingList(bookings.slice(0, 3), 'Assigned jobs will show up on this screen.')}
+              </section>
+            </>
+          )}
 
-  return (
-    <div className="bg-gradient-to-br from-gray-50 to-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden hover:shadow-md transition-shadow">
-      <div className="p-5 sm:p-6">
-        <div className="flex items-start justify-between gap-4 mb-4">
-          <div className="min-w-0 flex-1">
-            <p className="text-xs font-semibold text-gray-400 mb-1">#{booking.booking_id}</p>
-            <h3 className="font-bold text-gray-900 text-lg leading-tight">
-              {items.length > 0
-                ? items.map((it) => it.name || it.serviceName || it.title || 'Service').join(', ')
-                : 'Service'}
-            </h3>
-          </div>
-          <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold ${meta.className} shrink-0`}>
-            <StatusIcon className="w-4 h-4" />
-            {meta.label}
-          </span>
-        </div>
+          {section === 'bookings' && (
+            <>
+              {filterTabs}
+              {renderBookingList(visible, 'Assigned jobs will show up on this screen.')}
+            </>
+          )}
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3 text-sm">
-          <Detail icon={Calendar} label={booking.schedule === 'instant' ? 'ASAP' : when} />
-          {booking.cadence && <Detail icon={Clock} label={booking.cadence} />}
-          <Detail icon={User} label={booking.contact_name} />
-          <Detail icon={Phone} label={booking.contact_phone} isLink={`tel:${booking.contact_phone}`} />
-          <Detail
-            icon={MapPin}
-            label={[booking.contact_address, booking.contact_area, booking.contact_city, booking.contact_pincode]
-              .filter(Boolean)
-              .join(', ')}
-            className="sm:col-span-2"
-          />
-          <Detail
-            icon={IndianRupee}
-            label={`${Number(booking.total).toLocaleString('en-IN')} · ${booking.payment}`}
-          />
-        </div>
+          {section === 'earnings' && (
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <MetricCard icon={Wallet} label="This week" value={formatSgd(metrics.weekEarnings)} hint="Completed jobs, last 7 days" />
+                <MetricCard icon={TrendingUp} label="All time" value={formatSgd(metrics.lifetimeEarnings)} hint={`${counts.completed} completed jobs`} />
+                <MetricCard
+                  icon={CheckCircle2}
+                  label="Average per job"
+                  value={counts.completed > 0 ? formatSgd(metrics.lifetimeEarnings / counts.completed) : '—'}
+                  hint={counts.completed > 0 ? 'Across completed jobs' : 'No completed jobs yet'}
+                />
+              </div>
+              <TrendChart days={days} />
+              {renderBookingList(
+                bookings.filter((b) => b.status === 'completed'),
+                'Completed jobs and their payouts will appear here.'
+              )}
+            </>
+          )}
+
+          {section === 'schedule' && (
+            <>
+              {metricCards}
+              {renderBookingList(upcomingSorted, 'Nothing scheduled right now.')}
+            </>
+          )}
+
+          {section === 'profile' && (
+            <div className="max-w-xl space-y-4">
+              <div className="bg-white rounded-2xl border border-lightstone p-6 shadow-soft">
+                <div className="flex items-center gap-4">
+                  <span className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-accent-50 text-terracotta shrink-0">
+                    <User className="w-6 h-6" />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="font-heading text-xl font-bold text-charcoal truncate">{user?.name || 'Provider'}</p>
+                    <p className="text-sm text-warmgrey truncate">Service provider</p>
+                  </div>
+                </div>
+                <dl className="mt-6 space-y-3 text-sm">
+                  <div className="flex items-start gap-2 text-warmgrey">
+                    <Mail className="w-4 h-4 mt-0.5 shrink-0" />
+                    <dd className="break-words">{user?.email}</dd>
+                  </div>
+                  <div className="flex items-center justify-between border-t border-lightstone pt-3">
+                    <dt className="text-warmgrey">Jobs assigned</dt>
+                    <dd className="font-semibold text-charcoal">{counts.all}</dd>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <dt className="text-warmgrey">Completed</dt>
+                    <dd className="font-semibold text-charcoal">{counts.completed}</dd>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <dt className="text-warmgrey">All-time earnings</dt>
+                    <dd className="font-semibold text-charcoal">{formatSgd(metrics.lifetimeEarnings)}</dd>
+                  </div>
+                </dl>
+                <button
+                  onClick={logout}
+                  className="mt-6 w-full inline-flex items-center justify-center gap-2 rounded-xl bg-terracotta hover:bg-accent-600 text-white text-sm font-semibold py-3 focus:outline-none focus:ring-2 focus:ring-terracotta/40 transition-colors"
+                >
+                  <LogOut className="w-4 h-4" />
+                  Sign out
+                </button>
+              </div>
+            </div>
+          )}
+        </main>
       </div>
 
-      {booking.status === 'upcoming' && (
-        <div className="border-t border-gray-200 p-4 sm:p-5 bg-gray-50/50 flex flex-col sm:flex-row gap-3">
-          <button
-            disabled={updating}
-            onClick={() => onUpdate(booking.id, 'completed')}
-            className="flex-1 inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 disabled:opacity-60 text-white text-sm font-semibold py-3 transition-all shadow-sm"
-          >
-            {updating ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-            Mark completed
-          </button>
-          <button
-            disabled={updating}
-            onClick={() => onUpdate(booking.id, 'cancelled')}
-            className="inline-flex items-center justify-center gap-2 rounded-xl bg-white border border-gray-300 hover:bg-gray-100 disabled:opacity-60 text-gray-700 text-sm font-semibold px-6 py-3 transition-all"
-          >
-            <XCircle className="w-4 h-4" />
-            Cancel
-          </button>
-        </div>
-      )}
-    </div>
-  )
-}
-
-function Detail({ icon: Icon, label, className = '', isLink }) {
-  if (!label) return null
-  return (
-    <div className={`flex items-start gap-2 text-neutral-600 ${className}`}>
-      <Icon className="w-4 h-4 mt-0.5 text-neutral-400 shrink-0" />
-      {isLink ? (
-        <a href={isLink} className="hover:text-brand-700 break-words">{label}</a>
-      ) : (
-        <span className="break-words">{label}</span>
-      )}
+      <MobileTabBar section={section} onSelect={setSection} />
     </div>
   )
 }

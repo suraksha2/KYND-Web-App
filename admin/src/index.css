@@ -5,8 +5,8 @@
 html, body, #root { min-height: 100%; }
 
 body {
-  font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  font-family: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
-  color: #0f172a;
-  background: #f7f7f5;
+  color: #2B2926;
+  background: #F5F1EA;
 }

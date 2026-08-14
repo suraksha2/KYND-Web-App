@@ -1,29 +1,19 @@
 import { useEffect } from 'react'
-import { Outlet, useLocation, useNavigate } from 'react-router-dom'
-import {
-  IonTabBar,
-  IonTabButton,
-  IonIcon,
-  IonLabel,
-  IonBadge,
-} from '@ionic/react'
-import {
-  homeOutline,
-  sparklesOutline,
-  cartOutline,
-  personCircleOutline,
-} from 'ionicons/icons'
+import { Outlet, useLocation, useMatch, useNavigate } from 'react-router-dom'
+import { Home, CalendarDays, MessageSquare, User } from 'lucide-react'
 import Header from '../components/Header'
 import Footer from '../components/Footer'
-import { useCart } from '../context/CartContext'
 import { useAuth } from '../context/AuthContext'
 
 export default function MainLayout() {
   const { pathname, hash } = useLocation()
   const navigate = useNavigate()
-  const { items } = useCart() || { items: [] }
   const { isAuthenticated } = useAuth()
-  const cartCount = (items || []).reduce((sum, i) => sum + (i.qty || 1), 0)
+
+  // Service detail has its own inline back button and hero, so the global header
+  // is hidden there to match the native app design.
+  const isServiceDetail = useMatch('/services/:slug')
+  const isHelpDetail = useMatch('/help/:id')
 
   useEffect(() => {
     if (hash) {
@@ -34,43 +24,56 @@ export default function MainLayout() {
   }, [pathname, hash])
 
   const tabs = [
-    { tab: 'home',     path: '/',                                  icon: homeOutline,           label: 'Home' },
-    { tab: 'services', path: '/services',                          icon: sparklesOutline,       label: 'Services' },
-    { tab: 'cart',     path: '/cart',                              icon: cartOutline,           label: 'Cart' },
-    { tab: 'account',  path: isAuthenticated ? '/account' : '/login', icon: personCircleOutline, label: 'Account' },
+    { tab: 'home',     path: '/',                                     icon: Home,          label: 'Home',     match: ['/'] },
+    { tab: 'bookings', path: '/bookings',                             icon: CalendarDays,  label: 'Bookings', match: ['/bookings', '/cart', '/checkout', '/booking'] },
+    { tab: 'messages', path: '/support',                              icon: MessageSquare, label: 'Messages', match: ['/support'] },
+    { tab: 'profile',  path: isAuthenticated ? '/account' : '/login', icon: User,          label: 'Profile',  match: ['/account', '/login', '/signup'] },
   ]
 
-  const activeTab =
-    tabs.find((t) => t.path !== '/' && pathname.startsWith(t.path))?.tab ||
-    (pathname === '/login' || pathname === '/signup' || pathname === '/account' ? 'account' : '') ||
-    (pathname === '/' ? 'home' : '')
+  const activeTab = tabs.find((t) =>
+    t.match.some((m) => (m === '/' ? pathname === '/' : pathname.startsWith(m)))
+  )?.tab
 
   return (
     <div className="min-h-full flex flex-col">
-      <Header />
-      <main className="flex-1 pb-20 md:pb-0">
+      {!isServiceDetail && !isHelpDetail && <Header />}
+      <main className="flex-1">
         <Outlet />
       </main>
       <Footer />
 
-      {/* Ionic bottom tab bar — mobile only (native-feel nav) */}
-      <div className="md:hidden fixed bottom-0 inset-x-0 z-40 border-t border-neutral-200 bg-white tabbar-safe">
-        <IonTabBar selectedTab={activeTab}>
-          {tabs.map((t) => (
-            <IonTabButton
-              key={t.tab}
-              tab={t.tab}
-              onClick={() => navigate(t.path)}
-            >
-              <IonIcon icon={t.icon} />
-              <IonLabel>{t.label}</IonLabel>
-              {t.tab === 'cart' && cartCount > 0 && (
-                <IonBadge color="success">{cartCount}</IonBadge>
-              )}
-            </IonTabButton>
-          ))}
-        </IonTabBar>
-      </div>
+      {/* Mobile-only bottom tab bar (native app feel) */}
+      <nav
+        aria-label="Primary"
+        className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-white/95 backdrop-blur-sm rounded-t-[26px] border-t border-lightstone/60 shadow-[0_-10px_30px_-14px_rgba(74,46,31,0.25)] tabbar-safe"
+      >
+        <ul className="grid grid-cols-4">
+          {tabs.map(({ tab, path, icon: Icon, label }) => {
+            const active = activeTab === tab
+            return (
+              <li key={tab}>
+                <button
+                  type="button"
+                  onClick={() => navigate(path)}
+                  aria-current={active ? 'page' : undefined}
+                  className={`w-full min-h-[76px] flex flex-col items-center justify-center gap-1.5 pt-3.5 pb-3 transition ${
+                    active ? 'text-terracotta' : 'text-warmgrey/70'
+                  }`}
+                >
+                  <Icon
+                    className="w-[22px] h-[22px]"
+                    strokeWidth={active ? 2 : 1.75}
+                    fill={active ? 'currentColor' : 'none'}
+                  />
+                  <span className={`text-[11px] leading-none ${active ? 'font-bold' : 'font-medium'}`}>
+                    {label}
+                  </span>
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      </nav>
     </div>
   )
 }

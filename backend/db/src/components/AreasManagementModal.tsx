@@ -149,35 +149,35 @@ export default function AreasManagementModal({ open, city, onClose, onChanged }:
 
   return (
     <ModalPortal>
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="flex max-h-[90vh] w-full max-w-2xl flex-col rounded-2xl bg-white shadow-xl border border-gray-100 overflow-hidden">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 shrink-0">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-charcoal/50 p-4">
+      <div className="flex max-h-[90vh] w-full max-w-2xl flex-col rounded-2xl bg-white shadow-xl border border-lightstone overflow-hidden">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-lightstone shrink-0">
           <div>
-            <h2 className="text-base font-bold text-gray-900">Manage Areas - {city.cityName}</h2>
-            <p className="text-xs text-gray-400 mt-0.5">
+            <h2 className="text-base font-bold text-charcoal">Manage Areas - {city.cityName}</h2>
+            <p className="text-xs text-warmgrey mt-0.5">
               {areas.length} area{areas.length !== 1 ? "s" : ""} configured
             </p>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 hover:bg-gray-100 rounded-lg transition"
+            className="p-1.5 hover:bg-accent-50 rounded-lg transition"
           >
-            <X size={16} className="text-gray-400" />
+            <X size={16} className="text-warmgrey" />
           </button>
         </div>
 
         <div className="flex-1 overflow-y-auto px-6 py-5">
           {error && (
-            <div className="mb-4 px-4 py-3 bg-red-50 text-red-600 text-sm rounded-lg border border-red-100">
+            <div className="mb-4 px-4 py-3 bg-dustyrose/10 text-rosewood text-sm rounded-lg border border-dustyrose/20">
               {error}
             </div>
           )}
 
           {/* Add/Edit Form */}
-          <form onSubmit={handleSubmit} className="mb-6 p-4 bg-gray-50 rounded-2xl border border-gray-100">
+          <form onSubmit={handleSubmit} className="mb-6 p-4 bg-gray-50 rounded-2xl border border-lightstone">
             <div className="flex items-center gap-2 mb-3">
-              <MapPin size={18} className="text-indigo-600" />
-              <h3 className="text-sm font-semibold text-gray-700">
+              <MapPin size={18} className="text-terracotta" />
+              <h3 className="text-sm font-semibold text-warmgrey">
                 {editingId ? "Edit Area" : "Add New Area"}
               </h3>
             </div>
@@ -186,7 +186,7 @@ export default function AreasManagementModal({ open, city, onClose, onChanged }:
                 <input
                   value={form.areaName}
                   onChange={(e) => setForm({ ...form, areaName: e.target.value })}
-                  className="w-full rounded-xl border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-300 transition-all border-gray-300"
+                  className="w-full rounded-xl border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-terracotta/30 focus:border-terracotta transition-all border-lightstone"
                   placeholder="Area name (e.g., Indiranagar)"
                 />
               </div>
@@ -194,7 +194,7 @@ export default function AreasManagementModal({ open, city, onClose, onChanged }:
                 <input
                   value={form.pincode}
                   onChange={(e) => setForm({ ...form, pincode: e.target.value })}
-                  className="w-full rounded-xl border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-300 transition-all border-gray-300"
+                  className="w-full rounded-xl border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-terracotta/30 focus:border-terracotta transition-all border-lightstone"
                   placeholder="Pincode (optional)"
                 />
               </div>
@@ -202,7 +202,7 @@ export default function AreasManagementModal({ open, city, onClose, onChanged }:
                 <select
                   value={form.status}
                   onChange={(e) => setForm({ ...form, status: e.target.value as "active" | "inactive" })}
-                  className="w-full rounded-xl border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-300 transition-all border-gray-300"
+                  className="w-full rounded-xl border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-terracotta/30 focus:border-terracotta transition-all border-lightstone"
                 >
                   <option value="active">Active</option>
                   <option value="inactive">Inactive</option>
@@ -213,7 +213,7 @@ export default function AreasManagementModal({ open, city, onClose, onChanged }:
               <button
                 type="submit"
                 disabled={saving}
-                className="flex-1 sm:flex-none px-4 py-2 text-sm font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-sm transition disabled:opacity-60"
+                className="flex-1 sm:flex-none px-4 py-2 text-sm font-semibold bg-terracotta hover:bg-accent-700 text-white rounded-xl shadow-sm transition disabled:opacity-60"
               >
                 {saving ? "Saving..." : editingId ? "Update" : "Add Area"}
               </button>
@@ -221,7 +221,7 @@ export default function AreasManagementModal({ open, city, onClose, onChanged }:
                 <button
                   type="button"
                   onClick={cancelEdit}
-                  className="px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-100 rounded-xl transition"
+                  className="px-4 py-2 text-sm font-semibold text-warmgrey hover:bg-accent-50 rounded-xl transition"
                 >
                   Cancel
                 </button>
@@ -231,11 +231,11 @@ export default function AreasManagementModal({ open, city, onClose, onChanged }:
 
           {/* Areas List */}
           {loading ? (
-            <div className="flex items-center justify-center py-8 text-gray-400 text-sm">
+            <div className="flex items-center justify-center py-8 text-warmgrey text-sm">
               Loading areas...
             </div>
           ) : areas.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-8 text-gray-400 gap-2">
+            <div className="flex flex-col items-center justify-center py-8 text-warmgrey gap-2">
               <MapPin size={32} className="opacity-40" />
               <p className="text-sm">No areas configured yet</p>
             </div>
@@ -247,21 +247,21 @@ export default function AreasManagementModal({ open, city, onClose, onChanged }:
                   className={clsx(
                     "flex items-center justify-between p-3 rounded-xl border transition",
                     area.status === "active"
-                      ? "bg-white border-gray-100 hover:border-indigo-200"
-                      : "bg-gray-50 border-gray-200 opacity-70"
+                      ? "bg-white border-lightstone hover:border-indigo-200"
+                      : "bg-gray-50 border-lightstone opacity-70"
                   )}
                 >
                   <div className="flex items-center gap-3">
                     <div className={clsx(
                       "w-8 h-8 rounded-full flex items-center justify-center",
-                      area.status === "active" ? "bg-indigo-100 text-indigo-600" : "bg-gray-200 text-gray-500"
+                      area.status === "active" ? "bg-accent-100 text-terracotta" : "bg-lightstone text-warmgrey"
                     )}>
                       <MapPin size={16} />
                     </div>
                     <div>
-                      <p className="font-medium text-gray-900">{area.areaName}</p>
+                      <p className="font-medium text-charcoal">{area.areaName}</p>
                       {area.pincode && (
-                        <p className="text-xs text-gray-500">{area.pincode}</p>
+                        <p className="text-xs text-warmgrey">{area.pincode}</p>
                       )}
                     </div>
                   </div>
@@ -270,15 +270,15 @@ export default function AreasManagementModal({ open, city, onClose, onChanged }:
                       className={clsx(
                         "px-2 py-1 text-xs font-semibold rounded-full",
                         area.status === "active"
-                          ? "bg-green-100 text-green-700"
-                          : "bg-gray-200 text-gray-600"
+                          ? "bg-sage/10 text-sage"
+                          : "bg-lightstone text-warmgrey"
                       )}
                     >
                       {area.status}
                     </span>
                     <button
                       onClick={() => startEdit(area)}
-                      className="p-1.5 text-indigo-500 hover:bg-indigo-100 rounded-lg transition"
+                      className="p-1.5 text-terracotta hover:bg-accent-100 rounded-lg transition"
                       title="Edit"
                     >
                       <Pencil size={14} />
@@ -286,7 +286,7 @@ export default function AreasManagementModal({ open, city, onClose, onChanged }:
                     <button
                       onClick={() => handleDelete(area.id)}
                       disabled={deletingId === area.id}
-                      className="p-1.5 text-red-500 hover:bg-red-100 rounded-lg transition disabled:opacity-50"
+                      className="p-1.5 text-rosewood hover:bg-dustyrose/10 rounded-lg transition disabled:opacity-50"
                       title="Delete"
                     >
                       <Trash2 size={14} />

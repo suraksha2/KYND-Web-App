@@ -93,6 +93,7 @@ function isPublicApi(pathname: string, method: string): boolean {
     if (/^\/api\/city-services(\/.+)?$/.test(pathname)) return true
     if (/^\/api\/city-areas$/.test(pathname)) return true
     if (/^\/api\/service-categories(\/[^/]+)?$/.test(pathname)) return true
+    if (/^\/api\/service-subcategories(\/[^/]+)?$/.test(pathname)) return true
     // Customers verify their own payment status (client_secret already on client).
     if (/^\/api\/payments\/[^/]+$/.test(pathname)) return true
   }
@@ -132,6 +133,10 @@ export async function middleware(request: NextRequest) {
       )
     }
     if (!hasAdminAccess(session.role)) {
+      // Customers can read their own bookings; the route filters by user_id.
+      if (pathname === '/api/bookings' && method === 'GET') {
+        return applyCors(NextResponse.next(), origin)
+      }
       return applyCors(
         NextResponse.json({ error: 'Admin access required.' }, { status: 403 }),
         origin

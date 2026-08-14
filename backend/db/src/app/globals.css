@@ -3,7 +3,10 @@
 @tailwind utilities;
 
 body {
-  @apply bg-gray-50 text-gray-900;
+  font-family: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  color: #2B2926;
+  background: #F5F1EA;
 }
 
 /* Custom scrollbar */
@@ -11,9 +14,9 @@ body {
   width: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #1e293b;
+  background: #F5F1EA;
 }
 ::-webkit-scrollbar-thumb {
-  background: #475569;
+  background: #D6CEC2;
   border-radius: 3px;
 }

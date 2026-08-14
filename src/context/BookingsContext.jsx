@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { API_BASE } from '../lib/api'
+import { useAuth } from './AuthContext'
 
 const BookingsContext = createContext(null)
 const STORAGE_KEY = 'kynd.bookings.v1'
@@ -12,37 +13,102 @@ const readStore = () => {
 }
 
 /**
- * Booking shape:
- * {
- *   bookingId, items: [{slug,name,img,priceFrom,qty,duration}], total,
- *   schedule: 'instant'|'scheduled'|'recurring', scheduledAt, cadence,
- *   contact: { name, phone, address, city, pincode },
- *   payment, placedAt,
- *   status: 'upcoming' | 'completed' | 'cancelled',
- *   history: [{ at, type, note }],
- *   provider: { id, name, mobile, city, rating, totalJobs }
- * }
+ * Transform a raw MySQL booking row into the camelCase shape the UI expects.
  */
+function transformBooking(row) {
+  const parseJson = (v) => {
+    if (!v) return []
+    try { return typeof v === 'string' ? JSON.parse(v) : v } catch { return [] }
+  }
+  return {
+    id: row.id,
+    bookingId: row.booking_id,
+    items: parseJson(row.items),
+    total: Number(row.total),
+    schedule: row.schedule,
+    scheduledAt: row.scheduled_at,
+    cadence: row.cadence,
+    contact: {
+      name: row.contact_name,
+      phone: row.contact_phone,
+      address: row.contact_address,
+      city: row.contact_city,
+      pincode: row.contact_pincode,
+      area: row.contact_area
+    },
+    payment: row.payment,
+    placedAt: row.placed_at,
+    status: row.status,
+    history: parseJson(row.history)
+  }
+}
 
 export function BookingsProvider({ children }) {
-  const [bookings, setBookings] = useState(readStore)
+  const { user, token, expireSession } = useAuth()
+  // Logged-in users start empty; the API will populate. Unauth users fall back to localStorage.
+  const [bookings, setBookings] = useState(() => (user?.id ? [] : readStore()))
 
   useEffect(() => {
+    if (user?.id) return
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(bookings)) } catch {}
-  }, [bookings])
+  }, [bookings, user?.id])
 
-  const addBooking = useCallback((order) => {
+  // Load real data from the API when a user is authenticated
+  useEffect(() => {
+    if (!user?.id || !token) return
+    const fetchBookings = async () => {
+      try {
+        const response = await fetch(`${API_BASE}/bookings`, {
+          headers: { 'Authorization': `Bearer ${token}` },
+          credentials: 'include'
+        })
+        // The session died server-side (expired or revoked): drop it so the UI
+        // stops claiming to be signed in, and fall back to the local list.
+        if (response.status === 401) {
+          setBookings(readStore())
+          expireSession()
+          return
+        }
+        const json = await response.json()
+        if (response.ok && Array.isArray(json.data)) {
+          setBookings(json.data.map(transformBooking))
+        } else {
+          console.error('Failed to fetch bookings:', json.error)
+        }
+      } catch (error) {
+        console.error('Error fetching bookings:', error)
+      }
+    }
+    fetchBookings()
+  }, [user?.id, token, expireSession])
+
+  const addBooking = useCallback(async (order) => {
     const booking = {
       ...order,
       status: 'upcoming',
       history: [{ at: new Date().toISOString(), type: 'created', note: 'Booking placed' }],
     }
     setBookings(prev => [booking, ...prev])
+
+    if (!user?.id) return booking
+
+    try {
+      // Re-fetch from API to sync with the backend booking.
+      const res = await fetch(`${API_BASE}/bookings`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+        credentials: 'include'
+      })
+      const json = await res.json()
+      if (res.ok && Array.isArray(json.data)) {
+        setBookings(json.data.map(transformBooking))
+      }
+    } catch (error) {
+      console.error('Failed to sync bookings:', error)
+    }
     return booking
-  }, [])
+  }, [user?.id, token])
 
   const cancelBooking = useCallback(async (bookingId, reason = '') => {
-    // First update local state for immediate UI feedback
     setBookings(prev => prev.map(b => b.bookingId === bookingId
       ? {
           ...b,
@@ -54,14 +120,14 @@ export function BookingsProvider({ children }) {
       : b
     ))
 
-    // Then sync with backend
     try {
       const booking = bookings.find(b => b.bookingId === bookingId)
       if (!booking?.id) return
 
       const response = await fetch(`${API_BASE}/bookings/${booking.id}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        credentials: 'include',
         body: JSON.stringify({ status: 'cancelled', reason })
       })
 
@@ -71,7 +137,7 @@ export function BookingsProvider({ children }) {
     } catch (error) {
       console.error('Error cancelling booking:', error)
     }
-  }, [bookings])
+  }, [bookings, token])
 
   const rescheduleBooking = useCallback((bookingId, newAt) => {
     setBookings(prev => prev.map(b => b.bookingId === bookingId

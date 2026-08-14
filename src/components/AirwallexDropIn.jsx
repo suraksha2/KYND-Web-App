@@ -75,15 +75,15 @@ export default function AirwallexDropIn({ intentId, clientSecret, currency, coun
   return (
     <div>
       {loading && (
-        <div className="flex items-center justify-center gap-2 py-8 text-sm text-neutral-500">
+        <div className="flex items-center justify-center gap-2 py-8 text-sm text-warmgrey">
           <Loader2 className="w-4 h-4 animate-spin" /> Redirecting to secure payment…
         </div>
       )}
       {error && (
         <div className="mb-3 rounded-lg bg-red-50 text-red-700 text-sm px-3 py-2">{error}</div>
       )}
-      <p className="mt-3 flex items-center gap-1.5 text-[11px] text-neutral-500">
-        <ShieldCheck className="w-3.5 h-3.5 text-brand-600" /> Payments are securely processed by Airwallex.
+      <p className="mt-3 flex items-center gap-1.5 text-[11px] text-warmgrey">
+        <ShieldCheck className="w-3.5 h-3.5 text-accent-600" /> Payments are securely processed by Airwallex.
       </p>
     </div>
   )

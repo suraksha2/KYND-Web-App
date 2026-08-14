@@ -25,7 +25,7 @@ function CityCard({ city }) {
       className="group relative block rounded-2xl overflow-hidden aspect-[4/3] shadow-soft ring-1 ring-black/5"
     >
       {/* gradient fallback layer */}
-      <div className="absolute inset-0 bg-gradient-to-br from-brand-700 via-brand-600 to-brand-800" />
+      <div className="absolute inset-0 bg-gradient-to-br from-accent-700 via-accent-600 to-accent-800" />
 
       {!errored && (
         <img
@@ -50,12 +50,12 @@ function CityCard({ city }) {
   )
 }
 
-export default function CitiesGrid({ title = 'Available in 15 Indian cities', className = '', filteredCities = null }) {
+export default function CitiesGrid({ title = 'Available in Singapore', className = '', filteredCities = null }) {
   const citiesToShow = filteredCities || cities
   return (
     <section className={`py-14 ${className}`}>
       <div className="max-w-6xl mx-auto px-6">
-        <h2 className="text-3xl md:text-5xl font-extrabold tracking-tight text-neutral-900">
+        <h2 className="font-heading text-3xl md:text-5xl font-extrabold tracking-tight text-charcoal">
           {title}
         </h2>
         <div className="mt-8 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 md:gap-4">

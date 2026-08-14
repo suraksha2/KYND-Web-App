@@ -3,11 +3,11 @@
 import { useState, useEffect } from "react";
 
 const colorPalette = [
-  { bar: "bg-indigo-500", badge: "bg-indigo-50 text-indigo-600" },
-  { bar: "bg-emerald-500", badge: "bg-emerald-50 text-emerald-600" },
-  { bar: "bg-amber-500", badge: "bg-amber-50 text-amber-600" },
-  { bar: "bg-rose-500", badge: "bg-rose-50 text-rose-600" },
-  { bar: "bg-sky-500", badge: "bg-sky-50 text-sky-600" },
+  { bar: "bg-terracotta", badge: "bg-accent-50 text-terracotta" },
+  { bar: "bg-sage",       badge: "bg-sage/10 text-sage" },
+  { bar: "bg-dustyrose",  badge: "bg-dustyrose/10 text-rosewood" },
+  { bar: "bg-terracotta", badge: "bg-accent-50 text-terracotta" },
+  { bar: "bg-sage",       badge: "bg-sage/10 text-sage" },
 ];
 
 export default function TopServices() {
@@ -41,14 +41,14 @@ export default function TopServices() {
   return (
     <div className="h-full flex flex-col">
       <div className="mb-5">
-        <h2 className="text-sm font-semibold text-gray-900">Top Services</h2>
-        <p className="text-xs text-gray-400 mt-0.5">By booking volume</p>
+        <h2 className="text-sm font-semibold text-charcoal">Top Services</h2>
+        <p className="text-xs text-warmgrey mt-0.5">By booking volume</p>
       </div>
       {loading ? (
         <div className="flex-1 flex items-center justify-center">
           <div className="flex gap-1.5">
             {[0,1,2].map(i => (
-              <div key={i} className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-bounce" style={{ animationDelay: `${i * 0.15}s` }} />
+              <div key={i} className="w-1.5 h-1.5 rounded-full bg-terracotta animate-bounce" style={{ animationDelay: `${i * 0.15}s` }} />
             ))}
           </div>
         </div>
@@ -57,12 +57,12 @@ export default function TopServices() {
           {services.map((svc, i) => (
             <div key={i}>
               <div className="flex items-center justify-between mb-1.5">
-                <span className="text-xs font-medium text-gray-700 truncate max-w-[65%]">{svc.name}</span>
+                <span className="text-xs font-medium text-warmgrey truncate max-w-[65%]">{svc.name}</span>
                 <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-md ${svc.color.badge}`}>
                   {svc.count}
                 </span>
               </div>
-              <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+              <div className="h-1.5 bg-accent-50 rounded-full overflow-hidden">
                 <div
                   className={`h-full rounded-full transition-all duration-700 ${svc.color.bar}`}
                   style={{ width: `${svc.pct}%` }}

@@ -16,21 +16,21 @@ export default function Faq() {
   ]
   const [open, setOpen] = useState(0)
   return (
-    <section id="faq" className="py-16 bg-neutral-50">
+    <section id="faq" className="py-16 bg-warmlinen">
       <div className="max-w-3xl mx-auto px-6">
-        <h2 className="text-center text-3xl md:text-4xl font-extrabold text-neutral-900">Frequently Asked<br />Questions</h2>
+        <h2 className="font-heading text-center text-3xl md:text-4xl font-extrabold text-charcoal">Frequently Asked<br />Questions</h2>
         <div className="mt-8 space-y-3">
           {items.map((it, i) => {
             const isOpen = open === i
             return (
-              <div key={i} className="rounded-2xl bg-white border border-neutral-100">
+              <div key={i} className="rounded-2xl bg-white border border-lightstone">
                 <button onClick={() => setOpen(isOpen ? -1 : i)} className="w-full flex items-center justify-between gap-4 px-5 py-4 text-left">
-                  <span className="font-medium text-neutral-900 text-sm">{it.q}</span>
-                  <span className={`w-7 h-7 grid place-items-center rounded-full bg-neutral-900 text-white transition ${isOpen ? 'rotate-180' : ''}`}>
+                  <span className="font-medium text-charcoal text-sm">{it.q}</span>
+                  <span className={`w-7 h-7 grid place-items-center rounded-full bg-charcoal text-white transition ${isOpen ? 'rotate-180' : ''}`}>
                     <ChevronDown className="w-4 h-4" />
                   </span>
                 </button>
-                {isOpen && <div className="px-5 pb-5 text-sm text-neutral-600 -mt-1">{it.a}</div>}
+                {isOpen && <div className="px-5 pb-5 text-sm text-warmgrey -mt-1">{it.a}</div>}
               </div>
             )
           })}

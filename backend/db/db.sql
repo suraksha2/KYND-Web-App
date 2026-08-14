@@ -11,6 +11,28 @@ CREATE TABLE IF NOT EXISTS service_categories (
   updatedAt DATETIME
 );
 
+-- Service Subcategories table (e.g. "New baby moment" under a parent category like "Childcare")
+CREATE TABLE IF NOT EXISTS service_subcategories (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  category VARCHAR(100),            -- parent category name, e.g. "Tutor"
+  label VARCHAR(255) NOT NULL,      -- display label, e.g. "Back to school moment"
+  title VARCHAR(255) NOT NULL,      -- card title, e.g. "Back to school"
+  image VARCHAR(255),               -- image path
+  sort_order INT DEFAULT 0,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+-- Link subcategories to the services they contain
+CREATE TABLE IF NOT EXISTS service_subcategory_services (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  subcategory_id INT NOT NULL,
+  service_id INT NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (subcategory_id) REFERENCES service_subcategories(id) ON DELETE CASCADE,
+  FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE CASCADE
+);
+
 -- Cities table
 CREATE TABLE IF NOT EXISTS cities (
   id INT AUTO_INCREMENT PRIMARY KEY,
@@ -167,10 +189,15 @@ CREATE TABLE IF NOT EXISTS bookings (
   payment VARCHAR(50) NOT NULL,
   placed_at DATETIME NOT NULL,
   status ENUM('upcoming', 'completed', 'cancelled') DEFAULT 'upcoming',
+  user_id INT,
   provider_id INT,
   assigned_at DATETIME,
   history JSON,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  FOREIGN KEY (provider_id) REFERENCES service_providers(id) ON DELETE SET NULL
+  FOREIGN KEY (provider_id) REFERENCES service_providers(id) ON DELETE SET NULL,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
 );
+
+-- Migration: add user_id to existing bookings table
+ALTER TABLE bookings ADD COLUMN IF NOT EXISTS user_id INT;

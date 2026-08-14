@@ -32,8 +32,8 @@ export default function AdminLayout({
 
   if (isChecking) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+      <div className="min-h-screen flex items-center justify-center bg-warmlinen">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-terracotta"></div>
       </div>
     );
   }
@@ -47,7 +47,7 @@ export default function AdminLayout({
       <Sidebar />
       <div className="flex flex-col flex-1 overflow-hidden">
         <Header />
-        <main className="flex-1 overflow-y-auto p-6">{children}</main>
+        <main className="flex-1 overflow-y-auto p-6 bg-warmlinen">{children}</main>
       </div>
     </div>
   );

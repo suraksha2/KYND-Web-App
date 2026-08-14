@@ -10,10 +10,10 @@ export async function initNative() {
   document.documentElement.classList.add('native', `platform-${Capacitor.getPlatform()}`)
 
   try {
-    // Light status bar with dark icons over the white app background
+    // Light status bar with dark icons over the warm linen app background
     await StatusBar.setStyle({ style: Style.Light })
     if (Capacitor.getPlatform() === 'android') {
-      await StatusBar.setBackgroundColor({ color: '#ffffff' })
+      await StatusBar.setBackgroundColor({ color: '#F5F1EA' })
       // We handle the inset via CSS env(safe-area-inset-top)
       await StatusBar.setOverlaysWebView({ overlay: true })
     }
