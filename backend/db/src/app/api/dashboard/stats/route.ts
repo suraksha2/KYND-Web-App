@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import pool from "@/lib/mysql";
 
+// Reads live data (DB / filesystem) on every request — never prerender.
+export const dynamic = 'force-dynamic'
+
 export async function GET() {
   try {
     // Total revenue from completed bookings

@@ -3,6 +3,9 @@ import pool from "@/lib/mysql";
 
 const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
+// Reads live data (DB / filesystem) on every request — never prerender.
+export const dynamic = 'force-dynamic'
+
 export async function GET() {
   try {
     // 1. Monthly revenue + orders (last 12 months, all statuses for orders, completed for revenue)

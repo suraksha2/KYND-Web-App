@@ -4,6 +4,9 @@ import path from "path";
 
 const DATA_PATH = path.join(process.cwd(), "data", "client-categories.json");
 
+// Reads live data (DB / filesystem) on every request — never prerender.
+export const dynamic = 'force-dynamic'
+
 export async function GET() {
   try {
     const data = await fs.readFile(DATA_PATH, "utf-8");

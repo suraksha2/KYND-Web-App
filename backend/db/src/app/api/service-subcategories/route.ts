@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { getServiceSubcategories } from "@/lib/service-subcategories-db";
 
+// Reads live data (DB / filesystem) on every request — never prerender.
+export const dynamic = 'force-dynamic'
+
 export async function GET() {
   try {
     const subcategories = await getServiceSubcategories();

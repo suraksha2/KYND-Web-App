@@ -115,6 +115,11 @@ Import the schema/seed data:
 mysql -u helpr -p urban_service < /var/www/helpr/backend/db/db.sql
 ```
 
+> Watch for output here — `mysql` **aborts at the first error** and leaves a
+> partially created schema, which then shows up later as `500`s from `/api/*`.
+> A clean import prints nothing. Verify with
+> `mysql -u helpr -p urban_service -e "SHOW TABLES"` (expect 16 tables).
+
 ---
 
 ## 5. IMPORTANT — Fix the hardcoded API URL in the frontend

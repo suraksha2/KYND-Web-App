@@ -5,6 +5,9 @@ import {
 } from "@/lib/service-categories-db";
 import { CreateServiceCategoryInput } from "@/lib/service-category-types";
 
+// Reads live data (DB / filesystem) on every request — never prerender.
+export const dynamic = 'force-dynamic'
+
 export async function GET() {
   try {
     const categories = await getServiceCategories();

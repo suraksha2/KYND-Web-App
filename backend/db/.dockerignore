@@ -1,0 +1,12 @@
+node_modules
+# `.next*` also covers local backup/scratch copies of the build cache.
+.next*
+.git
+.env
+.env.*
+!.env.example
+*.tsbuildinfo
+.DS_Store
+*.log
+Dockerfile
+.dockerignore

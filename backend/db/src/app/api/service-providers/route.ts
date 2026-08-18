@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/lib/mysql';
 import bcrypt from 'bcryptjs';
 
+// Reads live data (DB / filesystem) on every request — never prerender.
+export const dynamic = 'force-dynamic'
+
 // GET all service providers
 export async function GET() {
   try {

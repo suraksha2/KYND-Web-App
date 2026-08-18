@@ -23,22 +23,16 @@ CREATE TABLE IF NOT EXISTS service_subcategories (
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
--- Link subcategories to the services they contain
-CREATE TABLE IF NOT EXISTS service_subcategory_services (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  subcategory_id INT NOT NULL,
-  service_id INT NOT NULL,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (subcategory_id) REFERENCES service_subcategories(id) ON DELETE CASCADE,
-  FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE CASCADE
-);
-
 -- Cities table
 CREATE TABLE IF NOT EXISTS cities (
   id INT AUTO_INCREMENT PRIMARY KEY,
   cityName VARCHAR(255) NOT NULL,
   pinCode TEXT NOT NULL,
-  serviceCategoryId VARCHAR(255)
+  serviceCategoryId VARCHAR(255),
+  -- Selected and written by src/lib/cities-db.ts; without these every
+  -- /api/cities request fails with ER_BAD_FIELD_ERROR.
+  createdAt DATETIME,
+  updatedAt DATETIME
 );
 
 -- City Areas table (areas/localities per city)
@@ -65,6 +59,18 @@ CREATE TABLE IF NOT EXISTS services (
   duration VARCHAR(100),
   rating DECIMAL(3,2) DEFAULT 0.00,
   review_count INT DEFAULT 0
+);
+
+-- Link subcategories to the services they contain.
+-- Must come after `services`: MySQL cannot create a foreign key to a table
+-- that does not exist yet (ERROR 1824).
+CREATE TABLE IF NOT EXISTS service_subcategory_services (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  subcategory_id INT NOT NULL,
+  service_id INT NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (subcategory_id) REFERENCES service_subcategories(id) ON DELETE CASCADE,
+  FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE CASCADE
 );
 
 -- Clients table
@@ -128,7 +134,7 @@ CREATE TABLE IF NOT EXISTS users (
   password_hash VARCHAR(255) NOT NULL,
   role VARCHAR(50) DEFAULT 'user',
   status VARCHAR(50) DEFAULT 'active',
-  joined DATE DEFAULT CURRENT_DATE,
+  joined DATE DEFAULT (CURRENT_DATE),
   avatar VARCHAR(10),
   reset_token VARCHAR(255),
   reset_token_expiry DATETIME,
@@ -166,7 +172,7 @@ CREATE TABLE IF NOT EXISTS service_providers (
   rating DECIMAL(3,2) DEFAULT 0.00,
   total_jobs INT DEFAULT 0,
   avatar VARCHAR(255),
-  joined DATE DEFAULT CURRENT_DATE,
+  joined DATE DEFAULT (CURRENT_DATE),
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
@@ -199,8 +205,16 @@ CREATE TABLE IF NOT EXISTS bookings (
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
 );
 
--- Migration: add user_id to existing bookings table
-ALTER TABLE bookings ADD COLUMN IF NOT EXISTS user_id INT;
+-- Migration: add user_id to bookings tables created before it existed.
+-- `ADD COLUMN IF NOT EXISTS` is MariaDB-only syntax; on MySQL 8 it is a syntax
+-- error (1064) that aborts the whole script, so guard on information_schema.
+SET @stmt := IF(
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'bookings'
+      AND COLUMN_NAME = 'user_id') = 0,
+  'ALTER TABLE bookings ADD COLUMN user_id INT',
+  'DO 0');
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- Reviews table for customer feedback on service providers
 CREATE TABLE IF NOT EXISTS reviews (
@@ -218,4 +232,11 @@ CREATE TABLE IF NOT EXISTS reviews (
   FOREIGN KEY (provider_id) REFERENCES service_providers(id) ON DELETE SET NULL
 );
 
-ALTER TABLE service_providers ADD COLUMN IF NOT EXISTS review_count INT DEFAULT 0;
+-- Migration: add review_count to pre-existing service_providers tables.
+SET @stmt := IF(
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'service_providers'
+      AND COLUMN_NAME = 'review_count') = 0,
+  'ALTER TABLE service_providers ADD COLUMN review_count INT DEFAULT 0',
+  'DO 0');
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;

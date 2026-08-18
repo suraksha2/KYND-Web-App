@@ -1,0 +1,20 @@
+# Shared by the storefront/admin/provider image builds (context = repo root).
+**/node_modules
+**/dist
+# `.next*` also covers local backup/scratch copies of the build cache.
+**/.next*
+.git
+.gitignore
+android
+ios
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+.DS_Store
+**/.DS_Store
+*.log
+**/*.tsbuildinfo
+*.md

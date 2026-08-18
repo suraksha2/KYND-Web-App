@@ -1,0 +1,21 @@
+# Generic build for the three Vite SPAs in this repo (storefront `.`, `admin`,
+# `provider`). Build context is the repo root; pick the app with APP_DIR.
+#
+#   docker build -f docker/Dockerfile.web --build-arg APP_DIR=admin .
+FROM node:20-alpine AS builder
+ARG APP_DIR=.
+# Baked into the bundle at build time (Vite inlines import.meta.env).
+ARG VITE_API_BASE=/api
+WORKDIR /app
+
+COPY ${APP_DIR}/package.json ${APP_DIR}/package-lock.json ./
+RUN npm ci
+
+COPY ${APP_DIR}/ ./
+ENV VITE_API_BASE=${VITE_API_BASE}
+RUN npm run build
+
+FROM nginx:1.27-alpine AS runner
+COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=builder /app/dist /usr/share/nginx/html
+EXPOSE 80

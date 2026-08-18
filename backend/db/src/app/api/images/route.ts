@@ -4,6 +4,9 @@ import path from "path";
 
 const IMAGE_EXTENSIONS = [".webp", ".png", ".jpg", ".jpeg", ".svg", ".gif", ".avif"];
 
+// Reads live data (DB / filesystem) on every request — never prerender.
+export const dynamic = 'force-dynamic'
+
 export async function GET() {
   try {
     const dir = path.join(process.cwd(), "public", "images");
