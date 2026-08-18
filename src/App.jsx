@@ -1,6 +1,8 @@
-import { Routes, Route, Navigate } from 'react-router-dom'
-import { useEffect } from 'react'
+import { Routes, Route, Navigate, useNavigate } from 'react-router-dom'
+import { useEffect, useState } from 'react'
 import { useAuth } from './context/AuthContext'
+import Launch from './pages/Launch'
+import { hasLaunched } from './lib/launch'
 // import { useCart } from './context/CartContext'
 import MainLayout from './layouts/MainLayout'
 import Home from './pages/Home'
@@ -27,9 +29,29 @@ import SubcategoryDetail from './pages/SubcategoryDetail'
 // Cart feature removed — AuthCartSync no longer required
 // function AuthCartSync() { ... }
 
+// Before launch every route renders the landing page. When the countdown hits
+// zero the app unlocks and the visitor is dropped on the home page.
+function LaunchGate({ children }) {
+  const navigate = useNavigate()
+  const [launched, setLaunched] = useState(() => hasLaunched())
+
+  useEffect(() => {
+    if (launched) return
+    const id = setInterval(() => {
+      if (!hasLaunched()) return
+      clearInterval(id)
+      setLaunched(true)
+      navigate('/', { replace: true })
+    }, 500)
+    return () => clearInterval(id)
+  }, [launched, navigate])
+
+  return launched ? children : <Launch />
+}
+
 export default function App() {
   return (
-    <>
+    <LaunchGate>
       {/* <AuthCartSync /> */}
       <Routes>
         {/* Auth pages without header */}
@@ -62,6 +84,6 @@ export default function App() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
       </Routes>
-    </>
+    </LaunchGate>
   )
 }

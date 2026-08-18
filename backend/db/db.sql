@@ -240,3 +240,13 @@ SET @stmt := IF(
   'ALTER TABLE service_providers ADD COLUMN review_count INT DEFAULT 0',
   'DO 0');
 PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- Launch waitlist signups collected by the pre-launch landing page.
+CREATE TABLE IF NOT EXISTS waitlist (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  email VARCHAR(255) NOT NULL,
+  phone VARCHAR(40),
+  source VARCHAR(50) DEFAULT 'landing',
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY unique_waitlist_email (email)
+);

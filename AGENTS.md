@@ -41,7 +41,17 @@ is written for **MySQL 8**, where:
 - expression defaults need parentheses: `DEFAULT (CURRENT_DATE)`.
 
 `mysql` aborts on the first error, so a mistake leaves a half-created schema that
-surfaces as `500`s from `/api/*`. A clean import creates **16 tables**.
+surfaces as `500`s from `/api/*`. A clean import creates **17 tables**.
+
+## Pre-launch gate
+
+`src/lib/launch.js` gates every storefront route behind a countdown rendered by
+`src/pages/Launch.jsx` (waitlist signups go to `POST /api/waitlist`, which is
+whitelisted in `backend/db/src/middleware.ts`). Set `VITE_LAUNCH_AT` to an ISO
+timestamp (e.g. `2026-11-01T10:00:00+08:00`) for the real launch date; without it
+the gate runs a 30s demo countdown, then drops the visitor on Home. The demo
+deadline is stored in `localStorage` under `kynd:launchAt`, so once it has passed
+reloads go straight to the app — clear that key to see the landing page again.
 
 ## Deployment
 

@@ -31,6 +31,17 @@ const envOrigins = (process.env.ALLOWED_ORIGINS || '')
 
 const allowedOrigins = Array.from(new Set([...devOrigins, ...envOrigins]))
 
+// Outside production, accept any loopback origin: Vite hops ports when one is
+// taken and IDE/browser previews proxy the app on a random port, which would
+// otherwise get a preflight with no Access-Control-Allow-Origin header.
+function isOriginAllowed(origin: string): boolean {
+  if (allowedOrigins.includes(origin)) return true
+  return (
+    process.env.NODE_ENV !== 'production' &&
+    /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(origin)
+  )
+}
+
 // Page routes that anyone may reach without an admin session.
 const PUBLIC_PAGES = ['/superadmin']
 
@@ -69,7 +80,7 @@ async function refreshSessionCookie(
 }
 
 function applyCors(response: NextResponse, origin: string | null): NextResponse {
-  if (origin && allowedOrigins.includes(origin)) {
+  if (origin && isOriginAllowed(origin)) {
     response.headers.set('Access-Control-Allow-Origin', origin)
   }
   response.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
@@ -106,6 +117,10 @@ function isPublicApi(pathname: string, method: string): boolean {
 
   // Customers can submit a review for their completed bookings.
   if (method === 'POST' && pathname === '/api/reviews') return true
+
+  // Pre-launch landing page joins the waitlist anonymously (reading the list
+  // stays admin-only).
+  if (method === 'POST' && pathname === '/api/waitlist') return true
 
   return false
 }
