@@ -1,105 +1,397 @@
-import { useState } from 'react'
-import { Link } from 'react-router-dom'
-import { Calendar, Clock, MapPin, ChevronRight, ShoppingBag, CheckCircle2, XCircle, Repeat, Zap } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
+import { Star, MessageCircle, Calendar, Clock, RotateCcw, Pause, SkipForward, Eye, Plus, Sparkles, X } from 'lucide-react'
 import { useBookings } from '../context/BookingsContext'
 import { useAuth } from '../context/AuthContext'
-import { iconForService } from '../lib/serviceIcon'
+import { useServices } from '../context/ServicesContext'
+import { API_BASE, serviceImageUrl } from '../lib/api'
 
-function StatusPill({ booking }) {
-  if (booking.status === 'cancelled') {
-    return <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-red-50 text-red-700"><XCircle className="w-3 h-3" /> Cancelled</span>
-  }
-  if (booking.status === 'completed') {
-    return <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-sage/10 text-sage"><CheckCircle2 className="w-3 h-3" /> Completed</span>
-  }
-  // upcoming
-  if (booking.schedule === 'instant') {
-    return <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700"><Zap className="w-3 h-3" /> In progress</span>
-  }
-  if (booking.schedule === 'recurring') {
-    return <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700"><Repeat className="w-3 h-3" /> Recurring</span>
-  }
-  return <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-accent-50 text-accent-700"><Calendar className="w-3 h-3" /> Scheduled</span>
+const fmtTime = (d) => new Date(d).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+const fmtDay = (d) => new Date(d).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }).toUpperCase()
+const fmtShortDay = (d) => new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }).toUpperCase()
+const fmtNext = (d) => {
+  const date = new Date(d)
+  const weekday = date.toLocaleDateString('en-GB', { weekday: 'short' })
+  const day = date.getDate()
+  const month = date.toLocaleDateString('en-GB', { month: 'short' })
+  return `${weekday} ${day} ${month}, ${fmtTime(date)}`
 }
 
-function whenLabel(b) {
-  if (b.schedule === 'instant') return `Booked ${new Date(b.placedAt).toLocaleString()}`
-  if (b.schedule === 'recurring') return `Recurring · ${b.cadence}`
-  if (b.scheduledAt) return new Date(b.scheduledAt).toLocaleString()
-  return new Date(b.placedAt).toLocaleString()
+function toLocalInput(iso) {
+  if (!iso) return ''
+  const d = new Date(iso)
+  const tz = d.getTimezoneOffset() * 60000
+  return new Date(d.getTime() - tz).toISOString().slice(0, 16)
 }
 
-function BookingCard({ booking }) {
-  const [imgFailed, setImgFailed] = useState(false)
-  const firstItem = booking.items?.[0]
-  const extra = (booking.items?.length || 1) - 1
-  const BookingIcon = firstItem?.name ? iconForService(firstItem.name) : ShoppingBag
-  const showImage = firstItem?.img && !imgFailed
+const arrivalTime = (b) => fmtTime(new Date(b.placedAt).getTime() + 15 * 60 * 1000)
+
+function StarRating({ rating }) {
   return (
-    <Link
-      to={`/bookings/${booking.bookingId}`}
-      className="block rounded-2xl bg-white ring-1 ring-lightstone hover:ring-accent-200 hover:shadow-soft transition p-4"
-    >
-      <div className="flex items-start gap-3">
-        {showImage ? (
-          <img
-            src={firstItem.img}
-            alt={firstItem.name}
-            onError={() => setImgFailed(true)}
-            className="w-14 h-14 rounded-xl bg-warmlinen shrink-0 object-cover"
-            loading="lazy"
-          />
-        ) : firstItem?.name ? (
-          <BookingIcon className="w-14 h-14 rounded-xl bg-warmlinen p-3 text-charcoal shrink-0" strokeWidth={1.5} />
+    <div className="flex items-center gap-0.5">
+      <Star className="w-4 h-4 fill-amber-400 text-amber-400" />
+      <span className="text-sm font-semibold text-charcoal">{Number(rating || 0).toFixed(1)}</span>
+    </div>
+  )
+}
+
+const RATINGS_KEY = 'kynd.ratings'
+
+function getUserRatings() {
+  try { return JSON.parse(localStorage.getItem(RATINGS_KEY) || '{}') } catch { return {} }
+}
+
+function setUserRatings(ratings) {
+  try { localStorage.setItem(RATINGS_KEY, JSON.stringify(ratings)) } catch {}
+}
+
+function UserRating({ booking }) {
+  const { token } = useAuth()
+  const saved = getUserRatings()[booking?.bookingId] || 0
+  const [rating, setRating] = useState(() => saved)
+  const [hover, setHover] = useState(0)
+  const [comment, setComment] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [submitted, setSubmitted] = useState(saved > 0)
+  const [providerRating, setProviderRating] = useState(null)
+
+  const handle = (value) => {
+    setRating(value)
+    setSubmitted(false)
+    const all = getUserRatings()
+    all[booking.bookingId] = value
+    setUserRatings(all)
+  }
+
+  const submit = async () => {
+    if (!rating || !booking?.id) return
+    setSubmitting(true)
+    try {
+      const res = await fetch(`${API_BASE}/reviews`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        credentials: 'include',
+        body: JSON.stringify({ bookingId: booking.id, rating, comment })
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setSubmitted(true)
+        setProviderRating(data.providerRating ?? null)
+      } else {
+        console.error('Failed to submit review:', await res.text())
+      }
+    } catch (err) {
+      console.error('Error submitting review:', err)
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  if (submitted) {
+    const displayRating = providerRating != null ? providerRating : (booking.provider?.rating || rating)
+    return <StarRating rating={displayRating} />
+  }
+
+  return (
+    <div>
+      <span className="inline-flex items-center gap-2 text-sm text-warmgrey">
+        {rating === 0 && <span>Rate:</span>}
+        <span className="flex">
+          {[1, 2, 3, 4, 5].map((star) => (
+            <button
+              key={star}
+              type="button"
+              onMouseEnter={() => setHover(star)}
+              onMouseLeave={() => setHover(0)}
+              onClick={() => handle(star)}
+              className="p-0.5 focus:outline-none"
+              aria-label={`Rate ${star} stars`}
+            >
+              <Star
+                className={`w-4 h-4 transition ${star <= (hover || rating) ? 'fill-amber-400 text-amber-400' : 'text-warmgrey'}`}
+                strokeWidth={1.5}
+              />
+            </button>
+          ))}
+        </span>
+        {rating > 0 && <span className="font-semibold text-charcoal">{Number(rating).toFixed(1)}</span>}
+      </span>
+
+      {rating > 0 && !submitted && (
+        <div className="mt-3 rounded-2xl bg-oat p-4">
+          <label className="block">
+            <span className="block text-sm font-bold text-charcoal">Tell us what went wrong</span>
+            <textarea
+              value={comment}
+              onChange={(e) => setComment(e.target.value)}
+              placeholder="e.g. Ran late, missed a spot..."
+              className="mt-2 w-full rounded-2xl border border-lightstone bg-white px-4 py-3 text-sm text-charcoal placeholder-warmgrey/60 focus:outline-none focus:border-terracotta focus:ring-2 focus:ring-terracotta/20 transition min-h-[100px] resize-none"
+            />
+          </label>
+          <button
+            onClick={submit}
+            disabled={submitting}
+            className="mt-3 w-full rounded-full bg-terracotta hover:bg-charcoal disabled:opacity-60 text-white font-semibold px-6 py-3 text-sm transition"
+          >
+            {submitting ? 'Submitting...' : 'Submit review'}
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function UpsellCard({ booking, service, onAdd }) {
+  const mainName = booking.items?.[0]?.name
+  if (!mainName || !service) return null
+
+  return (
+    <div className="rounded-2xl bg-[#F5E3DA] p-4">
+      <div className="text-[10px] font-bold text-terracotta uppercase tracking-wide mb-3">
+        Goes well with your {mainName}
+      </div>
+      <div className="flex items-center gap-4">
+        <img
+          src={service.img}
+          alt={service.name}
+          className="w-16 h-16 rounded-xl object-cover bg-lightstone shrink-0"
+          onError={(e) => { e.target.style.display = 'none' }}
+        />
+        <div className="flex-1 min-w-0">
+          <h3 className="font-heading font-bold text-charcoal">{service.name}</h3>
+          <p className="text-xs text-warmgrey mt-0.5">from {service.pricingFrom} · never booked before</p>
+        </div>
+        <button
+          onClick={onAdd}
+          className="shrink-0 rounded-full bg-terracotta hover:bg-charcoal text-white font-semibold px-5 py-2 text-sm transition"
+        >
+          Add
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function RecurringCta({ serviceName, count }) {
+  const navigate = useNavigate()
+  if (!count) return null
+  return (
+    <div className="rounded-2xl bg-[#E8EDE5] p-5">
+      <h3 className="text-xs font-bold text-charcoal uppercase tracking-wide">Make it recurring?</h3>
+      <p className="mt-1.5 text-sm text-warmgrey leading-relaxed">
+        You've booked {serviceName} {count} {count === 1 ? 'time' : 'times'} this month. Switch to recurring and save 15% per visit.
+      </p>
+      <button
+        onClick={() => navigate('/services')}
+        className="mt-4 rounded-full bg-terracotta hover:bg-charcoal text-white font-semibold px-5 py-2.5 text-sm transition"
+      >
+        Set up recurring
+      </button>
+    </div>
+  )
+}
+
+function UpcomingCard({ booking }) {
+  const { cancelBooking, rescheduleBooking } = useBookings()
+  const firstItem = booking.items?.[0]
+  const providerName = booking.provider?.name || 'A Pro'
+  const isInstant = booking.schedule === 'instant'
+  const isRecurring = booking.schedule === 'recurring'
+
+  const topRight = isInstant
+    ? 'TODAY'
+    : isRecurring
+      ? `RECURRING · ${booking.cadence}`
+      : fmtDay(booking.scheduledAt || booking.placedAt)
+
+  const subtitle = isInstant
+    ? `${providerName} · Arriving by ${arrivalTime(booking)} · S$${booking.total}`
+    : isRecurring
+      ? `${providerName} · Next: ${fmtNext(booking.scheduledAt || booking.placedAt)} · S$${booking.total}/visit`
+      : `${providerName} · ${fmtTime(booking.scheduledAt)} · S$${booking.total}`
+
+  const [showReschedule, setShowReschedule] = useState(false)
+  const [newAt, setNewAt] = useState('')
+  const minDt = useMemo(() => toLocalInput(new Date(Date.now() + 60 * 60 * 1000).toISOString()), [])
+
+  const openReschedule = () => {
+    setNewAt(toLocalInput(booking.scheduledAt) || '')
+    setShowReschedule(true)
+  }
+
+  const onConfirmReschedule = () => {
+    if (!newAt) return
+    rescheduleBooking(booking.bookingId, new Date(newAt).toISOString())
+    setShowReschedule(false)
+  }
+
+  const handleCancel = () => {
+    if (window.confirm('Cancel this booking?')) {
+      cancelBooking(booking.bookingId, 'Cancelled by customer')
+    }
+  }
+
+  return (
+    <div className="rounded-2xl bg-white ring-1 ring-lightstone p-4 shadow-soft">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex-1 min-w-0">
+          <h3 className="font-heading text-lg font-bold text-charcoal">{firstItem?.name || 'Service'}</h3>
+          <p className="mt-1 text-sm text-warmgrey truncate">{subtitle}</p>
+        </div>
+        <span className="shrink-0 text-xs font-bold text-warmgrey uppercase tracking-wide">{topRight}</span>
+      </div>
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        {isRecurring ? (
+          <>
+            <Link
+              to={`/bookings/${booking.bookingId}`}
+              className="flex-1 min-w-[80px] inline-flex items-center justify-center gap-1.5 rounded-full bg-white ring-1 ring-lightstone hover:ring-terracotta text-charcoal font-semibold px-4 py-2 text-sm transition"
+            >
+              <Eye className="w-3.5 h-3.5" /> View series
+            </Link>
+            <button
+              onClick={() => alert('Skip next is not available yet.')}
+              className="flex-1 min-w-[80px] inline-flex items-center justify-center gap-1.5 rounded-full bg-white ring-1 ring-lightstone hover:ring-terracotta text-charcoal font-semibold px-4 py-2 text-sm transition"
+            >
+              <SkipForward className="w-3.5 h-3.5" /> Skip next
+            </button>
+            <button
+              onClick={() => alert('Pause is not available yet.')}
+              className="flex-1 min-w-[80px] inline-flex items-center justify-center gap-1.5 rounded-full bg-white ring-1 ring-lightstone hover:ring-terracotta text-charcoal font-semibold px-4 py-2 text-sm transition"
+            >
+              <Pause className="w-3.5 h-3.5" /> Pause
+            </button>
+          </>
         ) : (
-          <div className="w-14 h-14 rounded-xl bg-accent-50 text-accent-700 grid place-items-center">
-            <ShoppingBag className="w-5 h-5" />
+          <>
+            <button
+              onClick={() => alert('Messaging will be available soon.')}
+              className="flex-1 min-w-[80px] inline-flex items-center justify-center gap-1.5 rounded-full bg-white ring-1 ring-lightstone hover:ring-terracotta text-charcoal font-semibold px-4 py-2 text-sm transition"
+            >
+              <MessageCircle className="w-3.5 h-3.5" /> Message
+            </button>
+            <button
+              onClick={openReschedule}
+              className="flex-1 min-w-[80px] inline-flex items-center justify-center gap-1.5 rounded-full bg-white ring-1 ring-lightstone hover:ring-terracotta text-charcoal font-semibold px-4 py-2 text-sm transition"
+            >
+              <RotateCcw className="w-3.5 h-3.5" /> Reschedule
+            </button>
+            <button
+              onClick={handleCancel}
+              className="flex-1 min-w-[80px] inline-flex items-center justify-center gap-1.5 rounded-full bg-white ring-1 ring-lightstone hover:ring-terracotta text-charcoal font-semibold px-4 py-2 text-sm transition"
+            >
+              Cancel
+            </button>
+          </>
+        )}
+
+        {showReschedule && (
+          <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={() => setShowReschedule(false)}>
+            <div onClick={(e) => e.stopPropagation()} className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl">
+              <div className="flex items-start justify-between">
+                <div>
+                  <h3 className="font-bold text-charcoal">Reschedule booking</h3>
+                  <p className="text-xs text-warmgrey mt-0.5">Pick a new date & time.</p>
+                </div>
+                <button onClick={() => setShowReschedule(false)} className="text-warmgrey/70 hover:text-charcoal"><X className="w-4 h-4" /></button>
+              </div>
+              <label className="block mt-4">
+                <span className="block text-xs font-semibold text-charcoal mb-1.5">New date & time</span>
+                <input
+                  type="datetime-local"
+                  min={minDt}
+                  value={newAt}
+                  onChange={(e) => setNewAt(e.target.value)}
+                  className="w-full rounded-lg border border-lightstone px-3 py-2 text-sm focus:outline-none focus:border-terracotta focus:ring-2 focus:ring-terracotta/25"
+                />
+              </label>
+              <div className="mt-5 flex gap-2">
+                <button onClick={() => setShowReschedule(false)} className="flex-1 rounded-full bg-warmlinen hover:bg-lightstone text-charcoal font-semibold py-2.5 text-sm">Back</button>
+                <button onClick={onConfirmReschedule} disabled={!newAt} className="flex-1 rounded-full bg-terracotta hover:bg-charcoal disabled:opacity-50 text-white font-semibold py-2.5 text-sm">Confirm</button>
+              </div>
+            </div>
           </div>
         )}
+      </div>
+    </div>
+  )
+}
+
+function PastCard({ booking }) {
+  const navigate = useNavigate()
+  const firstItem = booking.items?.[0]
+  const providerName = booking.provider?.name || 'A Pro'
+  const date = fmtShortDay(booking.placedAt)
+
+  const handleBookAgain = () => {
+    const slug = firstItem?.slug
+    navigate(slug ? `/services/${slug}` : '/services')
+  }
+
+  return (
+    <div className="rounded-2xl bg-white ring-1 ring-lightstone p-4 shadow-soft">
+      <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
-          <div className="flex items-center justify-between gap-2">
-            <h3 className="font-semibold text-charcoal truncate">
-              {firstItem?.name || 'Service'}{extra > 0 ? ` +${extra} more` : ''}
-            </h3>
-            <StatusPill booking={booking} />
-          </div>
-          <div className="mt-1 flex items-center gap-1.5 text-xs text-warmgrey">
-            <Clock className="w-3.5 h-3.5" />
-            <span className="truncate">{whenLabel(booking)}</span>
-          </div>
-          {booking.contact?.address && (
-            <div className="mt-1 flex items-center gap-1.5 text-xs text-warmgrey">
-              <MapPin className="w-3.5 h-3.5" />
-              <span className="truncate">{booking.contact.address}, {booking.contact.city}</span>
-            </div>
-          )}
-          <div className="mt-2 flex items-center justify-between">
-            <span className="text-xs text-warmgrey">#{booking.bookingId}</span>
-            <span className="text-sm font-bold text-charcoal">S${booking.total}</span>
+          <h3 className="font-heading text-lg font-bold text-charcoal">{firstItem?.name || 'Service'}</h3>
+          <p className="mt-1 text-sm text-warmgrey">{providerName} · S${booking.total}</p>
+          <div className="mt-1">
+            <UserRating booking={booking} />
           </div>
         </div>
-        <ChevronRight className="w-4 h-4 text-lightstone mt-2 shrink-0" />
+        <span className="shrink-0 text-xs font-bold text-warmgrey uppercase tracking-wide">{date}</span>
       </div>
-    </Link>
+
+      <div className="mt-4">
+        <button
+          onClick={handleBookAgain}
+          className="inline-flex items-center gap-1.5 rounded-full bg-terracotta hover:bg-charcoal text-white font-semibold px-5 py-2.5 text-sm transition"
+        >
+          <Plus className="w-4 h-4" /> Book again
+        </button>
+      </div>
+    </div>
   )
 }
 
 export default function Bookings() {
-  const { upcoming, past } = useBookings()
+  const { upcoming, past, cancelBooking, rescheduleBooking } = useBookings()
+  const { services } = useServices()
   const { sessionExpired } = useAuth()
+  const navigate = useNavigate()
   const [tab, setTab] = useState('upcoming')
+
   const list = tab === 'upcoming' ? upcoming : past
 
+  const firstUpcoming = upcoming[0]
+  const upsellService = useMemo(() => {
+    if (!firstUpcoming || !services.length) return null
+    const mainName = firstUpcoming.items?.[0]?.name?.toLowerCase()
+    return services.find(s => s.name.toLowerCase() !== mainName)
+  }, [firstUpcoming, services])
+
+  const recurringCta = useMemo(() => {
+    if (tab !== 'past' || !past.length) return null
+    const first = past[0]
+    const serviceName = first.items?.[0]?.name
+    if (!serviceName) return null
+    const now = new Date()
+    const count = past.filter(b =>
+      b.items?.[0]?.name === serviceName &&
+      new Date(b.placedAt).getMonth() === now.getMonth() &&
+      new Date(b.placedAt).getFullYear() === now.getFullYear()
+    ).length
+    if (count < 2) return null
+    return { serviceName, count }
+  }, [past])
+
   return (
-    <section className="pt-28 md:pt-32 pb-24">
+    <section className="pt-24 md:pt-28 pb-28">
       <div className="max-w-2xl mx-auto px-5">
-        <nav className="text-xs text-warmgrey mb-3">
-          <Link to="/" className="hover:text-accent-700">Home</Link>
-          <span className="mx-1.5">›</span>
-          <span className="text-charcoal">My bookings</span>
-        </nav>
-        <h1 className="font-heading text-2xl md:text-3xl font-extrabold text-charcoal">My bookings</h1>
-        <p className="mt-1 text-sm text-warmgrey">Track, reschedule or cancel your services.</p>
+        <h1 className="font-heading text-3xl font-extrabold text-charcoal">Bookings</h1>
 
         {sessionExpired && (
           <div className="mt-5 flex flex-wrap items-center gap-3 rounded-2xl bg-accent-50 ring-1 ring-accent-200 px-4 py-3">
@@ -112,26 +404,39 @@ export default function Bookings() {
           </div>
         )}
 
-        <div className="mt-5 inline-flex p-1 rounded-full bg-warmlinen">
+        <div className="mt-6 flex border-b border-lightstone">
           {[
-            { id: 'upcoming', label: `Upcoming${upcoming.length ? ` · ${upcoming.length}` : ''}` },
-            { id: 'past', label: `Past${past.length ? ` · ${past.length}` : ''}` },
+            { id: 'upcoming', label: 'Upcoming' },
+            { id: 'past', label: 'Past' },
           ].map(t => (
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
-              className={`px-4 py-1.5 rounded-full text-sm font-semibold transition ${tab === t.id ? 'bg-white text-charcoal shadow-sm' : 'text-warmgrey hover:text-charcoal'}`}
+              className={`flex-1 pb-3 text-sm font-bold transition relative ${
+                tab === t.id ? 'text-terracotta' : 'text-warmgrey hover:text-charcoal'
+              }`}
             >
               {t.label}
+              {tab === t.id && <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-terracotta rounded-full" />}
             </button>
           ))}
         </div>
 
-        <div className="mt-5 space-y-3">
+        <div className="mt-5 space-y-4">
+          {tab === 'past' && recurringCta && <RecurringCta {...recurringCta} />}
+
+          {tab === 'upcoming' && firstUpcoming && upsellService && (
+            <UpsellCard
+              booking={firstUpcoming}
+              service={upsellService}
+              onAdd={() => navigate(`/services/${upsellService.slug}`)}
+            />
+          )}
+
           {list.length === 0 ? (
             <div className="rounded-2xl bg-white ring-1 ring-lightstone p-8 text-center">
               <div className="mx-auto w-12 h-12 grid place-items-center rounded-full bg-accent-50 text-accent-700">
-                <ShoppingBag className="w-5 h-5" />
+                <Calendar className="w-5 h-5" />
               </div>
               <h3 className="mt-3 font-bold text-charcoal">
                 {tab === 'upcoming' ? 'No upcoming bookings' : 'No past bookings yet'}
@@ -144,7 +449,9 @@ export default function Bookings() {
               </Link>
             </div>
           ) : (
-            list.map(b => <BookingCard key={b.bookingId} booking={b} />)
+            list.map(b => (
+              tab === 'upcoming' ? <UpcomingCard key={b.bookingId} booking={b} /> : <PastCard key={b.bookingId} booking={b} />
+            ))
           )}
         </div>
       </div>

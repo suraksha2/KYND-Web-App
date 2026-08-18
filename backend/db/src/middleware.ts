@@ -104,6 +104,9 @@ function isPublicApi(pathname: string, method: string): boolean {
   // Customers create payment intents during checkout without an admin session.
   if (method === 'POST' && pathname === '/api/payments/create-intent') return true
 
+  // Customers can submit a review for their completed bookings.
+  if (method === 'POST' && pathname === '/api/reviews') return true
+
   return false
 }
 

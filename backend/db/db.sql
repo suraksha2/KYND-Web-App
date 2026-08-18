@@ -201,3 +201,21 @@ CREATE TABLE IF NOT EXISTS bookings (
 
 -- Migration: add user_id to existing bookings table
 ALTER TABLE bookings ADD COLUMN IF NOT EXISTS user_id INT;
+
+-- Reviews table for customer feedback on service providers
+CREATE TABLE IF NOT EXISTS reviews (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  booking_id INT NOT NULL,
+  user_id INT,
+  provider_id INT,
+  rating TINYINT NOT NULL,
+  comment TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY unique_booking_review (booking_id),
+  FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE CASCADE,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
+  FOREIGN KEY (provider_id) REFERENCES service_providers(id) ON DELETE SET NULL
+);
+
+ALTER TABLE service_providers ADD COLUMN IF NOT EXISTS review_count INT DEFAULT 0;

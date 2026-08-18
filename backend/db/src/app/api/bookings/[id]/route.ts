@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/lib/mysql';
 import { sendProviderAssignmentWhatsApp } from '@/lib/whatsapp';
+import { verifySessionToken, hasAdminAccess } from '@/lib/auth';
 
 function getSessionToken(request: NextRequest): string | undefined {
   const authHeader = request.headers.get('authorization');
@@ -17,7 +18,53 @@ export async function PATCH(
 ) {
   try {
     const body = await req.json();
-    const { status, reason } = body;
+    const { status, reason, scheduledAt } = body;
+
+    const formatDateTime = (isoString: string | null) => {
+      if (!isoString) return null;
+      return new Date(isoString).toISOString().slice(0, 19).replace('T', ' ');
+    };
+
+    // Reschedule booking
+    if (scheduledAt) {
+      const [rows]: any = await pool.query(
+        'SELECT id, history, scheduled_at FROM bookings WHERE id = ?',
+        [params.id]
+      );
+
+      if (!rows || rows.length === 0) {
+        return NextResponse.json({ error: 'Booking not found.' }, { status: 404 });
+      }
+
+      const booking = rows[0];
+
+      let history: any[] = [];
+      try {
+        history = typeof booking.history === 'string'
+          ? JSON.parse(booking.history)
+          : (booking.history || []);
+        if (!Array.isArray(history)) history = [];
+      } catch {
+        history = [];
+      }
+
+      const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+      history.push({
+        at: now,
+        type: 'rescheduled',
+        note: `Rescheduled to ${formatDateTime(scheduledAt)}`,
+      });
+
+      await pool.query(
+        'UPDATE bookings SET scheduled_at = ?, schedule = ?, history = ? WHERE id = ?',
+        [formatDateTime(scheduledAt), 'scheduled', JSON.stringify(history), params.id]
+      );
+
+      return NextResponse.json(
+        { success: true, scheduledAt: formatDateTime(scheduledAt) },
+        { status: 200 }
+      );
+    }
 
     if (!status || status !== 'cancelled') {
       return NextResponse.json(
@@ -80,6 +127,15 @@ export async function PUT(
     const bookingId = params.id;
     const body = await req.json();
     const { provider_id } = body;
+
+    // Only admins may assign a service provider to a customer booking.
+    const session = await verifySessionToken(getSessionToken(req));
+    if (!session || !hasAdminAccess(session.role)) {
+      return NextResponse.json(
+        { error: 'Forbidden. Admin access required.' },
+        { status: 403 }
+      );
+    }
 
     if (!provider_id) {
       return NextResponse.json(

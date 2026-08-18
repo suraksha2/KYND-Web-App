@@ -75,6 +75,15 @@ body {
   z-index: 2;
 }
 
+/* Hide scrollbars while keeping scrollability */
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 /* subtle grid */
 .bg-grid {
   background-image:

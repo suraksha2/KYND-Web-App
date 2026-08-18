@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
 
     // Find user by email
     const [users] = await pool.query(
-      'SELECT id, name, email, password_hash, role, status FROM users WHERE email = ?',
+      'SELECT id, name, email, password_hash, role, status, created_at FROM users WHERE email = ?',
       [normalizedEmail]
     );
 
@@ -68,6 +68,7 @@ export async function POST(request: NextRequest) {
       name: user.name,
       email: user.email,
       role: user.role,
+      createdAt: user.created_at,
       // Token is also returned in the body so cross-origin clients (e.g. the
       // customer app on :5173) can authenticate via an Authorization header,
       // since cross-site cookies are unreliable in browsers.

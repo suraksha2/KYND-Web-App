@@ -1,48 +1,112 @@
-import { useState, useEffect } from 'react'
-import { useParams, Link, Navigate, useNavigate } from 'react-router-dom'
-import { Check, X, ChevronLeft, Heart, Star, ShieldCheck } from 'lucide-react'
-import CitiesGrid from '../components/CitiesGrid'
-import { useCart } from '../context/CartContext'
+import { useState, useEffect, useMemo } from 'react'
+import { useParams, Link, Navigate, useNavigate, useLocation } from 'react-router-dom'
+import { Check, X, ChevronLeft, Heart, Star, ShieldCheck, ChevronUp, ChevronDown, Calendar, Clock, CreditCard, Wallet, Banknote } from 'lucide-react'
 import { useServices } from '../context/ServicesContext'
+import { useBookings } from '../context/BookingsContext'
+import { useAuth } from '../context/AuthContext'
 import { iconForService } from '../lib/serviceIcon'
 import { localServiceImage, servicePeopleImage } from '../lib/serviceImage'
 import { taglineForService } from '../lib/serviceTagline'
 import { API_BASE } from '../lib/api'
-import { DownloadCta } from './Home'
+
+/* ---------- helpers ---------- */
+const parsePrice = (str = '') => {
+  const n = parseFloat(String(str).replace(/[^0-9.]/g, ''))
+  return Number.isFinite(n) ? n : 0
+}
+
+const formatPrice = (n) => `S$${Math.round(n)}`
+
+const inputCls = 'w-full rounded-xl border border-lightstone bg-white px-4 py-3 text-sm text-charcoal placeholder-warmgrey/60 focus:outline-none focus:border-terracotta focus:ring-2 focus:ring-terracotta/20 transition'
+const selectCls = 'w-full rounded-xl border border-lightstone bg-white px-4 py-3 pr-10 text-sm text-charcoal focus:outline-none focus:border-terracotta focus:ring-2 focus:ring-terracotta/20 transition appearance-none'
+
+const Field = ({ label, children }) => (
+  <label className="block">
+    <span className="block text-sm font-semibold text-charcoal mb-1.5">{label}</span>
+    {children}
+  </label>
+)
+
+const SectionCard = ({ title, summary, open, setOpen, children }) => (
+  <div className="rounded-3xl bg-white border border-lightstone p-4 sm:p-5">
+    <button
+      type="button"
+      onClick={() => setOpen(o => !o)}
+      className="w-full flex items-center justify-between gap-3 text-left"
+    >
+      <div className="min-w-0">
+        <h3 className="font-heading text-lg font-bold text-charcoal">{title}</h3>
+        {summary && <p className="text-sm text-warmgrey mt-0.5 truncate">{summary}</p>}
+      </div>
+      {open ? <ChevronUp className="w-5 h-5 text-charcoal shrink-0" /> : <ChevronDown className="w-5 h-5 text-charcoal shrink-0" />}
+    </button>
+    {open && <div className="mt-4">{children}</div>}
+  </div>
+)
+
+const Pill = ({ selected, onClick, title, subtitle }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    className={`rounded-3xl border px-2 py-3 sm:py-4 text-center transition w-full ${
+      selected
+        ? 'bg-accent-100 border-terracotta text-terracotta'
+        : 'bg-white border-lightstone text-charcoal hover:border-terracotta/50'
+    }`}
+  >
+    <div className={`text-sm sm:text-base font-bold ${selected ? 'text-terracotta' : 'text-charcoal'}`}>{title}</div>
+    <div className="text-[11px] sm:text-xs mt-0.5 leading-tight">{subtitle}</div>
+  </button>
+)
+
+const ADDONS = [
+  { id: 'supplies', label: 'Bring cleaning supplies', price: 5 },
+  { id: 'fridge', label: 'Inside fridge clean', price: 8 },
+]
+
+const AddonToggle = ({ checked, onChange }) => (
+  <button
+    type="button"
+    role="switch"
+    aria-checked={checked}
+    onClick={() => onChange(!checked)}
+    className={`relative w-12 h-7 rounded-full p-1 transition ${checked ? 'bg-terracotta' : 'bg-lightstone'}`}
+  >
+    <span className={`block w-5 h-5 rounded-full bg-white shadow transition transform ${checked ? 'translate-x-5' : 'translate-x-0'}`} />
+  </button>
+)
 
 /* ---------- Sticky bottom booking bar ---------- */
-const StickyBookingBar = ({ svc }) => {
-  const { addItem } = useCart()
-  const navigate = useNavigate()
-  const onChooseTime = () => { addItem(svc); navigate('/cart') }
-  return (
-    <div className="fixed bottom-[calc(76px_+_var(--safe-bottom))] md:bottom-0 left-0 right-0 z-50 bg-white/95 backdrop-blur border-t border-lightstone shadow-[0_-8px_24px_-12px_rgba(74,46,31,0.25)]">
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-4">
+const BookingBar = ({ price, submitting }) => (
+  <div className="fixed bottom-[calc(76px_+_var(--safe-bottom))] md:bottom-0 left-0 right-0 z-50 bg-white/95 backdrop-blur border-t border-lightstone shadow-[0_-8px_24px_-12px_rgba(74,46,31,0.25)]">
+    <div className="max-w-5xl mx-auto px-4 sm:px-6 py-3 sm:py-4">
+      <div className="hidden sm:block text-center text-xs text-warmgrey mb-2">Free cancellation up to 2 hrs before</div>
+      <div className="flex items-center justify-between gap-4">
         <div className="min-w-0">
-          <div className="text-[11px] font-medium text-warmgrey">From</div>
-          <div className="font-heading text-lg font-extrabold text-charcoal truncate">
-            {svc.pricingFrom}
-            <span className="ml-1 text-sm font-medium text-warmgrey">/ hr</span>
+          <div className="text-[11px] font-medium text-warmgrey uppercase tracking-wide">Total</div>
+          <div className="font-heading text-xl sm:text-2xl font-extrabold text-charcoal truncate">
+            {formatPrice(price)}
+            <span className="text-sm font-medium text-warmgrey">/hr</span>
           </div>
         </div>
         <button
-          onClick={onChooseTime}
-          className="shrink-0 inline-flex items-center justify-center rounded-full bg-terracotta hover:bg-charcoal text-white font-semibold text-sm px-6 sm:px-8 py-3 transition"
+          type="submit"
+          form="booking-form"
+          disabled={submitting}
+          className="shrink-0 inline-flex items-center justify-center rounded-full bg-terracotta hover:bg-charcoal disabled:opacity-60 text-white font-semibold text-sm sm:text-base px-6 sm:px-8 py-3 transition"
         >
-          Choose a time
+          {submitting ? 'Confirming...' : 'Confirm booking'}
         </button>
       </div>
     </div>
-  )
-}
+  </div>
+)
 
-/* ---------- Full-width hero with photo, Top Rated badge and trust row ---------- */
+/* ---------- Full-width hero ---------- */
 const ServiceHero = ({ svc }) => {
   const HeroIcon = iconForService(svc.name)
   const [liked, setLiked] = useState(false)
 
-  // The service detail hero uses the backend people photo first, then falls back
-  // to the product image (home page tile) and bundled local artwork.
   const sources = [servicePeopleImage(svc.slug || svc.name), svc.img, localServiceImage(svc.slug || svc.name)].filter(Boolean)
   const [sourceIndex, setSourceIndex] = useState(0)
   const heroSrc = sources[sourceIndex] ?? null
@@ -52,7 +116,6 @@ const ServiceHero = ({ svc }) => {
 
   return (
     <section className="bg-warmlinen pb-6 sm:pb-8">
-      {/* Hero image is full-bleed edge-to-edge, like the reference screenshot. */}
       <div className="relative w-full aspect-[4/3] sm:aspect-[3/2] lg:aspect-[16/9] min-h-[260px] max-h-[78vh] lg:max-h-[680px] overflow-hidden bg-lightstone">
         {heroSrc ? (
           <img
@@ -69,7 +132,6 @@ const ServiceHero = ({ svc }) => {
           </div>
         )}
 
-        {/* Top overlay buttons */}
         <div className="absolute top-3 sm:top-4 left-4 sm:left-6 right-4 sm:right-6 flex items-center justify-between">
           <Link
             to="/services"
@@ -87,7 +149,6 @@ const ServiceHero = ({ svc }) => {
           </button>
         </div>
 
-        {/* Bottom-left rating pill */}
         <div className="absolute bottom-3 sm:bottom-4 left-4 sm:left-6">
           <div className="inline-flex items-center gap-1.5 rounded-full bg-charcoal/80 backdrop-blur-sm text-white text-[11px] sm:text-xs font-bold px-2.5 sm:px-3 py-1 sm:py-1.5">
             <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
@@ -96,7 +157,6 @@ const ServiceHero = ({ svc }) => {
         </div>
       </div>
 
-      {/* Title + tagline + trust pills — contained below the image */}
       <div className="max-w-5xl mx-auto px-4 sm:px-6 pt-4 sm:pt-5 md:pt-6">
         <h1 className="font-heading text-2xl sm:text-3xl md:text-4xl font-extrabold text-charcoal leading-[1.1]">
           {svc.name}
@@ -135,12 +195,6 @@ const Inclusions = ({ svc }) => {
     'No-stage rescue / handling of belongings beyond reach'
   ]
 
-  // Use the backend image first (same as home-page tiles), then fall back to the
-  // bundled local artwork if the backend has no image or it fails to load.
-  const sources = [svc.img, localServiceImage(svc.slug || svc.name)].filter(Boolean)
-  const [sourceIndex, setSourceIndex] = useState(0)
-  const sideImg = sources[sourceIndex] ?? null
-
   return (
     <section className="py-6 sm:py-8 bg-warmlinen">
       <div className="max-w-5xl mx-auto px-4 sm:px-6">
@@ -149,7 +203,6 @@ const Inclusions = ({ svc }) => {
         </h2>
 
         <div className="mt-4 sm:mt-5 flex flex-col sm:flex-row gap-4 sm:gap-6">
-          {/* Checklist */}
           <div className="flex-1">
             <ul className="space-y-3 sm:space-y-4">
               {svc.bullets.map((b, i) => (
@@ -174,32 +227,234 @@ const Inclusions = ({ svc }) => {
               ))}
             </ul>
           </div>
-
-          {/* Side image */}
-          {sideImg && (
-            <div className="shrink-0 w-full sm:w-44 md:w-56 lg:w-64">
-              <div className="aspect-square rounded-2xl overflow-hidden bg-lightstone">
-                <img
-                  src={sideImg}
-                alt={svc.name}
-                loading="lazy"
-                decoding="async"
-                onError={() => setSourceIndex(i => i + 1)}
-                className="w-full h-full object-cover object-center"
-              />
-              </div>
-            </div>
-          )}
         </div>
       </div>
     </section>
   )
 }
 
+/* ---------- How soon? ---------- */
+const HowSoonPanel = ({ open, setOpen, summary, schedule, setSchedule, date, setDate, time, setTime, cadence, setCadence, arrivalTime }) => {
+  return (
+    <SectionCard
+      title="How soon?"
+      summary={summary}
+      open={open}
+      setOpen={setOpen}
+    >
+      <div className="grid grid-cols-3 gap-3">
+        <Pill
+          selected={schedule === 'instant'}
+          onClick={() => setSchedule('instant')}
+          title="Instant"
+          subtitle={`arrives by ${arrivalTime}`}
+        />
+        <Pill
+          selected={schedule === 'scheduled'}
+          onClick={() => setSchedule('scheduled')}
+          title="Scheduled"
+          subtitle="pick a time"
+        />
+        <Pill
+          selected={schedule === 'recurring'}
+          onClick={() => setSchedule('recurring')}
+          title="Recurring"
+          subtitle="save 15%"
+        />
+      </div>
+
+      {schedule !== 'instant' && (
+        <div className="mt-4 rounded-2xl bg-warmlinen p-3 sm:p-4">
+          <p className="text-xs font-bold text-warmgrey uppercase tracking-wide mb-2">
+            {schedule === 'recurring' ? 'First visit' : 'Pick a time'}
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="relative">
+              <input
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                className={inputCls}
+                required
+              />
+              <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-warmgrey pointer-events-none" />
+            </div>
+            <div className="relative">
+              <input
+                type="time"
+                value={time}
+                onChange={(e) => setTime(e.target.value)}
+                className={inputCls}
+                required
+              />
+              <Clock className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-warmgrey pointer-events-none" />
+            </div>
+          </div>
+
+          {schedule === 'recurring' && (
+            <>
+              <p className="text-xs font-bold text-warmgrey uppercase tracking-wide mt-4 mb-2">Cadence</p>
+              <div className="flex flex-wrap gap-2">
+                {['Daily', 'Weekly', 'Bi-weekly', 'Monthly'].map((c) => {
+                  const key = c.toLowerCase().replace('-', '')
+                  return (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => setCadence(key)}
+                      className={`rounded-full px-4 py-2 text-sm font-medium border transition ${
+                        cadence === key
+                          ? 'bg-accent-100 border-terracotta text-terracotta'
+                          : 'bg-white border-lightstone text-charcoal'
+                      }`}
+                    >
+                      {c}
+                    </button>
+                  )
+                })}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </SectionCard>
+  )
+}
+
+/* ---------- Address & payment ---------- */
+const AddressPaymentPanel = ({
+  availableCities,
+  name, setName, phone, setPhone,
+  address, setAddress, city, setCity,
+  area, setArea, pincode, setPincode,
+  pay, setPay
+}) => {
+  const cityData = availableCities.find(c => c.name === city)
+  const cityAreas = cityData?.areas || []
+  return (
+    <div className="space-y-5">
+      <div className="rounded-2xl bg-white ring-1 ring-lightstone p-4">
+        <h4 className="font-heading font-bold text-charcoal">Contact</h4>
+        <div className="mt-3 grid sm:grid-cols-2 gap-4">
+          <Field label="Full name">
+            <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder="Enter your name" required />
+          </Field>
+          <Field label="Phone">
+            <input className={inputCls} type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Enter your phone" required />
+          </Field>
+        </div>
+      </div>
+
+      <div className="rounded-2xl bg-white ring-1 ring-lightstone p-4">
+        <h4 className="font-heading font-bold text-charcoal">Service address</h4>
+        <div className="mt-3 grid gap-4">
+          <Field label="Address">
+            <textarea
+              className={`${inputCls} min-h-[80px] resize-none`}
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+              placeholder="Enter your address"
+              required
+            />
+          </Field>
+          <Field label="City">
+            <div className="relative">
+              <select
+                className={selectCls}
+                value={city}
+                onChange={(e) => { setCity(e.target.value); setArea(''); setPincode('') }}
+                required
+              >
+                <option value="">Select city</option>
+                {availableCities.map(c => (
+                  <option key={c.id} value={c.name}>{c.name}</option>
+                ))}
+              </select>
+              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-warmgrey pointer-events-none" />
+            </div>
+          </Field>
+          <Field label="Area">
+            <div className="relative">
+              <select
+                className={selectCls}
+                value={area}
+                onChange={(e) => setArea(e.target.value)}
+                disabled={!cityAreas.length}
+                required
+              >
+                <option value="">Select area</option>
+                {cityAreas.map((a, i) => (
+                  <option key={i} value={a}>{a}</option>
+                ))}
+              </select>
+              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-warmgrey pointer-events-none" />
+            </div>
+          </Field>
+          <Field label="Pincode">
+            <input className={inputCls} value={pincode} onChange={(e) => setPincode(e.target.value)} placeholder="Enter your pincode" required />
+          </Field>
+        </div>
+      </div>
+
+      <div className="rounded-2xl bg-white ring-1 ring-lightstone p-4">
+        <h4 className="font-heading font-bold text-charcoal">Payment</h4>
+        <div className="mt-3 grid gap-2">
+          <label className={`flex items-center gap-3 p-3 rounded-xl border transition cursor-pointer ${pay === 'card' ? 'bg-accent-100 border-terracotta' : 'bg-white border-lightstone'}`}>
+            <input type="radio" name="payment" value="card" checked={pay === 'card'} onChange={() => setPay('card')} className="accent-terracotta" />
+            <CreditCard className="w-4 h-4 text-charcoal" />
+            <span className="text-sm font-medium text-charcoal">Card</span>
+          </label>
+          <label className={`flex items-center gap-3 p-3 rounded-xl border transition cursor-pointer ${pay === 'wallet' ? 'bg-accent-100 border-terracotta' : 'bg-white border-lightstone'}`}>
+            <input type="radio" name="payment" value="wallet" checked={pay === 'wallet'} onChange={() => setPay('wallet')} className="accent-terracotta" />
+            <Wallet className="w-4 h-4 text-charcoal" />
+            <span className="text-sm font-medium text-charcoal">Wallet</span>
+          </label>
+          <label className={`flex items-center gap-3 p-3 rounded-xl border transition cursor-pointer ${pay === 'cod' ? 'bg-accent-100 border-terracotta' : 'bg-white border-lightstone'}`}>
+            <input type="radio" name="payment" value="cod" checked={pay === 'cod'} onChange={() => setPay('cod')} className="accent-terracotta" />
+            <Banknote className="w-4 h-4 text-charcoal" />
+            <span className="text-sm font-medium text-charcoal">Cash after service</span>
+          </label>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function ServiceDetail() {
   const { slug } = useParams()
   const { services, loading } = useServices()
+  const { addBooking } = useBookings()
+  const { token } = useAuth()
+  const navigate = useNavigate()
+  const location = useLocation()
   const [availableCities, setAvailableCities] = useState([])
+
+  const [openSections, setOpenSections] = useState({ how: false, addons: false, payment: false })
+  const [schedule, setSchedule] = useState('instant')
+  const [date, setDate] = useState('')
+  const [time, setTime] = useState('')
+  const [cadence, setCadence] = useState('weekly')
+  const [name, setName] = useState('')
+  const [phone, setPhone] = useState('')
+  const [address, setAddress] = useState('')
+  const [city, setCity] = useState('')
+  const [area, setArea] = useState('')
+  const [pincode, setPincode] = useState('')
+  const [pay, setPay] = useState('card')
+  const [selectedAddons, setSelectedAddons] = useState({ supplies: false, fridge: false })
+  const [submitting, setSubmitting] = useState(false)
+
+  const stateSlugs = location.state?.selectedSlugs || []
+  const selectedServices = useMemo(() => {
+    const slugs = stateSlugs.length ? stateSlugs : [slug]
+    return slugs.map(s => services.find(svc => svc.slug === s)).filter(Boolean)
+  }, [stateSlugs, services, slug])
+  const primary = selectedServices[0]
+
+  const arrivalTime = useMemo(() => {
+    const d = new Date(Date.now() + 15 * 60 * 1000)
+    return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })
+  }, [])
 
   useEffect(() => {
     const parseCategoryIds = (value) => {
@@ -207,15 +462,12 @@ export default function ServiceDetail() {
       try {
         const parsed = JSON.parse(value)
         if (Array.isArray(parsed)) return parsed.map(String)
-      } catch {
-        // not JSON; treat as a single id
-      }
+      } catch { }
       return [String(value)]
     }
 
     const fetchCitiesForService = async () => {
-      const svc = services.find(s => s.slug === slug)
-      if (!svc) return
+      if (!primary) return
       try {
         const [catRes, cityRes] = await Promise.all([
           fetch(`${API_BASE}/service-categories`),
@@ -226,9 +478,8 @@ export default function ServiceDetail() {
         const categories = catJson.data || []
         const allCities = cityJson.data || []
 
-        // The service's category (svc.short) maps to a service_categories row.
         const matchedCategory = categories.find(
-          c => (c.name || '').toLowerCase() === (svc.short || '').toLowerCase()
+          c => (c.name || '').toLowerCase() === (primary.short || '').toLowerCase()
         )
         if (!matchedCategory) {
           setAvailableCities([])
@@ -236,14 +487,12 @@ export default function ServiceDetail() {
         }
         const categoryId = String(matchedCategory.id)
 
-        // A city offers the service if its serviceCategoryId list includes it.
         const matchingCities = allCities
           .filter(city => parseCategoryIds(city.serviceCategoryId).includes(categoryId))
           .map(city => ({
             id: city.id,
             slug: city.cityName.toLowerCase().replace(/\s+/g, '-'),
             name: city.cityName,
-            img: undefined,
             areas: city.areas || [],
           }))
         setAvailableCities(matchingCities)
@@ -264,35 +513,198 @@ export default function ServiceDetail() {
     )
   }
 
-  const svc = services.find(s => s.slug === slug)
-  if (!svc) return <Navigate to="/services" replace />
+  if (!primary) return <Navigate to="/services" replace />
 
-  const filteredCities = availableCities
+  const basePrice = selectedServices.reduce((sum, s) => sum + (s.price || parsePrice(s.pricingFrom)), 0)
+  const addOnTotal = ADDONS.reduce((sum, a) => sum + (selectedAddons[a.id] ? a.price : 0), 0)
+  const displayPrice = (schedule === 'recurring' ? Math.round(basePrice * 0.85) : basePrice) + addOnTotal
+
+  const onSubmit = async (e) => {
+    e.preventDefault()
+    if (!name || !phone || !address || !city || !pincode) return
+    if (schedule !== 'instant' && (!date || !time)) return
+    setSubmitting(true)
+
+    const bookingId = 'KYND' + Math.random().toString(36).slice(2, 8).toUpperCase()
+    const scheduledAt = schedule !== 'instant' && date && time
+      ? new Date(`${date}T${time}`).toISOString()
+      : ''
+    const order = {
+      bookingId,
+      items: selectedServices.map(s => ({ slug: s.slug, name: s.name, img: s.img, priceFrom: s.price || parsePrice(s.pricingFrom), duration: s.duration, qty: 1 })),
+      total: displayPrice,
+      addOns: ADDONS.filter(a => selectedAddons[a.id]).map(a => ({ id: a.id, name: a.label, price: a.price })),
+      schedule,
+      scheduledAt,
+      cadence: schedule === 'recurring' ? cadence : '',
+      contact: { name, phone, address, city, pincode, area },
+      payment: pay,
+      placedAt: new Date().toISOString()
+    }
+
+    const headers = { 'Content-Type': 'application/json' }
+    if (token) headers['Authorization'] = `Bearer ${token}`
+
+    if (pay !== 'card') {
+      // Cash or wallet: create the booking directly.
+      try {
+        const response = await fetch(`${API_BASE}/bookings`, {
+          method: 'POST',
+          headers,
+          credentials: 'include',
+          body: JSON.stringify(order)
+        })
+        const data = await response.json()
+        if (!response.ok) throw new Error(data.error || 'Failed to create booking')
+        const orderWithId = { ...order, id: data.id, provider: data.provider }
+        try { localStorage.setItem('kynd.lastOrder', JSON.stringify(orderWithId)) } catch { }
+        addBooking(orderWithId)
+        navigate('/booking/confirmed', { state: orderWithId, replace: true })
+      } catch (error) {
+        console.error('Booking error:', error)
+        alert(error.message || 'Failed to create booking. Please try again.')
+      } finally {
+        setSubmitting(false)
+      }
+      return
+    }
+
+    // Card: start an Airwallex PaymentIntent and redirect to the hosted payment page.
+    try {
+      const res = await fetch(`${API_BASE}/payments/create-intent`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          amount: order.total,
+          merchantOrderId: order.bookingId,
+          metadata: { bookingId: order.bookingId, customer: name, phone },
+          returnUrl: `${window.location.origin}/booking/confirmed`,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to start payment')
+
+      try {
+        localStorage.setItem('kynd.pendingOrder', JSON.stringify({
+          bookingId: order.bookingId,
+          intentId: data.id,
+          order,
+        }))
+      } catch {}
+
+      const { init } = await import('@airwallex/components-sdk')
+      const AIRWALLEX_ENV = import.meta.env.VITE_AIRWALLEX_ENV || 'prod'
+      const { payments } = await init({
+        env: AIRWALLEX_ENV,
+        enabledElements: ['payments'],
+      })
+
+      payments.redirectToCheckout({
+        intent_id: data.id,
+        client_secret: data.clientSecret,
+        currency: data.currency,
+        country_code: 'SG',
+      })
+    } catch (error) {
+      console.error('Payment init error:', error)
+      alert(error.message || 'Could not start payment. Please try again.')
+      setSubmitting(false)
+    }
+  }
+
+  const paymentSummary = city ? `${city}${area ? ', ' + area : ''} — ${pay === 'card' ? 'Card' : pay === 'wallet' ? 'Wallet' : 'Cash'}` : 'Enter your details'
+
+  const howSummary = schedule === 'instant'
+    ? 'Instant'
+    : schedule === 'scheduled'
+      ? 'Scheduled'
+      : `Recurring (${cadence})`
+
+  const addonCount = Object.values(selectedAddons).filter(Boolean).length
+  const addonSummary = addonCount ? `${addonCount} selected` : 'None selected'
 
   return (
-    <div className="pb-24">
-      <ServiceHero svc={svc} />
-      <Inclusions svc={svc} />
-      {filteredCities.length > 0 ? (
-        <CitiesGrid
-          title={`Available in ${filteredCities.length} ${filteredCities.length === 1 ? 'city' : 'cities'}`}
-          className="bg-white"
-          filteredCities={filteredCities}
-        />
-      ) : (
-        <section className="py-14 bg-white">
-          <div className="max-w-6xl mx-auto px-6">
-            <h2 className="font-heading text-3xl md:text-5xl font-extrabold tracking-tight text-charcoal">
-              No cities available for this service yet
-            </h2>
-            <p className="mt-4 text-warmgrey">
-              This service is not currently available in any cities. Please check back later.
-            </p>
-          </div>
-        </section>
-      )}
-      <DownloadCta />
-      <StickyBookingBar svc={svc} />
+    <div className="pb-28">
+      <ServiceHero svc={primary} />
+      <Inclusions svc={primary} />
+
+      <section className="py-6 sm:py-8 bg-warmlinen">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6">
+          <p className="text-center text-xs font-semibold text-warmgrey tracking-widest uppercase mb-4">Book below</p>
+
+          {selectedServices.length > 1 && (
+            <div className="mb-4 rounded-3xl bg-white border border-lightstone p-4 sm:p-5">
+              <h3 className="font-heading text-lg font-bold text-charcoal">Your selection</h3>
+              <ul className="mt-3 divide-y divide-lightstone">
+                {selectedServices.map(s => (
+                  <li key={s.slug} className="flex items-center justify-between gap-3 py-2.5">
+                    <span className="text-sm text-charcoal font-medium truncate">{s.name}</span>
+                    <span className="text-sm font-semibold text-charcoal shrink-0">
+                      {formatPrice(s.price || parsePrice(s.pricingFrom))}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          <form id="booking-form" onSubmit={onSubmit} className="space-y-4">
+            <HowSoonPanel
+              open={openSections.how}
+              setOpen={() => setOpenSections(prev => ({ ...prev, how: !prev.how, addons: false, payment: false }))}
+              summary={howSummary}
+              schedule={schedule}
+              setSchedule={setSchedule}
+              date={date}
+              setDate={setDate}
+              time={time}
+              setTime={setTime}
+              cadence={cadence}
+              setCadence={setCadence}
+              arrivalTime={arrivalTime}
+            />
+
+            <SectionCard
+              title="Add-ons"
+              summary={addonSummary}
+              open={openSections.addons}
+              setOpen={() => setOpenSections(prev => ({ ...prev, how: false, addons: !prev.addons, payment: false }))}
+            >
+              <div className="space-y-1">
+                {ADDONS.map(a => (
+                  <label key={a.id} className="flex items-center justify-between gap-3 p-3 -mx-1 rounded-2xl hover:bg-warmlinen transition cursor-pointer">
+                    <span className="text-sm sm:text-base text-charcoal font-medium">{a.label} <span className="text-warmgrey font-normal">+S${a.price}</span></span>
+                    <AddonToggle
+                      checked={selectedAddons[a.id]}
+                      onChange={(checked) => setSelectedAddons(prev => ({ ...prev, [a.id]: checked }))}
+                    />
+                  </label>
+                ))}
+              </div>
+            </SectionCard>
+
+            <SectionCard
+              title="Address & payment"
+              summary={paymentSummary}
+              open={openSections.payment}
+              setOpen={() => setOpenSections(prev => ({ ...prev, how: false, addons: false, payment: !prev.payment }))}
+            >
+              <AddressPaymentPanel
+                availableCities={availableCities}
+                name={name} setName={setName}
+                phone={phone} setPhone={setPhone}
+                address={address} setAddress={setAddress}
+                city={city} setCity={setCity}
+                area={area} setArea={setArea}
+                pincode={pincode} setPincode={setPincode}
+                pay={pay} setPay={setPay}
+              />
+            </SectionCard>
+          </form>
+        </div>
+      </section>
+
+      <BookingBar price={displayPrice} submitting={submitting} />
     </div>
   )
 }

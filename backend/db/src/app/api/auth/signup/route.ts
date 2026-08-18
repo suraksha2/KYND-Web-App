@@ -65,6 +65,12 @@ export async function POST(request: NextRequest) {
 
     const insertResult = result as any;
     const userId = insertResult.insertId;
+
+    const [newUsers] = await pool.query(
+      'SELECT created_at FROM users WHERE id = ?',
+      [userId]
+    );
+    const createdAt = (newUsers as any[])[0]?.created_at;
     
     // Issue session token
     const token = await createSessionToken({
@@ -79,6 +85,7 @@ export async function POST(request: NextRequest) {
         name: name.trim(),
         email: normalizedEmail,
         role: assignedRole,
+        createdAt,
         token,
       },
       { status: 201 }

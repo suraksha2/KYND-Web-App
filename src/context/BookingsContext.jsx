@@ -39,7 +39,16 @@ function transformBooking(row) {
     payment: row.payment,
     placedAt: row.placed_at,
     status: row.status,
-    history: parseJson(row.history)
+    history: parseJson(row.history),
+    providerId: row.provider_id || row.providerId || null,
+    provider: row.provider_name ? {
+      id: row.provider_id,
+      name: row.provider_name,
+      rating: Number(row.provider_rating || 0),
+      avatar: row.provider_avatar,
+      mobile: row.provider_mobile
+    } : (row.provider || null),
+    assignedAt: row.assigned_at
   }
 }
 
@@ -139,7 +148,7 @@ export function BookingsProvider({ children }) {
     }
   }, [bookings, token])
 
-  const rescheduleBooking = useCallback((bookingId, newAt) => {
+  const rescheduleBooking = useCallback(async (bookingId, newAt) => {
     setBookings(prev => prev.map(b => b.bookingId === bookingId
       ? {
           ...b,
@@ -149,28 +158,36 @@ export function BookingsProvider({ children }) {
         }
       : b
     ))
-  }, [])
+
+    try {
+      const booking = bookings.find(b => b.bookingId === bookingId)
+      if (!booking?.id) return
+
+      const response = await fetch(`${API_BASE}/bookings/${booking.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        credentials: 'include',
+        body: JSON.stringify({ scheduledAt: newAt })
+      })
+
+      if (!response.ok) {
+        console.error('Failed to reschedule booking on backend:', await response.text())
+      }
+    } catch (error) {
+      console.error('Error rescheduling booking:', error)
+    }
+  }, [bookings, token])
 
   const getBooking = useCallback((bookingId) => bookings.find(b => b.bookingId === bookingId) || null, [bookings])
 
-  // Bucket bookings into upcoming/past based on status + schedule time
+  // Bucket bookings: only completed bookings go to Past; everything else shows in Upcoming.
   const { upcoming, past } = useMemo(() => {
-    const now = Date.now()
     const upcoming = []
     const past = []
     for (const b of bookings) {
-      if (b.status === 'cancelled' || b.status === 'completed') { past.push(b); continue }
-      // status === 'upcoming'
-      if (b.schedule === 'scheduled' && b.scheduledAt) {
-        if (new Date(b.scheduledAt).getTime() < now) past.push(b)
-        else upcoming.push(b)
-      } else if (b.schedule === 'instant') {
-        // instant bookings are "in progress" briefly, then past after 2h
-        const placed = new Date(b.placedAt || 0).getTime()
-        if (now - placed > 2 * 60 * 60 * 1000) past.push(b)
-        else upcoming.push(b)
+      if (b.status === 'completed') {
+        past.push(b)
       } else {
-        // recurring – always upcoming until cancelled
         upcoming.push(b)
       }
     }

@@ -70,11 +70,57 @@ export async function POST(req: NextRequest) {
       ]
     );
 
+    const bookingDbId = (result as any).insertId;
+
+    // Auto-assign a free provider in the same city for the booked service.
+    const itemList = Array.isArray(items) ? items : JSON.parse(items || '[]');
+    const firstItemName = itemList[0]?.name || itemList[0]?.serviceName || 'Service';
+
+    const [providers]: any = await pool.query(
+      `SELECT id, name, rating, total_jobs, avatar
+       FROM service_providers
+       WHERE LOWER(city) = LOWER(?)
+         AND status = 'active'
+         AND JSON_CONTAINS(services, ?)
+       ORDER BY total_jobs ASC, rating DESC, id ASC
+       LIMIT 1`,
+      [contact.city, JSON.stringify(firstItemName)]
+    );
+
+    let provider = providers?.[0] || null;
+
+    // Fall back to any active provider in the city if no exact service match.
+    if (!provider) {
+      const [fallback]: any = await pool.query(
+        `SELECT id, name, rating, total_jobs, avatar
+         FROM service_providers
+         WHERE LOWER(city) = LOWER(?)
+           AND status = 'active'
+         ORDER BY total_jobs ASC, rating DESC, id ASC
+         LIMIT 1`,
+        [contact.city]
+      );
+      provider = fallback?.[0] || null;
+    }
+
+    if (provider) {
+      const assignedAt = formatDateTime(new Date().toISOString());
+      await pool.query(
+        'UPDATE bookings SET provider_id = ?, assigned_at = ? WHERE id = ?',
+        [provider.id, assignedAt, bookingDbId]
+      );
+      await pool.query(
+        'UPDATE service_providers SET total_jobs = total_jobs + 1 WHERE id = ?',
+        [provider.id]
+      );
+    }
+
     return NextResponse.json(
       {
         success: true,
         bookingId,
-        id: (result as any).insertId
+        id: bookingDbId,
+        provider
       },
       { status: 201 }
     );
@@ -94,12 +140,33 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Authentication required.' }, { status: 401 });
     }
 
-    let query = 'SELECT * FROM bookings ORDER BY placed_at DESC';
+    let query = `
+      SELECT b.*,
+             sp.id AS provider_id,
+             sp.name AS provider_name,
+             sp.rating AS provider_rating,
+             sp.avatar AS provider_avatar,
+             sp.mobile AS provider_mobile
+      FROM bookings b
+      LEFT JOIN service_providers sp ON b.provider_id = sp.id
+      ORDER BY b.placed_at DESC
+    `;
     const params: any[] = [];
 
     if (!['super_admin', 'admin'].includes(session.role || '')) {
       // Customer: show only their own bookings.
-      query = 'SELECT * FROM bookings WHERE user_id = ? ORDER BY placed_at DESC';
+      query = `
+        SELECT b.*,
+               sp.id AS provider_id,
+               sp.name AS provider_name,
+               sp.rating AS provider_rating,
+               sp.avatar AS provider_avatar,
+               sp.mobile AS provider_mobile
+        FROM bookings b
+        LEFT JOIN service_providers sp ON b.provider_id = sp.id
+        WHERE b.user_id = ?
+        ORDER BY b.placed_at DESC
+      `;
       params.push(session.id);
     }
 

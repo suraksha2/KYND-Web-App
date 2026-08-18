@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { Link, NavLink, useNavigate } from 'react-router-dom'
-import { ChevronDown, ShoppingBag, User, LogOut, ShoppingBag as Package, UserCircle, Bell } from 'lucide-react'
-import { useCart } from '../context/CartContext'
+import { ChevronDown, User, LogOut, ShoppingBag as Package, UserCircle, Bell } from 'lucide-react'
+// import { useCart } from '../context/CartContext'
 import { useAuth } from '../context/AuthContext'
 import { useServices } from '../context/ServicesContext'
 import { API_BASE } from '../lib/api'
@@ -214,7 +214,7 @@ export default function Header() {
           <KyndWordmark className="text-[28px]" />
         </Link>
         <div className="flex items-center -mr-2">
-          <MobileCartLink />
+          {/* <MobileCartLink /> */}
           <Link
             to="/bookings"
             aria-label="Notifications"
@@ -244,9 +244,9 @@ export default function Header() {
 
           {/* Right links */}
           <div className="hidden md:flex items-center gap-6 text-[15px] font-medium text-charcoal flex-1 justify-end">
-            <a href={import.meta.env.BASE_URL + "#how"} className="hover:text-terracotta transition">How it works</a>
-            <a href={import.meta.env.BASE_URL + "#faq"} className="hover:text-terracotta transition">FAQs</a>
-            <CartButton />
+            {/* <a href={import.meta.env.BASE_URL + "#how"} className="hover:text-terracotta transition">How it works</a>
+            <a href={import.meta.env.BASE_URL + "#faq"} className="hover:text-terracotta transition">FAQs</a> */}
+            {/* <CartButton /> */}
             <AuthButton />
           </div>
         </nav>

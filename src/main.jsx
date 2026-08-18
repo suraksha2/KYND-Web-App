@@ -3,7 +3,7 @@ import ReactDOM from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import { setupIonicReact } from '@ionic/react'
 import App from './App.jsx'
-import { CartProvider } from './context/CartContext.jsx'
+// import { CartProvider } from './context/CartContext.jsx'
 import { AuthProvider } from './context/AuthContext.jsx'
 import { BookingsProvider } from './context/BookingsContext.jsx'
 import { ServicesProvider } from './context/ServicesContext.jsx'
@@ -35,13 +35,13 @@ ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <BrowserRouter>
       <AuthProvider>
-        <CartProvider>
+        {/* <CartProvider> */}
           <BookingsProvider>
             <ServicesProvider>
               <App />
             </ServicesProvider>
           </BookingsProvider>
-        </CartProvider>
+        {/* </CartProvider> */}
       </AuthProvider>
     </BrowserRouter>
   </React.StrictMode>

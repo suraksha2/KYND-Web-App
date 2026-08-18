@@ -95,7 +95,7 @@ export function AuthProvider({ children }) {
     const data = await response.json()
     if (!response.ok) throw new Error(data.error || 'Unable to create account.')
 
-    const session = { name: data.name, email: data.email, id: data.id, role: data.role, token: data.token }
+    const session = { name: data.name, email: data.email, id: data.id, role: data.role, createdAt: data.createdAt, token: data.token }
     setUser(session)
     setSessionExpired(false)
     return session
@@ -114,7 +114,7 @@ export function AuthProvider({ children }) {
     const data = await response.json()
     if (!response.ok) throw new Error(data.error || 'Unable to sign in.')
 
-    const session = { name: data.name, email: data.email, id: data.id, role: data.role, token: data.token }
+    const session = { name: data.name, email: data.email, id: data.id, role: data.role, createdAt: data.createdAt, token: data.token }
     setUser(session)
     setSessionExpired(false)
     return session

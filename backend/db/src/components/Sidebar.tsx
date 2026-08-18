@@ -14,6 +14,7 @@ import {
   PanelLeftOpen,
   Building2,
   Zap,
+  Wrench,
 } from "lucide-react";
 import clsx from "clsx";
 import { useState } from "react";
@@ -24,6 +25,7 @@ const navItems = [
   { label: "Customers", href: "/clients", icon: Users },
   { label: "Orders", href: "/orders", icon: ShoppingCart },
   { label: "Services", href: "/services", icon: Package },
+  { label: "Pro", href: "/pro", icon: Wrench },
   { label: "Analytics", href: "/analytics", icon: BarChart2 },
   { label: "Serviceable City", href: "/city-services", icon: Building2 },
   { label: "Settings", href: "/settings", icon: Settings },

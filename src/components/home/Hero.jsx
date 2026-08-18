@@ -181,7 +181,7 @@ export default function Hero() {
       {/* ---------------- Mobile: purpose-built app home screen ---------------- */}
       <div className="md:hidden relative flex flex-col min-h-[calc(100svh_-_5.5rem_-_var(--safe-top)_-_var(--safe-bottom))]">
         {/* Hero image sits behind the content and melts into the linen background */}
-        <div className="absolute inset-x-0 bottom-0 top-[26%] pointer-events-none select-none">
+        <div className="absolute inset-x-0 bottom-0 top-[20%] pointer-events-none select-none">
           <img
             src={peopleImage('women child.png')}
             alt="A parent and child caring for a plant together"

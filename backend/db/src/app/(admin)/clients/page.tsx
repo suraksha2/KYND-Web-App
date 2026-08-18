@@ -62,7 +62,13 @@ export default function CustomersPage() {
   const [errors, setErrors]         = useState<Partial<CustomerForm>>({});
   const [expandedRow, setExpandedRow] = useState<number | string | null>(null);
 
-  useEffect(() => { loadCustomers(); }, []);
+  const [bookings, setBookings]     = useState<any[]>([]);
+  const [providers, setProviders]   = useState<any[]>([]);
+  const [showAssignModal, setShowAssignModal] = useState(false);
+  const [selectedBooking, setSelectedBooking] = useState<any | null>(null);
+  const [assigning, setAssigning]   = useState(false);
+
+  useEffect(() => { loadCustomers(); loadBookings(); loadProviders(); }, []);
 
   async function loadCustomers() {
     setLoading(true);
@@ -74,6 +80,26 @@ export default function CustomersPage() {
       console.error("Failed to fetch clients", err);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadBookings() {
+    try {
+      const res  = await fetch("/api/orders");
+      const json = await res.json();
+      if (json.data) setBookings(json.data);
+    } catch (err) {
+      console.error("Failed to fetch bookings", err);
+    }
+  }
+
+  async function loadProviders() {
+    try {
+      const res  = await fetch("/api/service-providers");
+      const json = await res.json();
+      if (json.data) setProviders(json.data);
+    } catch (err) {
+      console.error("Failed to fetch providers", err);
     }
   }
 
@@ -129,6 +155,40 @@ export default function CustomersPage() {
     XLSX.utils.book_append_sheet(wb, ws, "Clients");
     const out = XLSX.write(wb, { bookType: "xlsx", type: "array" });
     saveAs(new Blob([out], { type: "application/octet-stream" }), "clients.xlsx");
+  }
+
+  function openAssign(client: Customer) {
+    const booking = bookings.find(
+      (b) =>
+        (b.contact_name || b.clientName) === client.name &&
+        (b.contact_phone || b.clientMobile) === client.mobile
+    );
+    if (!booking) {
+      alert("No booking found for this customer.");
+      return;
+    }
+    setSelectedBooking(booking);
+    setShowAssignModal(true);
+  }
+
+  async function assignProvider(providerId: number) {
+    if (!selectedBooking) return;
+    setAssigning(true);
+    try {
+      const res = await fetch(`/api/bookings/${selectedBooking.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider_id: providerId }),
+      });
+      if (!res.ok) throw new Error();
+      await loadBookings();
+      setShowAssignModal(false);
+      setSelectedBooking(null);
+    } catch {
+      alert("Failed to assign provider.");
+    } finally {
+      setAssigning(false);
+    }
   }
 
   const inputCls = "w-full px-3 py-2 text-sm bg-gray-50 border border-lightstone rounded-xl focus:outline-none focus:ring-2 focus:ring-terracotta/30 focus:border-terracotta transition placeholder:text-warmgrey";
@@ -260,6 +320,12 @@ export default function CustomersPage() {
                           <td className="px-4 py-3 text-warmgrey text-xs whitespace-nowrap">{client.joined || "—"}</td>
                           <td className="px-4 py-3 whitespace-nowrap" onClick={e => e.stopPropagation()}>
                             <button
+                              onClick={() => openAssign(client)}
+                              className="inline-flex items-center gap-1 text-xs font-semibold bg-terracotta hover:bg-accent-700 text-white px-3 py-1.5 rounded-lg transition mr-2"
+                            >
+                              Assign Pro
+                            </button>
+                            <button
                               onClick={() => setCustomers(prev => prev.filter(c => c.id !== client.id))}
                               className="p-1.5 rounded-lg hover:bg-dustyrose/10 text-warmgrey hover:text-rosewood transition"
                               title="Remove"
@@ -388,6 +454,59 @@ export default function CustomersPage() {
         </div>
         </ModalPortal>
       )}
+
+      {/* Assign Provider Modal */}
+      {showAssignModal && selectedBooking && (
+        <ModalPortal>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-charcoal/20">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 border border-lightstone overflow-hidden">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-lightstone">
+              <div>
+                <h2 className="text-base font-bold text-charcoal">Assign Provider</h2>
+                <p className="text-xs text-warmgrey mt-0.5">Order for: {selectedBooking.clientName || selectedBooking.contact_name || 'Unknown'}</p>
+              </div>
+              <button
+                onClick={() => { setShowAssignModal(false); setSelectedBooking(null); }}
+                className="p-1.5 hover:bg-accent-50 rounded-lg transition"
+              >
+                <X size={16} className="text-warmgrey" />
+              </button>
+            </div>
+            <div className="px-6 py-5 max-h-72 overflow-y-auto space-y-2">
+              {providers.filter((p: any) => p.status === 'active').length === 0 ? (
+                <p className="text-sm text-warmgrey text-center py-4">No active providers available.</p>
+              ) : (
+                providers
+                  .filter((p: any) => p.status === 'active')
+                  .map((provider: any) => (
+                    <button
+                      key={provider.id}
+                      onClick={() => assignProvider(provider.id)}
+                      disabled={assigning}
+                      className="w-full flex items-center justify-between p-3 bg-gray-50 rounded-xl hover:bg-accent-50 transition disabled:opacity-50"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-terracotta/10 flex items-center justify-center text-terracotta font-semibold">
+                          {getInitials(provider.name)}
+                        </div>
+                        <div className="text-left">
+                          <p className="font-medium text-charcoal text-sm">{provider.name}</p>
+                          <p className="text-[11px] text-warmgrey">{provider.city}</p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-[11px] text-accent-700">★ {provider.rating || 0}</p>
+                        <p className="text-[10px] text-warmgrey">{provider.total_jobs || 0} jobs</p>
+                      </div>
+                    </button>
+                  ))
+              )}
+            </div>
+          </div>
+        </div>
+        </ModalPortal>
+      )}
+
     </>
   );
 }

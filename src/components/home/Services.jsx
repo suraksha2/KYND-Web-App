@@ -3,19 +3,13 @@ import { Link } from 'react-router-dom'
 import { Plus, Image as ImageIcon, Star, ShieldCheck, FileText, UserCheck } from 'lucide-react'
 import { iconForService } from '../../lib/serviceIcon'
 import { taglineForService } from '../../lib/serviceTagline'
-import { useCart } from '../../context/CartContext'
+// import { useCart } from '../../context/CartContext'
 import { API_BASE, serviceImageUrl } from '../../lib/api'
 
 const ServiceTile = ({ s }) => {
-  const { addItem } = useCart()
-  const [added, setAdded] = useState(false)
   const [imgFailed, setImgFailed] = useState(false)
   const Icon = iconForService(s.name)
   const showImage = s.img && !imgFailed
-  const handleAdd = (e) => {
-    e.preventDefault(); e.stopPropagation()
-    addItem(s); setAdded(true); setTimeout(() => setAdded(false), 1200)
-  }
   return (
     <Link
       to={`/services/${s.slug}`}
@@ -39,16 +33,8 @@ const ServiceTile = ({ s }) => {
         {s.name}
       </div>
       <p className="mt-1 text-xs text-warmgrey leading-relaxed flex-1">{taglineForService(s.name)}</p>
-      <div className="mt-3 flex items-center justify-between gap-2">
+      <div className="mt-3 flex items-center gap-2">
         <span className="text-xs font-semibold text-charcoal">from {s.pricingFrom}</span>
-        <button
-          type="button"
-          onClick={handleAdd}
-          aria-label={`Add ${s.name} to cart`}
-          className={`w-8 h-8 rounded-full grid place-items-center shadow-soft transition ${added ? 'bg-sage text-white scale-110' : 'bg-terracotta text-white hover:bg-charcoal'}`}
-        >
-          <Plus className="w-4 h-4" strokeWidth={3} />
-        </button>
       </div>
     </Link>
   )
@@ -141,26 +127,26 @@ export default function Services() {
     <section id="services" className="py-12 md:py-16">
       <div className="max-w-5xl mx-auto px-6">
         <div className="text-center">
-          <h2 className="font-heading text-3xl md:text-4xl font-extrabold text-charcoal">Book trusted house<br />help.</h2>
-          <p className="mt-3 text-warmgrey max-w-xl mx-auto">
+          <h2 className="font-heading text-3xl md:text-4xl font-extrabold text-charcoal">Categories<br /></h2>
+          {/* <p className="mt-3 text-warmgrey max-w-xl mx-auto">
             From cleaning and maintenance to childcare and elderly support, Kynd's got you covered. {services.length} services, transparent flat pricing.
-          </p>
+          </p> */}
         </div>
 
         <div className="mt-10 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 md:gap-4">
           {services.map(s => <ServiceTile key={s.id} s={s} />)}
         </div>
 
-        <div className="mt-10 text-center">
+        {/* <div className="mt-10 text-center">
           <Link to="/cart" className="inline-flex items-center justify-center rounded-full bg-terracotta hover:bg-charcoal text-white font-semibold px-6 py-3 transition">
             View cart & checkout
           </Link>
-        </div>
+        </div> */}
 
         <div className="mt-12 md:mt-16">
           <h3 className="font-heading text-3xl md:text-4xl font-extrabold text-charcoal">Offers</h3>
 
-          <div className="mt-6 flex gap-4 overflow-x-auto snap-x snap-mandatory scroll-smooth pb-2">
+          <div className="mt-6 flex gap-4 overflow-x-auto no-scrollbar snap-x snap-mandatory scroll-smooth">
             {offers.map((offer) => (
               <div
                 key={offer.title}
@@ -194,7 +180,7 @@ export default function Services() {
             You need help.
           </h3>
 
-          <div className="mt-6 flex gap-4 overflow-x-auto snap-x snap-mandatory scroll-smooth pb-2">
+          <div className="mt-6 flex gap-4 overflow-x-auto no-scrollbar snap-x snap-mandatory scroll-smooth">
             {moments.map((m) => (
               <Link
                 to={`/help/${m.id}`}

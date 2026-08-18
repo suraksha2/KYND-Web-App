@@ -5,7 +5,7 @@ import StoreButtons from '../components/StoreButtons'
 import CitiesGrid from '../components/CitiesGrid'
 import { iconForService } from '../lib/serviceIcon'
 import { API_BASE, serviceImageUrl } from '../lib/api'
-import { DownloadCta } from './Home'
+// import { DownloadCta } from './Home'
 
 /* ---------- City hero ---------- */
 const CityHero = ({ city }) => (
@@ -241,7 +241,7 @@ export default function CityDetail() {
       <CityHero city={city} />
       <Localities city={city} />
       <ServicesInCity city={city} />
-      <DownloadCta />
+      {/* <DownloadCta /> */}
     </div>
   )
 }

@@ -36,8 +36,8 @@ export default function AdminPanel() {
     { id: "overview", label: "Overview" },
     { id: "orders", label: "All Orders" },
     { id: "services", label: "Services" },
-    { id: "providers", label: "Service Providers" },
     { id: "clients", label: "Clients" },
+    { id: "providers", label: "Providers" },
   ];
 
   // Attach the admin session token so the backend RBAC middleware authorizes
@@ -219,6 +219,21 @@ export default function AdminPanel() {
     }
   };
 
+  // Open provider assignment for a client using their latest order
+  const openAssignForClient = (client) => {
+    const clientOrder = orders.find(
+      (o) =>
+        o.clientName === client.name &&
+        o.clientMobile === client.mobile
+    );
+    if (!clientOrder) {
+      alert('No order found for this client.');
+      return;
+    }
+    setSelectedOrder(clientOrder);
+    setShowAssignModal(true);
+  };
+
   // Add new service provider
   const addProvider = async () => {
     try {
@@ -326,7 +341,7 @@ export default function AdminPanel() {
         {/* Heading */}
         <div className="mb-8">
           <h2 className="font-heading text-4xl font-bold text-charcoal">
-            Admin Dashboard
+            Super-Admin Dashboard
           </h2>
 
           <p className="text-warmgrey mt-2">
@@ -438,7 +453,7 @@ export default function AdminPanel() {
                 ) : (
                   <div className="space-y-4">
                     {sortedOrders.map((order) => (
-                      <div key={order.id} className="grid grid-cols-[minmax(0,1fr)_140px_100px_140px] items-center gap-4 p-4 bg-warmlinen rounded-xl">
+                      <div key={order.id} className="grid grid-cols-[minmax(0,1fr)_140px_100px] items-center gap-4 p-4 bg-warmlinen rounded-xl">
                         <div className="flex items-center gap-4 min-w-0">
                           <div className="w-10 h-10 rounded-full bg-terracotta/10 flex items-center justify-center text-terracotta font-semibold shrink-0">
                             {order.clientName?.charAt(0) || 'U'}
@@ -462,15 +477,7 @@ export default function AdminPanel() {
                             {order.status || 'Pending'}
                           </div>
                         </div>
-                        <button
-                          onClick={() => {
-                            setSelectedOrder(order);
-                            setShowAssignModal(true);
-                          }}
-                          className="px-4 py-2 bg-terracotta text-white rounded-full text-sm font-medium hover:bg-charcoal transition-colors justify-self-end"
-                        >
-                          {order.providerName ? 'Reassign' : 'Assign Provider'}
-                        </button>
+
                       </div>
                     ))}
                   </div>
@@ -501,10 +508,19 @@ export default function AdminPanel() {
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {services.map((service) => {
                     const Icon = iconForService(service.name);
+                    const imageUrl = service.image
+                      ? service.image.startsWith('http')
+                        ? service.image
+                        : `${API_BASE.replace(/\/api$/, '')}${service.image.startsWith('/') ? '' : '/'}${service.image}`
+                      : null;
                     return (
                     <div key={service.id} className="p-4 bg-warmlinen rounded-xl">
-                      <div className="w-full h-32 bg-lightstone/40 rounded-lg mb-4 flex items-center justify-center">
-                        <Icon className="w-14 h-14 text-terracotta" strokeWidth={1.75} />
+                      <div className="w-full aspect-[4/3] bg-lightstone/40 rounded-lg mb-4 flex items-center justify-center overflow-hidden">
+                        {imageUrl ? (
+                          <img src={imageUrl} alt={service.name} className="w-full h-full object-cover" />
+                        ) : (
+                          <Icon className="w-14 h-14 text-terracotta" strokeWidth={1.75} />
+                        )}
                       </div>
                       <h3 className="font-semibold text-charcoal">{service.name}</h3>
                       <p className="text-sm text-warmgrey">{service.category}</p>
@@ -524,17 +540,10 @@ export default function AdminPanel() {
             </div>
           )}
 
-          {/* Service Providers Tab */}
           {activeTab === "providers" && (
             <div className="p-8">
-              <div className="flex justify-between items-center mb-6">
+              <div className="mb-6">
                 <h3 className="font-heading text-xl font-bold text-charcoal">Service Providers</h3>
-                <button
-                  onClick={() => setShowAddProviderModal(true)}
-                  className="px-4 py-2 bg-terracotta text-white rounded-full text-sm font-medium hover:bg-charcoal transition-colors"
-                >
-                  Add Provider
-                </button>
               </div>
               {loading.providers ? (
                 <div className="flex items-center justify-center h-[320px]">

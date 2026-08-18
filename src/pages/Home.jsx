@@ -1,14 +1,14 @@
 import { useRef, useState, useEffect } from 'react'
 import Hero from '../components/home/Hero'
-import Stats from '../components/home/Stats'
+// import Stats from '../components/home/Stats'
 import Services from '../components/home/Services'
-import Steps from '../components/home/Steps'
-import ValuePillars from '../components/home/ValuePillars'
-import Reviews from '../components/home/Reviews'
-import Faq from '../components/home/Faq'
-import DownloadCta from '../components/home/DownloadCta'
+// import Steps from '../components/home/Steps'
+// import ValuePillars from '../components/home/ValuePillars'
+// import Reviews from '../components/home/Reviews'
+// import Faq from '../components/home/Faq'
+// import DownloadCta from '../components/home/DownloadCta'
 
-export { Stats, Services, Steps, ValuePillars, Reviews, Faq, DownloadCta }
+export { Services }
 
 const peopleImage = (name) =>
   import.meta.env.BASE_URL + 'images/people/' + encodeURIComponent(name)
@@ -194,13 +194,13 @@ export default function Home() {
     <>
       <Hero />
       <ScrollReveal><Services /></ScrollReveal>
-      <ScrollReveal><Steps /></ScrollReveal>
-      <ScrollReveal><Stats /></ScrollReveal>
-      <ScrollReveal><ValuePillars /></ScrollReveal>
-      <ScrollReveal><StandardsCarousel /></ScrollReveal>
-      <ScrollReveal><Reviews /></ScrollReveal>
-      <ScrollReveal><Faq /></ScrollReveal>
-      <ScrollReveal><DownloadCta /></ScrollReveal>
+      {/* <ScrollReveal><Steps /></ScrollReveal> */}
+      {/* <ScrollReveal><Stats /></ScrollReveal> */}
+      {/* <ScrollReveal><ValuePillars /></ScrollReveal> */}
+      {/* <ScrollReveal><StandardsCarousel /></ScrollReveal> */}
+      {/* <ScrollReveal><Reviews /></ScrollReveal> */}
+      {/* <ScrollReveal><Faq /></ScrollReveal> */}
+      {/* <ScrollReveal><DownloadCta /></ScrollReveal> */}
     </>
   )
 }

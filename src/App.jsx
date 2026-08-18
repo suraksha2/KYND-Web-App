@@ -1,7 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { useEffect } from 'react'
 import { useAuth } from './context/AuthContext'
-import { useCart } from './context/CartContext'
+// import { useCart } from './context/CartContext'
 import MainLayout from './layouts/MainLayout'
 import Home from './pages/Home'
 import Services from './pages/Services'
@@ -12,8 +12,8 @@ import FAQ from './pages/FAQ'
 import Support from './pages/Support'
 import DeleteAccount from './pages/DeleteAccount'
 import { TnC, PrivacyPolicy, CancellationPolicy, Credits } from './pages/Legal'
-import Cart from './pages/Cart'
-import Checkout from './pages/Checkout'
+// import Cart from './pages/Cart'
+// import Checkout from './pages/Checkout'
 import BookingConfirmed from './pages/BookingConfirmed'
 import Login from './pages/Login'
 import Signup from './pages/Signup'
@@ -24,20 +24,13 @@ import Bookings from './pages/Bookings'
 import BookingDetail from './pages/BookingDetail'
 import SubcategoryDetail from './pages/SubcategoryDetail'
 
-// Sync user ID from AuthContext to CartContext for per-user cart persistence
-function AuthCartSync() {
-  const { user } = useAuth()
-  const { setUserIdFromAuth } = useCart()
-  useEffect(() => {
-    setUserIdFromAuth(user?.id || null)
-  }, [user?.id, setUserIdFromAuth])
-  return null
-}
+// Cart feature removed — AuthCartSync no longer required
+// function AuthCartSync() { ... }
 
 export default function App() {
   return (
     <>
-      <AuthCartSync />
+      {/* <AuthCartSync /> */}
       <Routes>
         {/* Auth pages without header */}
         <Route path="/login" element={<Login />} />
@@ -55,8 +48,8 @@ export default function App() {
         <Route path="/frequently-asked-questions" element={<FAQ />} />
         <Route path="/support" element={<Support />} />
         <Route path="/delete-account" element={<DeleteAccount />} />
-        <Route path="/cart" element={<Cart />} />
-        <Route path="/checkout" element={<Checkout />} />
+        {/* <Route path="/cart" element={<Cart />} /> */}
+        {/* <Route path="/checkout" element={<Checkout />} /> */}
         <Route path="/booking/confirmed" element={<BookingConfirmed />} />
         <Route path="/account" element={<Account />} />
         <Route path="/bookings" element={<Bookings />} />

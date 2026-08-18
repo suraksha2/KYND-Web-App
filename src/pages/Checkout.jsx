@@ -118,7 +118,7 @@ export default function Checkout() {
       throw new Error(data.error || 'Failed to create booking')
     }
     // Store the database ID from the backend response
-    const orderWithId = { ...order, id: data.id }
+    const orderWithId = { ...order, id: data.id, provider: data.provider }
     try { localStorage.setItem('kynd.lastOrder', JSON.stringify(orderWithId)) } catch {}
     addBooking(orderWithId)
     clear()
