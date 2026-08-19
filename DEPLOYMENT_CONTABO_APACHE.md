@@ -8,10 +8,11 @@ This guide deploys the **Helpr** project on a Contabo VPS that already runs **Ap
 |------------------|------------------|-------------------|------|-------|
 | Frontend (SPA)   | `/`              | Vite + React      | —    | Static build → `dist/`, served by Apache |
 | Admin console    | `/admin`         | Vite + React      | —    | **Separate** static build → `admin/dist/`, served by Apache on its own subdomain |
-| Backend / API    | `/backend/db`    | Next.js 14        | 3001 | API routes under `/api/*`, runs via PM2 |
+| Superadmin       | `/superadmin`    | Vite + React      | —    | **Separate** static build → `superadmin/dist/`, served by Apache on its own subdomain |
+| Backend / API    | `/backend/db`    | Express + TS      | 3001 | API under `/api/*` plus `/images`, compiled to `dist/`, runs via PM2 |
 | Database         | —                | MySQL             | 3306 | DB name: `urban_service` |
 
-Apache serves the static SPA and **reverse-proxies `/api`** to the Next.js
+Apache serves the static SPA and **reverse-proxies `/api`** to the Express
 backend on `localhost:3001`. This keeps the storefront everything on one domain
 (no CORS, no hardcoded `localhost` in the browser).
 
@@ -42,7 +43,7 @@ curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
 sudo apt install -y nodejs
 node -v && npm -v
 
-# PM2 process manager (keeps the Next.js backend alive + auto-start on reboot)
+# PM2 process manager (keeps the API alive + auto-start on reboot)
 sudo npm install -g pm2
 ```
 
@@ -161,16 +162,20 @@ const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:3001/api'
 
 ---
 
-## 6. Build & run the backend (Next.js) with PM2
+## 6. Build & run the backend (Express) with PM2
 
 ```bash
 cd /var/www/helpr/backend/db
 npm ci          # or: npm install
-npm run build   # next build
-pm2 start npm --name helpr-backend -- start   # runs `next start -p 3001`
+npm run build   # tsc -> dist/
+pm2 start dist/server.js --name helpr-backend   # listens on 3001
 pm2 save
 pm2 startup     # follow the printed command to enable auto-start on boot
 ```
+
+`npm run build` only compiles TypeScript — it does not need the database. The
+server reads `.env.local` (then `.env`) from `/var/www/helpr/backend/db`, so PM2
+must be started from that directory.
 
 Verify it's listening:
 
@@ -214,10 +219,12 @@ Create the virtual host `/etc/apache2/sites-available/helpr.conf`:
         Require all granted
     </Directory>
 
-    # Reverse-proxy API calls to the Next.js backend
+    # Reverse-proxy API calls (and backend-served service artwork) to Express
     ProxyPreserveHost On
-    ProxyPass        /api  http://127.0.0.1:3001/api
-    ProxyPassReverse /api  http://127.0.0.1:3001/api
+    ProxyPass        /api     http://127.0.0.1:3001/api
+    ProxyPassReverse /api     http://127.0.0.1:3001/api
+    ProxyPass        /images  http://127.0.0.1:3001/images
+    ProxyPassReverse /images  http://127.0.0.1:3001/images
 
     # SPA fallback: send non-file, non-/api requests to index.html
     RewriteEngine On
@@ -250,18 +257,16 @@ CORS in the backend (because it lives on a different origin than the API domain)
 
 ### 1. Whitelist the admin origin in the backend
 
-Edit `backend/db/src/middleware.ts` and add your production admin origin to
-`allowedOrigins`, then rebuild + restart the backend (Step 6):
+Set `ALLOWED_ORIGINS` in `backend/db/.env.local` to a comma-separated list of
+your production frontend origins, then restart the backend (Step 6). Localhost
+dev origins are always allowed, so only production hosts belong here:
 
-```ts
-const allowedOrigins = [
-  'http://localhost:5173',
-  'http://127.0.0.1:5173',
-  'http://localhost:5174',
-  'http://127.0.0.1:5174',
-  'https://admin.helpr.example.com', // <-- production admin
-]
+```bash
+ALLOWED_ORIGINS=https://admin.helpr.example.com,https://super.helpr.example.com
 ```
+
+(The allowlist lives in `backend/db/src/http/cors.ts`; it reads this variable at
+startup, so no code change is needed.)
 
 ### 2. Build the admin with a production API base
 
@@ -318,6 +323,31 @@ sudo systemctl reload apache2
 > `https://helpr.example.com/api` base you set in `.env.production`. That
 > cross-origin call is allowed by the CORS whitelist from step 1, and the admin
 > sends its session as an `Authorization: Bearer` header.
+
+---
+
+## 8c. Build & serve the superadmin console
+
+The superadmin console is another standalone Vite app, in `superadmin/`. It is
+the former Next.js admin panel (dashboard, orders, services, pros, analytics,
+serviceable cities, settings) and its login screen keeps the `/superadmin` path.
+
+Build it exactly like the admin, on its own subdomain:
+
+```bash
+cd /var/www/helpr/superadmin
+npm ci
+printf 'VITE_API_BASE=https://helpr.example.com/api\n' > .env.production
+npm run build   # outputs to superadmin/dist/
+```
+
+Copy the vhost from section 8b, replacing the server name with
+`super.helpr.example.com` and the document root with
+`/var/www/helpr/superadmin/dist`. The SPA fallback rule is required — without it
+`/superadmin`, `/dashboard`, `/orders` etc. return 404 on reload.
+
+Make sure the origin is in `ALLOWED_ORIGINS` (step 8b.1); the console
+authenticates with an `Authorization: Bearer` header, so it needs CORS.
 
 ---
 

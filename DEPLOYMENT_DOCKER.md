@@ -9,10 +9,11 @@ Apache + PM2) — pick one, not both.
 | Service    | Image built from                       | Host port | Contents |
 |------------|----------------------------------------|-----------|----------|
 | `mysql`    | `mysql:8.0`                            | 3307 (loopback only) | DB `urban_service`, schema from `backend/db/db.sql` on first boot |
-| `backend`  | `backend/db/Dockerfile`                | — (internal 3001) | Next.js 14 API (`/api/*`), `output: 'standalone'` (~316 MB) |
+| `backend`  | `backend/db/Dockerfile`                | — (internal 3001) | Express API (`/api/*`) + `/images`, compiled to `dist/` |
 | `web`      | `docker/Dockerfile.web` (`APP_DIR=.`)  | 8080      | Customer storefront SPA + nginx |
 | `admin`    | `docker/Dockerfile.web` (`APP_DIR=admin`)    | 8081 | Admin console SPA + nginx |
 | `provider` | `docker/Dockerfile.web` (`APP_DIR=provider`) | 8082 | Provider app SPA + nginx |
+| `superadmin` | `docker/Dockerfile.web` (`APP_DIR=superadmin`) | 8083 | Superadmin console SPA + nginx (login at `/superadmin`) |
 
 Each SPA's nginx reverse-proxies `/api` **and** `/images` to `backend:3001`, so
 the browser only ever talks to a single origin per app: no CORS setup, no
@@ -129,6 +130,7 @@ curl -s  http://localhost:8080/api/services              # JSON through the prox
 curl -I  http://localhost:8080/images/Tutor.png          # image proxied from backend
 curl -I  http://localhost:8081            # admin
 curl -I  http://localhost:8082            # provider
+curl -I  http://localhost:8083/superadmin # superadmin login
 docker compose --env-file .env.docker logs -f backend
 ```
 
@@ -151,10 +153,12 @@ you already run:
 
 - **Existing Apache/nginx on the host** — reverse-proxy each vhost to the
   matching container port (`helpr.example.com` → `127.0.0.1:8080`,
-  `admin.helpr.example.com` → `:8081`, `pro.helpr.example.com` → `:8082`), then
+  `admin.helpr.example.com` → `:8081`, `pro.helpr.example.com` → `:8082`,
+  `super.helpr.example.com` → `:8083`), then
   `sudo certbot --apache -d helpr.example.com -d admin.helpr.example.com -d pro.helpr.example.com`.
   Keep `ProxyPreserveHost On` so the backend sees the real host.
-- **Caddy/Traefik container** — point it at `web:80`, `admin:80`, `provider:80`
+- **Caddy/Traefik container** — point it at `web:80`, `admin:80`, `provider:80`,
+  `superadmin:80`
   on the compose network and drop the published ports from `docker-compose.yml`.
 
 If you instead serve an app from a *different* origin than its API, add that
@@ -185,7 +189,7 @@ The stack runs correctly out of the box, but these are on you:
 - [ ] **Schedule database backups.** Nothing here backs up `mysql-data` or
       `backend-data` for you.
 - [ ] **Firewall the host.** Only 80/443 should be reachable; the app ports
-      (8080–8082) should be proxied, not public.
+      (8080–8083) should be proxied, not public.
 - [ ] **Mobile builds need a different API base.** Capacitor loads the bundle
       from `capacitor://localhost`, where `VITE_API_BASE=/api` resolves to the
       device, not your server. Build the app bundle separately with an absolute
@@ -235,7 +239,7 @@ docker compose --env-file .env.docker exec -T mysql \
 ## Notes & gotchas
 
 - **`VITE_API_BASE` is build-time.** Changing it requires
-  `up -d --build web admin provider`, not just a restart.
+  `up -d --build web admin provider superadmin`, not just a restart.
 - **Schema changes need `up -d --build`** for the backend image; MySQL init
   scripts only ever run against an empty data volume.
 - **Images 404 after a deploy that added artwork** → a leftover `backend-images`

@@ -1,5 +1,6 @@
-# Generic build for the three Vite SPAs in this repo (storefront `.`, `admin`,
-# `provider`). Build context is the repo root; pick the app with APP_DIR.
+# Generic build for the four Vite SPAs in this repo (storefront `.`, `admin`,
+# `provider`, `superadmin`). Build context is the repo root; pick the app with
+# APP_DIR.
 #
 #   docker build -f docker/Dockerfile.web --build-arg APP_DIR=admin .
 FROM node:20-alpine AS builder

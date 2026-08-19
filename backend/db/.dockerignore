@@ -1,6 +1,5 @@
 node_modules
-# `.next*` also covers local backup/scratch copies of the build cache.
-.next*
+dist
 .git
 .env
 .env.*

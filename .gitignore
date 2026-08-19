@@ -4,8 +4,6 @@ dist
 *.log
 android
 ios
-.next
-**/.next
 
 # Environment files with secrets — never commit these.
 .env

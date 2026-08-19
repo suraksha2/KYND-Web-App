@@ -4,7 +4,7 @@ Standalone Vite + React app where service providers sign in to view and manage
 the tasks (bookings) assigned to them by the Kynd admin team.
 
 - Runs on **http://localhost:5175** in development.
-- Talks to the Next.js backend in `../backend/db` (see `VITE_API_BASE`).
+- Talks to the Express backend in `../backend/db` (see `VITE_API_BASE`).
 - Providers authenticate against the `service_providers` table via
   `POST /api/auth/provider-login` and receive a `role: 'provider'` session token.
 

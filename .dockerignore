@@ -1,4 +1,5 @@
-# Shared by the storefront/admin/provider image builds (context = repo root).
+# Shared by the storefront/admin/provider/superadmin image builds
+# (context = repo root).
 **/node_modules
 **/dist
 # `.next*` also covers local backup/scratch copies of the build cache.

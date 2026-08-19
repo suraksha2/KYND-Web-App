@@ -1,9 +1,10 @@
-# Full Helpr stack: MySQL + Next.js API + three Vite SPAs behind nginx.
+# Full Helpr stack: MySQL + Express API + four Vite SPAs behind nginx.
 #
 #   cp .env.docker.example .env.docker && edit it
 #   docker compose --env-file .env.docker up -d --build
 #
-# Ports on the host: 8080 storefront, 8081 admin, 8082 provider, 3307 MySQL.
+# Ports on the host: 8080 storefront, 8081 admin, 8082 provider,
+# 8083 superadmin, 3307 MySQL.
 # The API is only reachable through each nginx at /api (no host port), which is
 # what the SPAs are built against (VITE_API_BASE=/api).
 
@@ -107,6 +108,19 @@ services:
       - backend
     ports:
       - "${PROVIDER_HOST_PORT:-8082}:80"
+
+  superadmin:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.web
+      args:
+        APP_DIR: superadmin
+        VITE_API_BASE: ${VITE_API_BASE:-/api}
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "${SUPERADMIN_HOST_PORT:-8083}:80"
 
 volumes:
   mysql-data:

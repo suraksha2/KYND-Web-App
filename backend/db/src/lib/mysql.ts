@@ -1,6 +1,6 @@
 import mysql from 'mysql2/promise';
 
-// In development, Next.js hot-reloads re-evaluate this module on every change.
+// In development, `tsx watch` re-evaluates this module on every change.
 // Creating a new pool each time leaks connections until MySQL hits
 // max_connections and every query fails with "Too many connections".
 // Cache a single pool on globalThis so hot reloads reuse it.
