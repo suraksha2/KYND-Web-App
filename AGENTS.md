@@ -29,6 +29,13 @@ It is inlined at **build** time, so changing it requires a rebuild. Service
 images resolve against that origin with `/api` stripped, so whatever serves the
 SPA must also serve or proxy `/images`.
 
+Service artwork lives in `backend/db/public/images` (committed, read-only at
+runtime — there is no upload endpoint; `/api/images` just lists the directory).
+It is baked into the backend Docker image, so it must **not** be mounted as a
+volume: a named volume masks the image's contents and any artwork added by a
+later push 404s forever. Filenames contain spaces and inconsistent casing, and
+Linux containers are case-sensitive where a macOS checkout is not.
+
 ## Database
 
 `backend/db/db.sql` is the schema source of truth (schema only, no seed rows) and

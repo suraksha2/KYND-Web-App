@@ -22,8 +22,12 @@ container is not published to the host at all.
 Persistent Docker volumes:
 
 - `mysql-data` → `/var/lib/mysql`
-- `backend-images` → `/app/public/images` (service artwork uploaded via admin)
 - `backend-data` → `/app/data` (JSON that API routes write at runtime)
+
+Service artwork (`backend/db/public/images`) is **baked into the backend image**,
+not a volume — nothing writes to it at runtime, the admin only picks from the
+files `/api/images` lists. It therefore always matches the deployed commit, and
+adding new artwork is just `git push` + `up -d --build backend`.
 
 ---
 
@@ -52,6 +56,45 @@ colima start --cpu 2 --memory 4 --disk 20 --vm-type vz
 Budget roughly 6 GB of disk for the images and build cache. `colima stop` frees
 the VM's CPU/RAM when you're done; `docker builder prune -af` reclaims the build
 cache.
+</details>
+
+<details>
+<summary>Building on a 1–2 GB VPS</summary>
+
+`next build` for the backend peaks above 1 GB, so a small VPS with no swap gets
+the compiler OOM-killed mid-build (`exit code: 137`, or a build that dies with no
+error). Add swap once, before the first build:
+
+```bash
+sudo fallocate -l 4G /swapfile && sudo chmod 600 /swapfile
+sudo mkswap /swapfile && sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab   # survives reboot
+free -h
+```
+
+Also set the MTU before pulling base images — the default 1500 breaks through
+many VPS/VPN paths and surfaces as `tls: bad record MAC` or `unexpected EOF`
+while fetching `node:20-alpine`:
+
+```bash
+echo '{"mtu": 1400}' | sudo tee /etc/docker/daemon.json
+sudo systemctl restart docker
+```
+
+If the host stays too small to build reliably, build elsewhere and ship the
+images instead of the source — the server then only needs to run them:
+
+```bash
+# on a machine with more RAM, from an identical checkout
+docker compose --env-file .env.docker build
+docker save $(docker compose --env-file .env.docker config --images | grep -v ':') \
+  | gzip | ssh user@server 'docker load'
+# then on the server, start without rebuilding:
+docker compose --env-file .env.docker up -d --no-build
+```
+
+The image names come from the directory name (`serviceapp-backend`, …), so the
+checkout must sit in an identically named directory on both machines.
 </details>
 
 ## 2. Configure environment
@@ -135,12 +178,12 @@ The stack runs correctly out of the box, but these are on you:
       docker compose --env-file .env.docker exec -T mysql \
         mysql -u root -p"$MYSQL_ROOT_PASSWORD" urban_service < seed.sql
       ```
-      Uploaded artwork lives in the `backend-images` volume — copy your existing
-      `backend/db/public/images` contents in with `docker compose cp`.
+      Artwork needs no migration step: commit it to `backend/db/public/images`
+      and it ships with the backend image.
 - [ ] **Create the first admin** via `/api/auth/signup` with
       `ADMIN_SIGNUP_SECRET` (Section 4), then consider clearing that variable.
-- [ ] **Schedule database backups.** Nothing here backs up `mysql-data`,
-      `backend-images` or `backend-data` for you.
+- [ ] **Schedule database backups.** Nothing here backs up `mysql-data` or
+      `backend-data` for you.
 - [ ] **Firewall the host.** Only 80/443 should be reachable; the app ports
       (8080–8082) should be proxied, not public.
 - [ ] **Mobile builds need a different API base.** Capacitor loads the bundle
@@ -195,8 +238,23 @@ docker compose --env-file .env.docker exec -T mysql \
   `up -d --build web admin provider`, not just a restart.
 - **Schema changes need `up -d --build`** for the backend image; MySQL init
   scripts only ever run against an empty data volume.
-- **Uploaded images** live in the `backend-images` volume, not in the repo. They
-  survive rebuilds; back the volume up alongside the DB.
+- **Images 404 after a deploy that added artwork** → a leftover `backend-images`
+  volume from an older deploy is masking `/app/public/images` in the backend
+  image, so files added later are invisible no matter how often you rebuild.
+  That volume is no longer used; if the server was first deployed before this
+  change, rescue anything not in git and drop it:
+  ```bash
+  docker compose --env-file .env.docker cp backend:/app/public/images ./volume-images
+  docker compose --env-file .env.docker down
+  docker volume ls | grep backend-images     # project prefix is the dir name,
+  docker volume rm <name-from-above>         # lowercased with spaces stripped
+  docker compose --env-file .env.docker up -d --build
+  ```
+  Commit any files from `./volume-images` that aren't already in
+  `backend/db/public/images`, then rebuild so they ship with the image.
+- **Image filenames are case-sensitive in Docker.** A local macOS checkout
+  resolves `tutor.png` and `Tutor.png` interchangeably; the Linux container does
+  not. Reference artwork with the exact on-disk name.
 - **Capacitor (`android/`, `ios/`)** is excluded from the build context — mobile
   builds stay a local/CI concern.
 - **502 on `/api`** → backend container down or unhealthy:

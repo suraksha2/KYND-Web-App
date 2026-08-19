@@ -58,8 +58,13 @@ services:
       AIRWALLEX_API_KEY: ${AIRWALLEX_API_KEY:-}
       PAYMENT_CURRENCY: ${PAYMENT_CURRENCY:-SGD}
     volumes:
-      # Uploads and runtime-edited JSON must outlive the container.
-      - backend-images:/app/public/images
+      # Runtime-edited JSON must outlive the container.
+      #
+      # `public/images` is deliberately NOT a volume: service artwork ships in
+      # the repo (nothing writes to it at runtime — the admin only picks from
+      # the files `/api/images` lists). A volume there would mask the image's
+      # own contents, so artwork added in a later push would 404 forever on a
+      # server whose volume was created by an earlier deploy.
       - backend-data:/app/data
     expose:
       - "3001"
@@ -105,5 +110,4 @@ services:
 
 volumes:
   mysql-data:
-  backend-images:
   backend-data:

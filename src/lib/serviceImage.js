@@ -1,10 +1,12 @@
 import { API_ORIGIN } from './api'
 
 // Hero artwork for service detail pages, shipped with this app under
-// public/images/services. The filenames there aren't consistently cased or
+// public/images/people. The filenames there aren't consistently cased or
 // hyphenated, so they're mapped explicitly instead of derived from the slug.
+// Case matters: these resolve against a case-sensitive Linux filesystem in
+// Docker, even though a local macOS checkout would forgive a mismatch.
 //
-// To add artwork for a new service: drop the file in public/images/services and
+// To add artwork for a new service: drop the file in public/images/people and
 // add an entry below keyed by the lowercased service name.
 const LOCAL_SERVICE_IMAGES = {
   'ac cleaning': 'AC Cleaning.png',
@@ -30,7 +32,7 @@ const normalize = (value = '') =>
 export function localServiceImage(nameOrSlug = '') {
   const file = LOCAL_SERVICE_IMAGES[normalize(nameOrSlug)]
   if (!file) return null
-  return `${import.meta.env.BASE_URL}images/services/${encodeURIComponent(file)}`
+  return `${import.meta.env.BASE_URL}images/people/${encodeURIComponent(file)}`
 }
 
 // People/hero photos live in the backend's public/images/people-image-service/
