@@ -1,0 +1,50 @@
+# Single nginx origin for all four Vite SPAs. Build context is the repo root.
+#
+#   docker build -f docker/Dockerfile.gateway .
+FROM node:20-alpine AS storefront
+ARG VITE_API_BASE=/api
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY . .
+ENV VITE_API_BASE=${VITE_API_BASE}
+ENV VITE_BASE=/
+RUN npm run build
+
+FROM node:20-alpine AS admin
+ARG VITE_API_BASE=/api
+WORKDIR /app
+COPY admin/package.json admin/package-lock.json ./
+RUN npm ci
+COPY admin/ ./
+ENV VITE_API_BASE=${VITE_API_BASE}
+ENV VITE_BASE=/admin/
+RUN npm run build
+
+FROM node:20-alpine AS provider
+ARG VITE_API_BASE=/api
+WORKDIR /app
+COPY provider/package.json provider/package-lock.json ./
+RUN npm ci
+COPY provider/ ./
+ENV VITE_API_BASE=${VITE_API_BASE}
+ENV VITE_BASE=/provider/
+RUN npm run build
+
+FROM node:20-alpine AS superadmin
+ARG VITE_API_BASE=/api
+WORKDIR /app
+COPY superadmin/package.json superadmin/package-lock.json ./
+RUN npm ci
+COPY superadmin/ ./
+ENV VITE_API_BASE=${VITE_API_BASE}
+ENV VITE_BASE=/superadmin/
+RUN npm run build
+
+FROM nginx:1.27-alpine AS runner
+COPY docker/nginx.gateway.conf /etc/nginx/conf.d/default.conf
+COPY --from=storefront /app/dist /usr/share/nginx/html
+COPY --from=admin /app/dist /usr/share/nginx/html/admin
+COPY --from=provider /app/dist /usr/share/nginx/html/provider
+COPY --from=superadmin /app/dist /usr/share/nginx/html/superadmin
+EXPOSE 80

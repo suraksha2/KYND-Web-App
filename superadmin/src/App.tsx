@@ -14,8 +14,9 @@ import Users from './pages/Users'
 export default function App() {
   return (
     <Routes>
-      {/* Public: the admin login screen kept its /superadmin path. */}
-      <Route path="/superadmin" element={<Login />} />
+      {/* Login lives at /login under the /superadmin basename → /superadmin/login */}
+      <Route path="/login" element={<Login />} />
+      <Route path="/superadmin" element={<Navigate to="/login" replace />} />
 
       <Route element={<AdminLayout />}>
         <Route path="/dashboard" element={<Dashboard />} />

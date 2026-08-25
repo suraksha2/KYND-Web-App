@@ -3,11 +3,22 @@
 Helpr is a multi-app repo: customer storefront (`.`), admin console (`admin/`),
 provider app (`provider/`), superadmin console (`superadmin/`), and an
 Express + TypeScript API (`backend/db/`). Each has its own `package.json` /
-lockfile — there is no workspace root.
+lockfile — there is no workspace root. Root scripts orchestrate them:
+
+```bash
+npm run install:all   # npm install in every app
+npm run dev:all       # one origin :5173 — / admin /provider /superadmin, API proxied at /api
+npm run build:all     # production build of every app + the API
+npm run docker:all    # same paths on :8080 (needs .env.docker; see DEPLOYMENT_DOCKER.md)
+```
+
+`npm run dev` still starts only the storefront. `npm run docker:down` stops Compose.
 
 ## Build & verify
 
 ```bash
+npm run build:all
+# or, per app:
 npm ci && npm run build   # storefront -> dist/  (repeat in admin/, provider/, superadmin/)
 cd backend/db && npm ci && npm run build   # tsc -> dist/, then `npm start`
 ```
@@ -87,5 +98,5 @@ reloads go straight to the app — clear that key to see the landing page again.
 
 ## Deployment
 
-- Docker (recommended): `DEPLOYMENT_DOCKER.md` — `docker compose --env-file .env.docker up -d --build`
+- Docker (recommended): `DEPLOYMENT_DOCKER.md` — `npm run docker:all`
 - Bare metal Apache + PM2: `DEPLOYMENT_CONTABO_APACHE.md`

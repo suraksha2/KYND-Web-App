@@ -7,6 +7,7 @@ FROM node:20-alpine AS builder
 ARG APP_DIR=.
 # Baked into the bundle at build time (Vite inlines import.meta.env).
 ARG VITE_API_BASE=/api
+ARG VITE_BASE=/
 WORKDIR /app
 
 COPY ${APP_DIR}/package.json ${APP_DIR}/package-lock.json ./
@@ -14,6 +15,7 @@ RUN npm ci
 
 COPY ${APP_DIR}/ ./
 ENV VITE_API_BASE=${VITE_API_BASE}
+ENV VITE_BASE=${VITE_BASE}
 RUN npm run build
 
 FROM nginx:1.27-alpine AS runner

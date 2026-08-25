@@ -10,15 +10,12 @@ Apache + PM2) — pick one, not both.
 |------------|----------------------------------------|-----------|----------|
 | `mysql`    | `mysql:8.0`                            | 3307 (loopback only) | DB `urban_service`, schema from `backend/db/db.sql` on first boot |
 | `backend`  | `backend/db/Dockerfile`                | — (internal 3001) | Express API (`/api/*`) + `/images`, compiled to `dist/` |
-| `web`      | `docker/Dockerfile.web` (`APP_DIR=.`)  | 8080      | Customer storefront SPA + nginx |
-| `admin`    | `docker/Dockerfile.web` (`APP_DIR=admin`)    | 8081 | Admin console SPA + nginx |
-| `provider` | `docker/Dockerfile.web` (`APP_DIR=provider`) | 8082 | Provider app SPA + nginx |
-| `superadmin` | `docker/Dockerfile.web` (`APP_DIR=superadmin`) | 8083 | Superadmin console SPA + nginx (login at `/superadmin`) |
+| `web`      | `docker/Dockerfile.gateway`            | 8080      | All four SPAs + nginx: `/` storefront, `/admin`, `/provider`, `/superadmin`; `/api` and `/images` proxied to the backend |
 
-Each SPA's nginx reverse-proxies `/api` **and** `/images` to `backend:3001`, so
-the browser only ever talks to a single origin per app: no CORS setup, no
-mixed-content issues, and no hardcoded `localhost:3001` in the bundles. The API
-container is not published to the host at all.
+One nginx origin reverse-proxies `/api` **and** `/images` to `backend:3001`, so
+the browser only ever talks to a single host (no CORS, no mixed content, no
+hardcoded `localhost:3001` in the bundles). The API container is not published
+to the host at all.
 
 Persistent Docker volumes:
 
@@ -114,9 +111,11 @@ the backend container.
 ## 3. Build & start
 
 ```bash
-docker compose --env-file .env.docker up -d --build
-docker compose --env-file .env.docker ps
+npm run docker:all
+npm run docker:ps
 ```
+
+Same as `docker compose --env-file .env.docker up -d --build`: one command builds and starts MySQL, the API, and all four SPAs.
 
 MySQL is initialised from `backend/db/db.sql` **only on the first start** (when
 the `mysql-data` volume is empty). The backend waits for the DB healthcheck
@@ -128,10 +127,10 @@ before booting.
 curl -I  http://localhost:8080            # storefront → 200
 curl -s  http://localhost:8080/api/services              # JSON through the proxy
 curl -I  http://localhost:8080/images/Tutor.png          # image proxied from backend
-curl -I  http://localhost:8081            # admin
-curl -I  http://localhost:8082            # provider
-curl -I  http://localhost:8083/superadmin # superadmin login
-docker compose --env-file .env.docker logs -f backend
+curl -I  http://localhost:8080/admin/     # admin
+curl -I  http://localhost:8080/provider/  # provider
+curl -I  http://localhost:8080/superadmin/login # superadmin login
+npm run docker:logs                       # or: docker compose --env-file .env.docker logs -f backend
 ```
 
 Create the first admin (needs `ADMIN_SIGNUP_SECRET` from `.env.docker`):
@@ -142,7 +141,7 @@ curl -X POST http://localhost:8080/api/auth/signup \
   -d '{"name":"Admin","email":"you@example.com","password":"...","secret":"<ADMIN_SIGNUP_SECRET>"}'
 ```
 
-Then log in at `http://localhost:8081`. Note that `db.sql` creates the **schema
+Then log in at `http://localhost:8080/admin/`. Note that `db.sql` creates the **schema
 only** — no services/cities rows — so a fresh stack starts empty and lists
 render blank until you add data through the admin.
 
@@ -151,15 +150,13 @@ render blank until you add data through the admin.
 The containers speak plain HTTP. Terminate TLS in front of them with whatever
 you already run:
 
-- **Existing Apache/nginx on the host** — reverse-proxy each vhost to the
-  matching container port (`helpr.example.com` → `127.0.0.1:8080`,
-  `admin.helpr.example.com` → `:8081`, `pro.helpr.example.com` → `:8082`,
-  `super.helpr.example.com` → `:8083`), then
-  `sudo certbot --apache -d helpr.example.com -d admin.helpr.example.com -d pro.helpr.example.com`.
+- **Existing Apache/nginx on the host** — reverse-proxy the site to
+  `127.0.0.1:8080` (storefront `/`, admin `/admin`, provider `/provider`,
+  superadmin `/superadmin` are all on that one port), then
+  `sudo certbot --apache -d helpr.example.com`.
   Keep `ProxyPreserveHost On` so the backend sees the real host.
-- **Caddy/Traefik container** — point it at `web:80`, `admin:80`, `provider:80`,
-  `superadmin:80`
-  on the compose network and drop the published ports from `docker-compose.yml`.
+- **Caddy/Traefik container** — point it at `web:80`
+  on the compose network and drop the published port from `docker-compose.yml`.
 
 If you instead serve an app from a *different* origin than its API, add that
 origin to `ALLOWED_ORIGINS` in `.env.docker` and recreate the backend.
@@ -189,7 +186,7 @@ The stack runs correctly out of the box, but these are on you:
 - [ ] **Schedule database backups.** Nothing here backs up `mysql-data` or
       `backend-data` for you.
 - [ ] **Firewall the host.** Only 80/443 should be reachable; the app ports
-      (8080–8083) should be proxied, not public.
+      (8080) should be proxied, not public.
 - [ ] **Mobile builds need a different API base.** Capacitor loads the bundle
       from `capacitor://localhost`, where `VITE_API_BASE=/api` resolves to the
       device, not your server. Build the app bundle separately with an absolute
@@ -203,13 +200,13 @@ The stack runs correctly out of the box, but these are on you:
 ```bash
 # Redeploy after a code change (rebuild only what changed)
 git pull
-docker compose --env-file .env.docker up -d --build
+npm run docker:all
 
-# Rebuild a single app (e.g. admin only)
-docker compose --env-file .env.docker up -d --build admin
+# Rebuild the combined SPA image
+docker compose --env-file .env.docker up -d --build web
 
 # Tail logs / shell in
-docker compose --env-file .env.docker logs -f backend
+npm run docker:logs
 docker compose --env-file .env.docker exec backend sh
 
 # MySQL shell
@@ -223,7 +220,7 @@ docker compose --env-file .env.docker exec -T mysql \
   mysql -u root -p"$MYSQL_ROOT_PASSWORD" urban_service < backup.sql
 
 # Stop (keeps data) / stop and wipe volumes
-docker compose --env-file .env.docker down
+npm run docker:down
 docker compose --env-file .env.docker down -v    # DESTROYS the database
 ```
 
@@ -239,7 +236,7 @@ docker compose --env-file .env.docker exec -T mysql \
 ## Notes & gotchas
 
 - **`VITE_API_BASE` is build-time.** Changing it requires
-  `up -d --build web admin provider superadmin`, not just a restart.
+  `up -d --build web`, not just a restart.
 - **Schema changes need `up -d --build`** for the backend image; MySQL init
   scripts only ever run against an empty data volume.
 - **Images 404 after a deploy that added artwork** → a leftover `backend-images`

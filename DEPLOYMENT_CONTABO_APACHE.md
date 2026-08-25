@@ -7,14 +7,21 @@ This guide deploys the **Helpr** project on a Contabo VPS that already runs **Ap
 | Component        | Path             | Tech              | Port | Notes |
 |------------------|------------------|-------------------|------|-------|
 | Frontend (SPA)   | `/`              | Vite + React      | —    | Static build → `dist/`, served by Apache |
-| Admin console    | `/admin`         | Vite + React      | —    | **Separate** static build → `admin/dist/`, served by Apache on its own subdomain |
-| Superadmin       | `/superadmin`    | Vite + React      | —    | **Separate** static build → `superadmin/dist/`, served by Apache on its own subdomain |
+| Admin console    | `/admin`         | Vite + React      | —    | Static build → `admin/dist/`, same host (`VITE_BASE=/admin/`) |
+| Superadmin       | `/superadmin`    | Vite + React      | —    | Static build → `superadmin/dist/`, same host (`VITE_BASE=/superadmin/`) |
+| Provider         | `/provider`      | Vite + React      | —    | Static build → `provider/dist/`, same host (`VITE_BASE=/provider/`) |
 | Backend / API    | `/backend/db`    | Express + TS      | 3001 | API under `/api/*` plus `/images`, compiled to `dist/`, runs via PM2 |
 | Database         | —                | MySQL             | 3306 | DB name: `urban_service` |
 
 Apache serves the static SPA and **reverse-proxies `/api`** to the Express
 backend on `localhost:3001`. This keeps the storefront everything on one domain
 (no CORS, no hardcoded `localhost` in the browser).
+
+The **admin, provider, and superadmin consoles are standalone Vite apps**. The
+default Vite `base` is `/admin/`, `/provider/`, and `/superadmin/` so they share
+the storefront's host. Prefer Alias/Proxy on the main vhost (same as Docker).
+If you still serve one on a subdomain at `/`, set `VITE_BASE=/` in that app's
+`.env.production` before `npm run build`.
 
 The **admin console is a standalone Vite app** (folder `admin/`) — it is *not*
 part of the storefront SPA anymore. It is served from its own subdomain (e.g.
@@ -277,6 +284,7 @@ images (served from the storefront's `/images`) resolve correctly:
 cd /var/www/helpr/admin
 npm ci
 printf 'VITE_API_BASE=https://helpr.example.com/api\n' > .env.production
+# Subdomain at / needs: printf 'VITE_BASE=/\n' >> .env.production
 npm run build   # outputs to admin/dist/
 ```
 

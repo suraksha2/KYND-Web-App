@@ -1,12 +1,10 @@
-# Full Helpr stack: MySQL + Express API + four Vite SPAs behind nginx.
+# Full Helpr stack: MySQL + Express API + all four Vite SPAs on one origin.
 #
-#   cp .env.docker.example .env.docker && edit it
-#   docker compose --env-file .env.docker up -d --build
+#   cp docker/env.example .env.docker && edit it
+#   npm run docker:all
 #
-# Ports on the host: 8080 storefront, 8081 admin, 8082 provider,
-# 8083 superadmin, 3307 MySQL.
-# The API is only reachable through each nginx at /api (no host port), which is
-# what the SPAs are built against (VITE_API_BASE=/api).
+# Host ports: 8080 (storefront /, /admin, /provider, /superadmin) and 3307 MySQL.
+# The API is only reachable through nginx at /api (no host port).
 
 services:
   mysql:
@@ -73,54 +71,14 @@ services:
   web:
     build:
       context: .
-      dockerfile: docker/Dockerfile.web
+      dockerfile: docker/Dockerfile.gateway
       args:
-        APP_DIR: .
         VITE_API_BASE: ${VITE_API_BASE:-/api}
     restart: unless-stopped
     depends_on:
       - backend
     ports:
       - "${WEB_HOST_PORT:-8080}:80"
-
-  admin:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.web
-      args:
-        APP_DIR: admin
-        VITE_API_BASE: ${VITE_API_BASE:-/api}
-    restart: unless-stopped
-    depends_on:
-      - backend
-    ports:
-      - "${ADMIN_HOST_PORT:-8081}:80"
-
-  provider:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.web
-      args:
-        APP_DIR: provider
-        VITE_API_BASE: ${VITE_API_BASE:-/api}
-    restart: unless-stopped
-    depends_on:
-      - backend
-    ports:
-      - "${PROVIDER_HOST_PORT:-8082}:80"
-
-  superadmin:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.web
-      args:
-        APP_DIR: superadmin
-        VITE_API_BASE: ${VITE_API_BASE:-/api}
-    restart: unless-stopped
-    depends_on:
-      - backend
-    ports:
-      - "${SUPERADMIN_HOST_PORT:-8083}:80"
 
 volumes:
   mysql-data:

@@ -1,5 +1,6 @@
 import { Bell, Search, ChevronDown } from "lucide-react";
 import { useLocation } from "react-router-dom";
+import { appPathname } from "../lib/app-path";
 
 const pageTitles: Record<string, string> = {
   "/dashboard": "Dashboard",
@@ -22,7 +23,7 @@ const pageSubs: Record<string, string> = {
 };
 
 export default function Header() {
-  const { pathname } = useLocation();
+  const pathname = appPathname(useLocation().pathname);
   const title =
     Object.entries(pageTitles).find(([key]) => pathname.startsWith(key))?.[1] ?? "Admin Panel";
   const sub =

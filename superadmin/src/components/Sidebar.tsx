@@ -16,6 +16,7 @@ import {
 import clsx from "clsx";
 import { useState } from "react";
 import { useAuth } from "../context/AuthContext";
+import { appPathname } from "../lib/app-path";
 
 const navItems = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
@@ -36,7 +37,7 @@ export default function Sidebar() {
 
   function handleLogout() {
     logout();
-    navigate("/superadmin");
+    navigate("/login");
   }
 
   return (
@@ -94,7 +95,7 @@ export default function Sidebar() {
           <p className="text-[10px] uppercase tracking-widest text-warmgrey font-semibold px-2 pb-2 pt-1">Menu</p>
         )}
         {navItems.map(({ label, href, icon: Icon }) => {
-          const active = pathname.startsWith(href);
+          const active = appPathname(pathname).startsWith(href);
           return (
             <Link
               key={href}

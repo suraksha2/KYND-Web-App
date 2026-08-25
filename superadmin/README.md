@@ -5,24 +5,28 @@ analytics, serviceable cities and settings. This used to be the admin panel
 rendered by the Next.js app in `../backend/db`; it is now a standalone Vite +
 React SPA and `backend/db` is an API-only Express server.
 
-- **Dev port:** `5177`
+- **Shared origin:** `http://localhost:5173/superadmin/` via `npm run dev:all`, or
+  `http://localhost:8080/superadmin/` in Docker (`VITE_BASE=/superadmin/`).
 - **Backend API:** Express app in `../backend/db` (default `http://localhost:3001/api`)
 - **Auth:** Email/password login restricted to `admin` / `super_admin` roles. The
   session token is sent as an `Authorization: Bearer <token>` header to the API.
 
 ## Routes
 
-`/superadmin` is the login screen (the path it had under Next.js). Everything
-else — `/dashboard`, `/clients`, `/orders`, `/services`, `/pro`, `/analytics`,
-`/city-services`, `/settings` — sits behind `AdminLayout`, which redirects to
-`/superadmin` when there is no session. Unknown paths redirect to `/dashboard`.
+Login is `/login` under the `/superadmin` basename (full URL `/superadmin/login`).
+Everything else — `/dashboard`, `/clients`, `/orders`, `/services`, `/pro`,
+`/analytics`, `/city-services`, `/settings` — sits behind `AdminLayout`, which
+redirects to `/login` when there is no session. Unknown paths redirect to
+`/dashboard`. The old `/superadmin` login path redirects to `/login`.
 
 ## Setup
+
+From the repo root, `npm run dev:all` starts this app together with the rest of the stack.
 
 ```bash
 cd superadmin
 npm install
-npm run dev        # http://localhost:5177/superadmin
+npm run dev        # http://localhost:5177/superadmin/login
 ```
 
 Optionally copy `.env.example` to `.env` to point at a different API base:

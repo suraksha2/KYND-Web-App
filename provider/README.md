@@ -3,12 +3,15 @@
 Standalone Vite + React app where service providers sign in to view and manage
 the tasks (bookings) assigned to them by the Kynd admin team.
 
-- Runs on **http://localhost:5175** in development.
+- Runs at **`/provider/`** on the shared origin (`http://localhost:5173/provider/`
+  via `npm run dev:all`, or `http://localhost:8080/provider/` in Docker).
 - Talks to the Express backend in `../backend/db` (see `VITE_API_BASE`).
 - Providers authenticate against the `service_providers` table via
   `POST /api/auth/provider-login` and receive a `role: 'provider'` session token.
 
 ## Setup
+
+From the repo root, `npm run dev:all` starts this app together with the rest of the stack.
 
 ```bash
 cp .env.example .env        # adjust VITE_API_BASE if the backend runs elsewhere
