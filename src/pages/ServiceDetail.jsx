@@ -7,7 +7,7 @@ import { useAuth } from '../context/AuthContext'
 import { iconForService } from '../lib/serviceIcon'
 import { localServiceImage, servicePeopleImage } from '../lib/serviceImage'
 import { taglineForService } from '../lib/serviceTagline'
-import { API_BASE } from '../lib/api'
+import { API_BASE, appUrl } from '../lib/api'
 
 /* ---------- helpers ---------- */
 const parsePrice = (str = '') => {
@@ -578,7 +578,7 @@ export default function ServiceDetail() {
           amount: order.total,
           merchantOrderId: order.bookingId,
           metadata: { bookingId: order.bookingId, customer: name, phone },
-          returnUrl: `${window.location.origin}/booking/confirmed`,
+          returnUrl: appUrl('/booking/confirmed'),
         }),
       })
       const data = await res.json()

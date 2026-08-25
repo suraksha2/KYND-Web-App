@@ -10,12 +10,24 @@ Apache + PM2) — pick one, not both.
 |------------|----------------------------------------|-----------|----------|
 | `mysql`    | `mysql:8.0`                            | 3307 (loopback only) | DB `urban_service`, schema from `backend/db/db.sql` on first boot |
 | `backend`  | `backend/db/Dockerfile`                | — (internal 3001) | Express API (`/api/*`) + `/images`, compiled to `dist/` |
-| `web`      | `docker/Dockerfile.gateway`            | 8080      | All four SPAs + nginx: `/` storefront, `/admin`, `/provider`, `/superadmin`; `/api` and `/images` proxied to the backend |
+| `web`      | `docker/Dockerfile.gateway`            | 8080      | All four SPAs + nginx under `APP_BASE` (default `/mykynd`): storefront, `/admin`, `/provider`, `/superadmin`; `/api` and `/images` proxied to the backend |
 
-One nginx origin reverse-proxies `/api` **and** `/images` to `backend:3001`, so
-the browser only ever talks to a single host (no CORS, no mixed content, no
-hardcoded `localhost:3001` in the bundles). The API container is not published
-to the host at all.
+Default production layout (e.g. **https://fayyaz.travel/mykynd**):
+
+| Path | App |
+|------|-----|
+| `/mykynd/` | Storefront |
+| `/mykynd/admin/` | Admin |
+| `/mykynd/provider/` | Provider |
+| `/mykynd/superadmin/login` | Superadmin |
+| `/mykynd/api/*` | API (proxied) |
+| `/mykynd/images/*` | Artwork (proxied) |
+
+Set `APP_BASE=` (empty) and `VITE_API_BASE=/api` in `.env.docker` to serve at the domain root instead.
+
+One nginx origin reverse-proxies `${APP_BASE}/api` **and** `${APP_BASE}/images` to
+`backend:3001`, so the browser only ever talks to a single host. The API
+container is not published to the host at all.
 
 Persistent Docker volumes:
 
@@ -124,39 +136,73 @@ before booting.
 ## 4. Verify
 
 ```bash
-curl -I  http://localhost:8080            # storefront → 200
-curl -s  http://localhost:8080/api/services              # JSON through the proxy
-curl -I  http://localhost:8080/images/Tutor.png          # image proxied from backend
-curl -I  http://localhost:8080/admin/     # admin
-curl -I  http://localhost:8080/provider/  # provider
-curl -I  http://localhost:8080/superadmin/login # superadmin login
+curl -I  http://localhost:8080/mykynd/            # storefront → 200
+curl -s  http://localhost:8080/mykynd/api/services              # JSON through the proxy
+curl -I  http://localhost:8080/mykynd/images/Tutor.png          # image proxied from backend
+curl -I  http://localhost:8080/mykynd/admin/     # admin
+curl -I  http://localhost:8080/mykynd/provider/  # provider
+curl -I  http://localhost:8080/mykynd/superadmin/login # superadmin login
 npm run docker:logs                       # or: docker compose --env-file .env.docker logs -f backend
 ```
 
 Create the first admin (needs `ADMIN_SIGNUP_SECRET` from `.env.docker`):
 
 ```bash
-curl -X POST http://localhost:8080/api/auth/signup \
+curl -X POST http://localhost:8080/mykynd/api/auth/signup \
   -H 'Content-Type: application/json' \
   -d '{"name":"Admin","email":"you@example.com","password":"...","secret":"<ADMIN_SIGNUP_SECRET>"}'
 ```
 
-Then log in at `http://localhost:8080/admin/`. Note that `db.sql` creates the **schema
+Then log in at `http://localhost:8080/mykynd/admin/`. Note that `db.sql` creates the **schema
 only** — no services/cities rows — so a fresh stack starts empty and lists
 render blank until you add data through the admin.
 
-## 5. Put it on a domain (TLS)
+## 5. Put it on a domain (TLS) — Contabo + https://fayyaz.travel/mykynd
 
-The containers speak plain HTTP. Terminate TLS in front of them with whatever
-you already run:
+The containers speak plain HTTP on `8080`. Terminate TLS on the host and proxy
+only the `/mykynd` path so the rest of `fayyaz.travel` is unchanged.
 
-- **Existing Apache/nginx on the host** — reverse-proxy the site to
-  `127.0.0.1:8080` (storefront `/`, admin `/admin`, provider `/provider`,
-  superadmin `/superadmin` are all on that one port), then
-  `sudo certbot --apache -d helpr.example.com`.
-  Keep `ProxyPreserveHost On` so the backend sees the real host.
-- **Caddy/Traefik container** — point it at `web:80`
-  on the compose network and drop the published port from `docker-compose.yml`.
+**nginx on Contabo** (Apache works the same idea with `ProxyPass`):
+
+```nginx
+# Inside the existing fayyaz.travel HTTPS server block:
+location = /mykynd {
+    return 301 /mykynd/;
+}
+
+location /mykynd/ {
+    proxy_pass http://127.0.0.1:8080/mykynd/;
+    proxy_http_version 1.1;
+    proxy_set_header Host              $host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    client_max_body_size 20m;
+}
+```
+
+```bash
+sudo nginx -t && sudo systemctl reload nginx
+# If TLS is not set up yet:
+# sudo certbot --nginx -d fayyaz.travel
+```
+
+`.env.docker` must keep:
+
+```bash
+APP_BASE=/mykynd
+VITE_API_BASE=/mykynd/api
+```
+
+Rebuild after changing those (`npm run docker:all`) — they are baked into the SPA
+bundles at build time.
+
+Live URLs:
+
+- https://fayyaz.travel/mykynd/
+- https://fayyaz.travel/mykynd/admin/
+- https://fayyaz.travel/mykynd/provider/
+- https://fayyaz.travel/mykynd/superadmin/login
 
 If you instead serve an app from a *different* origin than its API, add that
 origin to `ALLOWED_ORIGINS` in `.env.docker` and recreate the backend.
@@ -181,7 +227,7 @@ The stack runs correctly out of the box, but these are on you:
       ```
       Artwork needs no migration step: commit it to `backend/db/public/images`
       and it ships with the backend image.
-- [ ] **Create the first admin** via `/api/auth/signup` with
+- [ ] **Create the first admin** via `/mykynd/api/auth/signup` with
       `ADMIN_SIGNUP_SECRET` (Section 4), then consider clearing that variable.
 - [ ] **Schedule database backups.** Nothing here backs up `mysql-data` or
       `backend-data` for you.
@@ -235,7 +281,7 @@ docker compose --env-file .env.docker exec -T mysql \
 
 ## Notes & gotchas
 
-- **`VITE_API_BASE` is build-time.** Changing it requires
+- **`VITE_API_BASE` / `APP_BASE` are build-time.** Changing either requires
   `up -d --build web`, not just a restart.
 - **Schema changes need `up -d --build`** for the backend image; MySQL init
   scripts only ever run against an empty data volume.

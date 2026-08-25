@@ -3,8 +3,9 @@
 #   cp docker/env.example .env.docker && edit it
 #   npm run docker:all
 #
-# Host ports: 8080 (storefront /, /admin, /provider, /superadmin) and 3307 MySQL.
-# The API is only reachable through nginx at /api (no host port).
+# Host ports: 8080 and 3307 MySQL. Default APP_BASE=/mykynd so the stack lives at
+# https://fayyaz.travel/mykynd (storefront), /mykynd/admin, /mykynd/provider,
+# /mykynd/superadmin, with /mykynd/api proxied to the backend.
 
 services:
   mysql:
@@ -73,7 +74,10 @@ services:
       context: .
       dockerfile: docker/Dockerfile.gateway
       args:
-        VITE_API_BASE: ${VITE_API_BASE:-/api}
+        APP_BASE: ${APP_BASE:-/mykynd}
+        VITE_API_BASE: ${VITE_API_BASE:-/mykynd/api}
+    environment:
+      APP_BASE: ${APP_BASE:-/mykynd}
     restart: unless-stopped
     depends_on:
       - backend

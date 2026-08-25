@@ -9,6 +9,14 @@ export const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:3001/
 // own "/api/..." paths or need static asset URLs.
 export const API_ORIGIN = API_BASE.replace(/\/api\/?$/, '')
 
+/** Absolute URL for a storefront path, respecting Vite base (e.g. /mykynd/). */
+export function appUrl(path = '/') {
+  const base = (import.meta.env.BASE_URL || '/').replace(/\/$/, '')
+  const suffix = path.startsWith('/') ? path : `/${path}`
+  if (typeof window === 'undefined') return `${base}${suffix}`
+  return `${window.location.origin}${base}${suffix}`
+}
+
 // Service images are uploaded/selected in the admin backend and served from the
 // backend's own /public folder, so a root-relative path like
 // "/images/Home Cleaning.png" has to be resolved against the backend origin

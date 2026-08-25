@@ -1,50 +1,65 @@
 # Single nginx origin for all four Vite SPAs. Build context is the repo root.
 #
-#   docker build -f docker/Dockerfile.gateway .
+# APP_BASE is the URL prefix with no trailing slash (e.g. /mykynd or empty for /).
+# VITE_API_BASE must match (e.g. /mykynd/api or /api).
+#
+#   docker build -f docker/Dockerfile.gateway \
+#     --build-arg APP_BASE=/mykynd --build-arg VITE_API_BASE=/mykynd/api .
+ARG APP_BASE=
+ARG VITE_API_BASE=/api
+
 FROM node:20-alpine AS storefront
+ARG APP_BASE=
 ARG VITE_API_BASE=/api
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY . .
 ENV VITE_API_BASE=${VITE_API_BASE}
-ENV VITE_BASE=/
+ENV VITE_BASE=${APP_BASE}/
 RUN npm run build
 
 FROM node:20-alpine AS admin
+ARG APP_BASE=
 ARG VITE_API_BASE=/api
 WORKDIR /app
 COPY admin/package.json admin/package-lock.json ./
 RUN npm ci
 COPY admin/ ./
 ENV VITE_API_BASE=${VITE_API_BASE}
-ENV VITE_BASE=/admin/
+ENV VITE_BASE=${APP_BASE}/admin/
 RUN npm run build
 
 FROM node:20-alpine AS provider
+ARG APP_BASE=
 ARG VITE_API_BASE=/api
 WORKDIR /app
 COPY provider/package.json provider/package-lock.json ./
 RUN npm ci
 COPY provider/ ./
 ENV VITE_API_BASE=${VITE_API_BASE}
-ENV VITE_BASE=/provider/
+ENV VITE_BASE=${APP_BASE}/provider/
 RUN npm run build
 
 FROM node:20-alpine AS superadmin
+ARG APP_BASE=
 ARG VITE_API_BASE=/api
 WORKDIR /app
 COPY superadmin/package.json superadmin/package-lock.json ./
 RUN npm ci
 COPY superadmin/ ./
 ENV VITE_API_BASE=${VITE_API_BASE}
-ENV VITE_BASE=/superadmin/
+ENV VITE_BASE=${APP_BASE}/superadmin/
 RUN npm run build
 
 FROM nginx:1.27-alpine AS runner
-COPY docker/nginx.gateway.conf /etc/nginx/conf.d/default.conf
-COPY --from=storefront /app/dist /usr/share/nginx/html
-COPY --from=admin /app/dist /usr/share/nginx/html/admin
-COPY --from=provider /app/dist /usr/share/nginx/html/provider
-COPY --from=superadmin /app/dist /usr/share/nginx/html/superadmin
+ARG APP_BASE=
+ENV APP_BASE=${APP_BASE}
+COPY docker/entrypoint-gateway.sh /entrypoint-gateway.sh
+RUN sed -i 's/\r$//' /entrypoint-gateway.sh && chmod +x /entrypoint-gateway.sh
+COPY --from=storefront /app/dist /usr/share/nginx/html${APP_BASE}/
+COPY --from=admin /app/dist /usr/share/nginx/html${APP_BASE}/admin
+COPY --from=provider /app/dist /usr/share/nginx/html${APP_BASE}/provider
+COPY --from=superadmin /app/dist /usr/share/nginx/html${APP_BASE}/superadmin
 EXPOSE 80
+ENTRYPOINT ["/entrypoint-gateway.sh"]

@@ -4,7 +4,7 @@ import { CreditCard, Wallet, Banknote, ShieldCheck } from 'lucide-react'
 import { useCart } from '../context/CartContext'
 import { useBookings } from '../context/BookingsContext'
 import { useAuth } from '../context/AuthContext'
-import { API_ORIGIN as API_BASE } from '../lib/api'
+import { API_ORIGIN as API_BASE, appUrl } from '../lib/api'
 
 const Field = ({ label, children }) => (
   <label className="block">
@@ -155,7 +155,7 @@ export default function Checkout() {
           amount: order.total,
           merchantOrderId: order.bookingId,
           metadata: { bookingId: order.bookingId, customer: name, phone },
-          returnUrl: `${window.location.origin}/booking/confirmed`,
+          returnUrl: appUrl('/booking/confirmed'),
         }),
       })
       const data = await res.json()
