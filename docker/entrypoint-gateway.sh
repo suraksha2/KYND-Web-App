@@ -33,7 +33,8 @@ server {
     }
 
     location ^~ ${BASE}/images/ {
-        try_files \$uri @backend_images;
+        alias /usr/share/nginx/html${BASE}/images/;
+        error_page 404 = @backend_images;
     }
 
     location @backend_images {
