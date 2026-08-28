@@ -32,7 +32,7 @@ server {
         proxy_read_timeout 60s;
     }
 
-    location ${BASE}/images/ {
+    location ^~ ${BASE}/images/ {
         try_files \$uri @backend_images;
     }
 

@@ -36,7 +36,8 @@ services:
 
   backend:
     build:
-      context: ./backend/db
+      context: .
+      dockerfile: backend/db/Dockerfile
     restart: unless-stopped
     depends_on:
       mysql:
