@@ -3,12 +3,7 @@
 set -eu
 BASE="${APP_BASE:-}"
 BASE="${BASE%/}"
-
-if [ -n "$BASE" ]; then
-  ROOT="/usr/share/nginx/html${BASE}"
-else
-  ROOT="/usr/share/nginx/html"
-fi
+ROOT="/usr/share/nginx/html"
 
 cat > /etc/nginx/conf.d/default.conf <<EOF
 server {
@@ -38,6 +33,10 @@ server {
     }
 
     location ${BASE}/images/ {
+        try_files \$uri @backend_images;
+    }
+
+    location @backend_images {
         rewrite ^${BASE}(/images/.*)\$ \$1 break;
         proxy_pass http://\$backend;
         proxy_http_version 1.1;
