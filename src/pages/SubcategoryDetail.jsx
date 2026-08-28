@@ -89,7 +89,7 @@ function NoneOfTheseCard({ selected, onToggle }) {
 }
 
 export default function SubcategoryDetail() {
-  const { id } = useParams()
+  const { slug } = useParams()
   const navigate = useNavigate()
   const [subcategory, setSubcategory] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -99,7 +99,7 @@ export default function SubcategoryDetail() {
   useEffect(() => {
     const fetchSubcategory = async () => {
       try {
-        const response = await fetch(`${API_BASE}/service-subcategories/${id}`)
+        const response = await fetch(`${API_BASE}/service-subcategories/${slug}`)
         const result = await response.json()
         if (result.data) setSubcategory(result.data)
       } catch (error) {
@@ -110,7 +110,7 @@ export default function SubcategoryDetail() {
     }
 
     fetchSubcategory()
-  }, [id])
+  }, [slug])
 
   if (loading) {
     return (

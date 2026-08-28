@@ -21,6 +21,7 @@ services:
       - mysql-data:/var/lib/mysql
       # Schema + seed data, applied only on first boot (empty data dir).
       - ./backend/db/db.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./backend/db/seed/service-subcategories.sql:/docker-entrypoint-initdb.d/02-seed-subcategories.sql:ro
     ports:
       # Loopback-only: publishing to 0.0.0.0 would expose the database to the
       # internet on a VPS. Use an SSH tunnel for remote access.

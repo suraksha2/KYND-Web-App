@@ -1,5 +1,6 @@
 export interface ServiceSubcategory {
   id: string;
+  slug: string;
   category: string | null;
   label: string;
   title: string;

@@ -14,14 +14,36 @@ CREATE TABLE IF NOT EXISTS service_categories (
 -- Service Subcategories table (e.g. "New baby moment" under a parent category like "Childcare")
 CREATE TABLE IF NOT EXISTS service_subcategories (
   id INT AUTO_INCREMENT PRIMARY KEY,
+  slug VARCHAR(100) NOT NULL,       -- URL slug, e.g. "new-baby" → /help/new-baby
   category VARCHAR(100),            -- parent category name, e.g. "Tutor"
   label VARCHAR(255) NOT NULL,      -- display label, e.g. "Back to school moment"
   title VARCHAR(255) NOT NULL,      -- card title, e.g. "Back to school"
   image VARCHAR(255),               -- image path
   sort_order INT DEFAULT 0,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY unique_subcategory_slug (slug)
 );
+
+-- Migration: add slug to pre-existing service_subcategories tables.
+SET @stmt := IF(
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'service_subcategories'
+      AND COLUMN_NAME = 'slug') = 0,
+  'ALTER TABLE service_subcategories ADD COLUMN slug VARCHAR(100) NULL AFTER id',
+  'DO 0');
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @stmt := IF(
+  (SELECT COUNT(*) FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'service_subcategories'
+      AND INDEX_NAME = 'unique_subcategory_slug') = 0
+  AND (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'service_subcategories'
+      AND COLUMN_NAME = 'slug') > 0,
+  'ALTER TABLE service_subcategories ADD UNIQUE KEY unique_subcategory_slug (slug)',
+  'DO 0');
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- Cities table
 CREATE TABLE IF NOT EXISTS cities (

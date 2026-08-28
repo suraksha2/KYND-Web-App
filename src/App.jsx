@@ -76,7 +76,7 @@ export default function App() {
         <Route path="/account" element={<Account />} />
         <Route path="/bookings" element={<Bookings />} />
         <Route path="/bookings/:id" element={<BookingDetail />} />
-        <Route path="/help/:id" element={<SubcategoryDetail />} />
+        <Route path="/help/:slug" element={<SubcategoryDetail />} />
         <Route path="/tnc" element={<TnC />} />
         <Route path="/privacy-policy" element={<PrivacyPolicy />} />
         <Route path="/cancellation-policy" element={<CancellationPolicy />} />

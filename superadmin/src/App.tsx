@@ -8,6 +8,7 @@ import Services from './pages/Services'
 import Pro from './pages/Pro'
 import Analytics from './pages/Analytics'
 import CityServices from './pages/CityServices'
+import ServiceSubcategories from './pages/ServiceSubcategories'
 import Settings from './pages/Settings'
 import Users from './pages/Users'
 
@@ -23,6 +24,7 @@ export default function App() {
         <Route path="/clients" element={<Clients />} />
         <Route path="/orders" element={<Orders />} />
         <Route path="/services" element={<Services />} />
+        <Route path="/help-moments" element={<ServiceSubcategories />} />
         <Route path="/pro" element={<Pro />} />
         <Route path="/analytics" element={<Analytics />} />
         <Route path="/city-services" element={<CityServices />} />

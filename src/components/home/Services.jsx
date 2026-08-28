@@ -47,9 +47,10 @@ const offers = [
 ]
 
 const defaultMoments = [
-  { id: 'new-baby', image: null, label: 'New baby moment', title: 'Getting ready for a new baby', tags: ['Babysitting', 'Cleaning'] },
-  { id: 'elder-care', image: null, label: 'Elder care moment', title: 'Looking after mum & dad', tags: ['Companionship', 'Care'] },
-  { id: 'back-to-school', image: null, label: 'Back to school moment', title: 'Back to school', tags: ['Tutors', 'Sitters'] }
+  { slug: 'new-baby', image: null, label: 'New baby moment', title: 'Getting ready for a new baby', tags: ['Babysitting', 'Cleaning'] },
+  { slug: 'elder-care', image: null, label: 'Elder care moment', title: 'Looking after mum & dad', tags: ['Companionship', 'Care'] },
+  { slug: 'back-to-school', image: null, label: 'Back to school moment', title: 'Back to school', tags: ['Tutors', 'Sitters'] },
+  { slug: 'date-night', image: null, label: 'Date night moment', title: 'Planning a date night', tags: ['Babysitting', 'Cleaning'] }
 ]
 
 export default function Services() {
@@ -93,7 +94,7 @@ export default function Services() {
         const result = await response.json()
         if (result.data && result.data.length > 0) {
           setMoments(result.data.map(m => ({
-            id: m.id,
+            slug: m.slug || m.id,
             image: m.image ? serviceImageUrl(m.image) : null,
             label: m.label,
             title: m.title,
@@ -183,8 +184,8 @@ export default function Services() {
           <div className="mt-6 flex gap-4 overflow-x-auto no-scrollbar snap-x snap-mandatory scroll-smooth">
             {moments.map((m) => (
               <Link
-                to={`/help/${m.id}`}
-                key={m.id}
+                to={`/help/${m.slug}`}
+                key={m.slug}
                 className="snap-start shrink-0 w-[280px] sm:w-[340px] rounded-[2rem] bg-white border border-lightstone overflow-hidden hover:shadow-soft hover:border-terracotta/40 transition"
               >
                 <div className="aspect-[4/3] bg-warmlinen p-6 grid place-items-center">

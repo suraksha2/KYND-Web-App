@@ -13,7 +13,7 @@ export default function MainLayout() {
   // Service detail has its own inline back button and hero, so the global header
   // is hidden there to match the native app design.
   const isServiceDetail = useMatch('/services/:slug')
-  const isHelpDetail = useMatch('/help/:id')
+  const isHelpDetail = useMatch('/help/:slug')
 
   useEffect(() => {
     if (hash) {
