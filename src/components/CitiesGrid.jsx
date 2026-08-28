@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { cities } from '../data/cities'
-import { serviceImageUrl, staticAssetUrl } from '../lib/api'
+import { staticAssetUrl } from '../lib/api'
 
 /* Each city card first tries the local file at /images/cities/<slug>.webp
    so you can override any photo by simply dropping a file there.
