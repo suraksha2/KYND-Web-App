@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import StoreButtons from '../components/StoreButtons'
 import CitiesGrid from '../components/CitiesGrid'
 import { iconForService } from '../lib/serviceIcon'
-import { API_BASE, serviceImageUrl } from '../lib/api'
+import { API_BASE, serviceImageUrl, staticAssetUrl } from '../lib/api'
 // import { DownloadCta } from './Home'
 
 /* ---------- City hero ---------- */
@@ -46,7 +46,7 @@ const CityHero = ({ city }) => (
         {/* city image tile */}
         <div className="w-full md:w-[260px] aspect-[4/3] rounded-3xl overflow-hidden bg-warmlinen shadow-soft relative">
           <img
-            src={city.img}
+            src={city.img?.startsWith('/images/') ? staticAssetUrl(city.img) : city.img}
             alt={city.name}
             className="absolute inset-0 w-full h-full object-cover"
           />

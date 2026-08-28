@@ -32,6 +32,8 @@ COPY --from=builder --chown=node:node /app/dist ./dist
 COPY --chown=node:node backend/db/public ./public
 # Hero / lifestyle photos referenced at /images/people/* (storefront public/).
 COPY --chown=node:node public/images/people ./public/images/people
+# City cover art at /images/cities/* (storefront public/).
+COPY --chown=node:node public/images/cities ./public/images/cities
 # `data/` holds JSON that API routes read *and write* at runtime.
 COPY --chown=node:node backend/db/data ./data
 

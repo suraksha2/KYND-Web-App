@@ -17,7 +17,11 @@ export function appUrl(path = '/') {
   return `${window.location.origin}${base}${suffix}`
 }
 
-// Service images are uploaded/selected in the admin backend and served from the
+// Root-relative static asset paths from the API (e.g. /images/cities/foo.webp)
+// must include the deployed APP_BASE prefix (/mykynd).
+export function staticAssetUrl(path) {
+  return serviceImageUrl(path)
+}
 // backend's own /public folder, so a root-relative path like
 // "/images/Home Cleaning.png" has to be resolved against the backend origin
 // rather than this app's dev server. Absolute URLs are passed through untouched.
