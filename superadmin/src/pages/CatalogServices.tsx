@@ -153,6 +153,8 @@ export default function CatalogServicesPage() {
     setEditingService(null);
     setForm(buildEmptyForm());
     setFormError(null);
+    setImageFile(null);
+    setImageUploadError(null);
     setShowModal(true);
   }
 
@@ -197,6 +199,8 @@ export default function CatalogServicesPage() {
   async function openEdit(service: CatalogService) {
     setEditingService(service);
     setFormError(null);
+    setImageFile(null);
+    setImageUploadError(null);
     try {
       const res = await apiFetch(`/api/catalog/services/${service.id}`);
       const json = await res.json();
