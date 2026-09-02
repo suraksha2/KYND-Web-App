@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Plus, Search, Pencil, Trash2, X, HeartHandshake, Package, ExternalLink } from "lucide-react";
+import { Plus, Search, Pencil, Trash2, X, Upload, HeartHandshake, Package, ExternalLink } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import clsx from "clsx";
 import ModalPortal from "@/components/ModalPortal";
@@ -32,14 +32,6 @@ const defaultForm = {
   serviceIds: [] as string[],
 };
 
-function imageLabel(src: string) {
-  return src
-    .replace("/images/", "")
-    .replace(/\.[^.]+$/, "")
-    .replace(/[-_]/g, " ")
-    .replace(/\b\w/g, (c: string) => c.toUpperCase());
-}
-
 function slugify(text: string) {
   return text
     .toLowerCase()
@@ -57,13 +49,16 @@ export default function ServiceSubcategoriesPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [catalogServices, setCatalogServices] = useState<CatalogService[]>([]);
-  const [availableImages, setAvailableImages] = useState<string[]>([]);
 
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<HelpMoment | null>(null);
   const [form, setForm] = useState(defaultForm);
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [imageUploadError, setImageUploadError] = useState<string | null>(null);
 
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -108,11 +103,6 @@ export default function ServiceSubcategoriesPage() {
         );
       })
       .catch((err) => console.error("Failed to fetch catalog services", err));
-
-    apiFetch("/api/images")
-      .then((res) => res.json())
-      .then((json) => setAvailableImages(json.data ?? []))
-      .catch((err) => console.error("Failed to fetch images", err));
   }, [fetchMoments]);
 
   const filtered = useMemo(() => {
@@ -131,12 +121,16 @@ export default function ServiceSubcategoriesPage() {
     setEditing(null);
     setForm(defaultForm);
     setFormError(null);
+    setImageFile(null);
+    setImageUploadError(null);
     setShowModal(true);
   }
 
   async function openEdit(moment: HelpMoment) {
     setEditing(moment);
     setFormError(null);
+    setImageFile(null);
+    setImageUploadError(null);
     try {
       const res = await apiFetch(`/api/service-subcategories/${moment.id}`);
       const json = await res.json();
@@ -226,6 +220,28 @@ export default function ServiceSubcategoriesPage() {
       setError(err instanceof Error ? err.message : "Failed to delete help moment.");
     } finally {
       setDeleting(false);
+    }
+  }
+
+  async function handleImageUpload() {
+    if (!imageFile) return;
+    setUploadingImage(true);
+    setImageUploadError(null);
+    try {
+      const data = new FormData();
+      data.append("image", imageFile);
+      const res = await apiFetch("/api/images/upload", {
+        method: "POST",
+        body: data,
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Image upload failed.");
+      setForm((prev) => ({ ...prev, image: json.data }));
+      setImageFile(null);
+    } catch (err) {
+      setImageUploadError(err instanceof Error ? err.message : "Image upload failed.");
+    } finally {
+      setUploadingImage(false);
     }
   }
 
@@ -473,21 +489,63 @@ export default function ServiceSubcategoriesPage() {
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-warmgrey mb-1.5">Hero image</label>
-                  <select
-                    value={form.image}
-                    onChange={(e) => setForm((p) => ({ ...p, image: e.target.value }))}
-                    className={inputCls}
-                  >
-                    <option value="">None</option>
-                    {(form.image && !availableImages.includes(form.image)
-                      ? [form.image, ...availableImages]
-                      : availableImages
-                    ).map((img) => (
-                      <option key={img} value={img}>
-                        {imageLabel(img)}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="flex items-start gap-3">
+                    {form.image ? (
+                      <div className="w-12 h-12 rounded-xl overflow-hidden border border-lightstone shrink-0">
+                        <img
+                          src={serviceImageUrl(form.image) ?? ""}
+                          alt={form.title || "Help moment"}
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                    ) : (
+                      <div className="w-12 h-12 rounded-xl bg-terracotta flex items-center justify-center text-white text-sm font-extrabold shrink-0">
+                        {(form.title || "—").substring(0, 2).toUpperCase()}
+                      </div>
+                    )}
+                    <div className="flex-1 space-y-1.5">
+                      <div className="flex items-center gap-2">
+                        <label className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-semibold text-charcoal bg-accent-50 hover:bg-lightstone rounded-xl cursor-pointer transition">
+                          <Upload size={14} className="text-terracotta" />
+                          <span>Choose file</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => {
+                              setImageFile(e.target.files?.[0] ?? null);
+                              setImageUploadError(null);
+                            }}
+                            className="hidden"
+                          />
+                        </label>
+                        {imageFile && (
+                          <button
+                            type="button"
+                            onClick={handleImageUpload}
+                            disabled={uploadingImage}
+                            className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-bold text-white bg-terracotta hover:bg-accent-700 rounded-xl transition disabled:opacity-60"
+                          >
+                            {uploadingImage ? "Uploading…" : "Upload"}
+                          </button>
+                        )}
+                        {form.image && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setForm((p) => ({ ...p, image: "" }));
+                              setImageFile(null);
+                            }}
+                            className="p-2 rounded-lg text-warmgrey hover:text-rosewood hover:bg-dustyrose/10 transition"
+                            title="Remove image"
+                          >
+                            <X size={14} />
+                          </button>
+                        )}
+                      </div>
+                      {imageFile && <p className="text-xs text-warmgrey">Selected: {imageFile.name}</p>}
+                      {imageUploadError && <p className="text-xs text-rosewood">{imageUploadError}</p>}
+                    </div>
+                  </div>
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-warmgrey mb-2">
