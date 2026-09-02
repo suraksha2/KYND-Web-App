@@ -1,8 +1,29 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { LogOut } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth, API_BASE } from "../context/AuthContext";
 import { iconForService } from "../lib/serviceIcon";
+
+const DEFAULT_MARKUP_PCT = 30;
+
+function mapCatalogToAdminService(service) {
+  const cost = service.default_partner_cost !== null ? Number(service.default_partner_cost) : null;
+  let price = null;
+  if (cost !== null && !Number.isNaN(cost)) {
+    const markup = (service.markup_pct_override ?? DEFAULT_MARKUP_PCT) / 100;
+    price = Math.round(cost * (1 + markup));
+  }
+  const statusMap = { live: 'Available', paused: 'Offline', pending_rates: 'Busy' };
+  return {
+    id: service.id,
+    name: service.name,
+    category: service.category,
+    price,
+    availability: service.duration || '',
+    status: statusMap[service.status] ?? service.status,
+    image: service.image,
+  };
+}
 
 export default function AdminPanel() {
   const { token, user, logout } = useAuth();
@@ -96,26 +117,42 @@ export default function AdminPanel() {
   }, []);
 
   // Fetch services
-  useEffect(() => {
-    const fetchServices = async () => {
-      setLoading(prev => ({ ...prev, services: true }));
-      setError(prev => ({ ...prev, services: null }));
-      try {
-        const response = await authFetch(`${API_BASE}/services`);
-        const data = await response.json();
-        if (response.ok) {
-          setServices(data.data || []);
-        } else {
-          setError(prev => ({ ...prev, services: data.error || "Failed to fetch services" }));
-        }
-      } catch (err) {
-        setError(prev => ({ ...prev, services: "Failed to connect to server" }));
-      } finally {
-        setLoading(prev => ({ ...prev, services: false }));
+  const fetchServicesList = useCallback(async () => {
+    setLoading(prev => ({ ...prev, services: true }));
+    setError(prev => ({ ...prev, services: null }));
+    try {
+      const response = await fetch(`${API_BASE}/catalog/services`, {
+        cache: 'no-store',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setServices((data.data || []).map(mapCatalogToAdminService));
+      } else {
+        setError(prev => ({ ...prev, services: data.error || "Failed to fetch services" }));
       }
+    } catch (err) {
+      setError(prev => ({ ...prev, services: "Failed to connect to server" }));
+    } finally {
+      setLoading(prev => ({ ...prev, services: false }));
+    }
+  }, [token]);
+
+  useEffect(() => {
+    fetchServicesList();
+  }, [fetchServicesList]);
+
+  useEffect(() => {
+    if (activeTab === 'services') fetchServicesList();
+  }, [activeTab, fetchServicesList]);
+
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') fetchServicesList();
     };
-    fetchServices();
-  }, []);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [fetchServicesList]);
 
   // Fetch clients
   useEffect(() => {
@@ -162,20 +199,28 @@ export default function AdminPanel() {
   }, []);
 
   // Fetch services for dropdown
-  useEffect(() => {
-    const fetchServices = async () => {
-      try {
-        const response = await authFetch(`${API_BASE}/services`);
-        const data = await response.json();
-        if (response.ok) {
-          setAvailableServices(data.data || []);
-        }
-      } catch (err) {
-        console.error("Failed to fetch services");
+  const fetchAvailableServices = useCallback(async () => {
+    try {
+      const response = await fetch(`${API_BASE}/catalog/services`, {
+        cache: 'no-store',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setAvailableServices((data.data || []).map((s) => ({ id: s.id, name: s.name })));
       }
-    };
-    fetchServices();
-  }, []);
+    } catch (err) {
+      console.error("Failed to fetch services");
+    }
+  }, [token]);
+
+  useEffect(() => {
+    fetchAvailableServices();
+  }, [fetchAvailableServices]);
+
+  useEffect(() => {
+    if (showAddProviderModal) fetchAvailableServices();
+  }, [showAddProviderModal, fetchAvailableServices]);
 
   // Fetch cities for dropdown
   useEffect(() => {
@@ -525,7 +570,9 @@ export default function AdminPanel() {
                       <h3 className="font-semibold text-charcoal">{service.name}</h3>
                       <p className="text-sm text-warmgrey">{service.category}</p>
                       <div className="flex items-center justify-between mt-2">
-                        <p className="font-bold text-terracotta">S${service.price?.toLocaleString() || 0}</p>
+                        <p className="font-bold text-terracotta">
+                          {service.price != null ? `S$${service.price.toLocaleString()}` : 'Custom quote'}
+                        </p>
                         <span className={`px-2 py-1 rounded-full text-xs font-medium ${
                           service.status === 'Available' ? 'bg-sage/10 text-sage' : 'bg-red-100 text-red-700'
                         }`}>

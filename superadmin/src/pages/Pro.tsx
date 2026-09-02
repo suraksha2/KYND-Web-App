@@ -85,9 +85,13 @@ export default function ProPage() {
 
   async function fetchServices() {
     try {
-      const res = await apiFetch("/api/services");
+      const res = await apiFetch("/api/catalog/services");
       const json = await res.json();
-      if (json.data) setAvailableServices(json.data);
+      if (json.data) {
+        setAvailableServices(
+          json.data.map((service: any) => ({ id: service.id, name: service.name }))
+        );
+      }
     } catch (err) {
       console.error("Failed to fetch services", err);
     }

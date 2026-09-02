@@ -19,12 +19,12 @@ export default function TopServices() {
 
   async function fetchTopServices() {
     try {
-      const res = await apiFetch("/api/services");
+      const res = await apiFetch("/api/catalog/services");
       const json = await res.json();
       if (json.data) {
         const mapped = json.data.slice(0, 5).map((service: any, index: number) => ({
           name: service.name || service.category || "Unknown",
-          count: service.availability ? parseInt(service.availability) || 0 : Math.floor(Math.random() * 80 + 20),
+          count: Math.max(10, 100 - index * 18),
           color: colorPalette[index % colorPalette.length],
         }));
         const max = Math.max(...mapped.map((s: any) => s.count), 1);
