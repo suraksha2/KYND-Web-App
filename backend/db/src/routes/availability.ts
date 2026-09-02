@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import pool from '../lib/mysql';
+import { parseSgt } from '../lib/sgt';
 
 const router = Router();
 
@@ -86,8 +87,8 @@ function providerSlots(
 
     const busy = existingBookings.some((b) => {
       if (!b.scheduled_at) return false;
-      const existingStart = new Date(b.scheduled_at.replace(' ', 'T') + '+08:00');
-      if (isNaN(existingStart.getTime())) return false;
+      const existingStart = parseSgt(b.scheduled_at);
+      if (!existingStart) return false;
       let existingDuration = durationMin;
       try {
         const items = typeof b.items === 'string' ? JSON.parse(b.items) : b.items;
