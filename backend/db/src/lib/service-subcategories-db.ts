@@ -61,7 +61,7 @@ function catalogSellPrice(defaultPartnerCost: number | null | string, markupOver
 
 async function fetchServicesForSubcategory(subcategoryId: number) {
   const [svcRows] = await pool.query(
-    `SELECT s.id, s.name, s.image, s.default_partner_cost, s.markup_pct_override, c.name as category
+    `SELECT s.id, s.name, s.image, s.duration, s.default_partner_cost, s.markup_pct_override, c.name as category
      FROM catalog_services s
      JOIN catalog_categories c ON s.category_id = c.id
      JOIN service_subcategory_services ss ON s.id = ss.service_id
@@ -78,7 +78,7 @@ async function fetchServicesForSubcategory(subcategoryId: number) {
       category: s.category,
       price,
       image: s.image,
-      duration: 'Variable',
+      duration: s.duration || 'Variable',
       pricingFrom: price !== null ? `S$${price.toFixed(2)}` : 'Custom quote',
     };
   });

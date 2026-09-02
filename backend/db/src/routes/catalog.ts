@@ -115,7 +115,7 @@ router.post('/categories', async (req, res) => {
 router.get('/services', async (_req, res) => {
   try {
     const [rows] = await pool.query(
-      `SELECT s.id, s.name, s.description, s.image, s.status, s.default_partner_cost, s.markup_pct_override, c.id as category_id, c.name as category
+      `SELECT s.id, s.name, s.description, s.image, s.duration, s.status, s.default_partner_cost, s.markup_pct_override, c.id as category_id, c.name as category
        FROM catalog_services s
        JOIN catalog_categories c ON s.category_id = c.id
        ORDER BY s.name`
@@ -173,6 +173,7 @@ router.post('/services', async (req, res) => {
     category_id,
     description,
     image,
+    duration,
     status,
     default_partner_cost,
     markup_pct_override,
@@ -190,13 +191,14 @@ router.post('/services', async (req, res) => {
 
   try {
     const [insertResult] = await connection.query(
-      `INSERT INTO catalog_services (category_id, name, description, image, status, default_partner_cost, markup_pct_override)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO catalog_services (category_id, name, description, image, duration, status, default_partner_cost, markup_pct_override)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         category_id,
         name,
         description || null,
         image || null,
+        duration || null,
         status || 'pending_rates',
         default_partner_cost ?? null,
         markup_pct_override ?? null,
@@ -253,6 +255,7 @@ router.put('/services/:id', async (req, res) => {
     category_id,
     description,
     image,
+    duration,
     status,
     default_partner_cost,
     markup_pct_override,
@@ -271,13 +274,14 @@ router.put('/services/:id', async (req, res) => {
   try {
     const [updateResult] = await connection.query(
       `UPDATE catalog_services
-       SET category_id = ?, name = ?, description = ?, image = ?, status = ?, default_partner_cost = ?, markup_pct_override = ?
+       SET category_id = ?, name = ?, description = ?, image = ?, duration = ?, status = ?, default_partner_cost = ?, markup_pct_override = ?
        WHERE id = ?`,
       [
         category_id,
         name,
         description || null,
         image || null,
+        duration || null,
         status || 'pending_rates',
         default_partner_cost ?? null,
         markup_pct_override ?? null,

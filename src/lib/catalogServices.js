@@ -28,7 +28,7 @@ export function mapCatalogService(service) {
     img: serviceImageUrl(service.image),
     price,
     pricingFrom,
-    duration: 'Variable',
+    duration: service.duration || 'Variable',
     rating: 0,
     reviewCount: 0,
     bullets: ['Professional service', 'Quality guaranteed', 'Trusted providers'],

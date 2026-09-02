@@ -350,6 +350,7 @@ CREATE TABLE IF NOT EXISTS catalog_services (
   name VARCHAR(255) NOT NULL,
   description TEXT,
   image VARCHAR(255),
+  duration VARCHAR(100),
   status ENUM('live', 'pending_rates', 'paused') DEFAULT 'pending_rates',
   default_partner_cost DECIMAL(10,2),
   markup_pct_override DECIMAL(5,2),
@@ -438,5 +439,14 @@ SET @stmt := IF(
     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'catalog_services'
       AND COLUMN_NAME = 'image') = 0,
   'ALTER TABLE catalog_services ADD COLUMN image VARCHAR(255) AFTER description',
+  'DO 0');
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- Migration: add duration to catalog_services if it was created before this column.
+SET @stmt := IF(
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'catalog_services'
+      AND COLUMN_NAME = 'duration') = 0,
+  'ALTER TABLE catalog_services ADD COLUMN duration VARCHAR(100) AFTER image',
   'DO 0');
 PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;

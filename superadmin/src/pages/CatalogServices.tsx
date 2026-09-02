@@ -34,6 +34,7 @@ type CatalogService = {
   name: string;
   description: string;
   image: string | null;
+  duration: string | null;
   status: 'live' | 'pending_rates' | 'paused';
   category: string;
   category_id: number;
@@ -145,6 +146,7 @@ export default function CatalogServicesPage() {
       category_id: categories[0]?.id ?? '',
       description: '',
       image: '',
+      duration: '',
       status: 'pending_rates',
       default_partner_cost: '',
       markup_pct_override: '',
@@ -221,6 +223,7 @@ export default function CatalogServicesPage() {
         category_id: detail.category_id,
         description: detail.description ?? '',
         image: detail.image ?? '',
+        duration: detail.duration ?? '',
         status: detail.status,
         default_partner_cost: detail.default_partner_cost ?? '',
         markup_pct_override: detail.markup_pct_override ?? '',
@@ -699,6 +702,16 @@ export default function CatalogServicesPage() {
                         {imageUploadError && <p className="text-xs text-rosewood">{imageUploadError}</p>}
                       </div>
                     </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-warmgrey mb-1.5">Duration</label>
+                    <input
+                      type="text"
+                      value={form.duration || ''}
+                      onChange={(e) => setForm((p: any) => ({ ...p, duration: e.target.value }))}
+                      className={inputCls}
+                      placeholder="e.g. 60 mins, 2 hours"
+                    />
                   </div>
                 </div>
 

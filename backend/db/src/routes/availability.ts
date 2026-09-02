@@ -125,7 +125,7 @@ router.get('/', async (req, res) => {
 
     if (!duration) {
       const [rows]: any = await pool.query(
-        'SELECT duration FROM services WHERE LOWER(name) = LOWER(?) LIMIT 1',
+        'SELECT duration FROM catalog_services WHERE LOWER(name) = LOWER(?) LIMIT 1',
         [service]
       );
       duration = parseDurationMinutes(rows?.[0]?.duration) || 60;
