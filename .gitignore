@@ -16,3 +16,7 @@ ios
 # Build artifacts
 *.tsbuildinfo
 **/*.tsbuildinfo
+
+# Planning/exported office files
+*.xlsx
+*.xlsx.bak
