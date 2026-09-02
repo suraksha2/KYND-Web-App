@@ -92,14 +92,15 @@ export default function Checkout() {
   const schedule = state?.schedule || 'instant'
   const scheduledAt = state?.scheduledAt || ''
   const cadence = state?.cadence || 'weekly'
+  const recurrence = state?.recurrence || null
 
   const buildOrder = () => {
-    const bookingId = 'KYND' + Math.random().toString(36).slice(2, 8).toUpperCase()
+    const bookingId = Math.random().toString(36).slice(2, 8).toUpperCase()
     return {
       bookingId,
       items,
       total: subtotal,
-      schedule, scheduledAt, cadence,
+      schedule, scheduledAt, cadence, recurrence,
       contact: { name, phone, address, city, pincode, area: selectedArea },
       notes: notes.trim(),
       payment: pay,
@@ -121,8 +122,15 @@ export default function Checkout() {
     if (!response.ok) {
       throw new Error(data.error || 'Failed to create booking')
     }
-    // Store the database ID from the backend response
-    const orderWithId = { ...order, id: data.id, provider: data.provider }
+    // Store the database ID from the backend response, plus the recurrence the
+    // server normalized (it owns the planned visit dates).
+    const orderWithId = {
+      ...order,
+      id: data.id,
+      provider: data.provider,
+      cadence: data.cadence || order.cadence,
+      recurrence: data.recurrence || order.recurrence,
+    }
     try { localStorage.setItem('kynd.lastOrder', JSON.stringify(orderWithId)) } catch {}
     addBooking(orderWithId)
     clear()

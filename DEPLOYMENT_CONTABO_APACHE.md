@@ -113,6 +113,10 @@ MYSQL_DATABASE=urban_service
 # Generate with: openssl rand -hex 32
 SESSION_SECRET=replace_with_a_long_random_64_char_secret
 
+# Also `openssl rand -hex 32`. Authenticates the recurring-visit cron below;
+# leave empty and that endpoint stays closed.
+INTERNAL_API_TOKEN=replace_with_another_long_random_secret
+
 WHATSAPP_PHONE_NUMBER_ID=your_phone_number_id
 WHATSAPP_ACCESS_TOKEN=your_whatsapp_access_token
 ```
@@ -126,7 +130,7 @@ mysql -u helpr -p urban_service < /var/www/helpr/backend/db/db.sql
 > Watch for output here — `mysql` **aborts at the first error** and leaves a
 > partially created schema, which then shows up later as `500`s from `/api/*`.
 > A clean import prints nothing. Verify with
-> `mysql -u helpr -p urban_service -e "SHOW TABLES"` (expect 16 tables).
+> `mysql -u helpr -p urban_service -e "SHOW TABLES"` (expect 25 tables).
 
 ---
 
@@ -189,6 +193,36 @@ Verify it's listening:
 ```bash
 curl http://localhost:3001/api/services
 ```
+
+### Recurring-visit reminders (cron)
+
+Recurring bookings are stored as one visit per row in `booking_occurrences`.
+Nothing notifies the partner on its own — a cron job has to poke the dispatcher,
+which WhatsApps whoever is assigned to each visit starting in the next 24h and
+extends the series. Without this, a recurring customer's partner is told once (on
+admin assignment) and never again.
+
+```bash
+sudo crontab -e
+```
+
+```cron
+# Hourly. Idempotent: notified visits are never re-sent, so a missed run is
+# harmless and a duplicate run sends nothing twice.
+0 * * * * curl -fsS -X POST http://127.0.0.1:3001/api/internal/dispatch-due -H "Authorization: Bearer THE_INTERNAL_API_TOKEN" >> /var/log/helpr-dispatch.log 2>&1
+```
+
+Check it by hand first — it reports what it did:
+
+```bash
+curl -X POST http://127.0.0.1:3001/api/internal/dispatch-due \
+  -H "Authorization: Bearer THE_INTERNAL_API_TOKEN"
+# {"due":2,"notified":2,"failed":0,"occurrencesAdded":1}
+```
+
+A `401` means `INTERNAL_API_TOKEN` is unset, under 16 chars, or mismatched. A
+non-zero `failed` means WhatsApp rejected the send (check the PM2 logs); those
+visits stay unnotified and are retried on the next run.
 
 ---
 

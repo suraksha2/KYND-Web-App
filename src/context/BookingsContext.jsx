@@ -42,6 +42,15 @@ function transformBooking(row) {
     schedule: row.schedule,
     scheduledAt: toSgtIso(row.scheduled_at),
     cadence: row.cadence,
+    recurrence: parseJson(row.recurrence),
+    // Individual visits of a recurring booking, oldest first.
+    occurrences: (parseJson(row.occurrences) || []).map((o) => ({
+      id: o.id,
+      seq: o.seq,
+      scheduledAt: toSgtIso(o.scheduled_at),
+      status: o.status,
+      notifiedAt: toSgtIso(o.notified_at),
+    })),
     contact: {
       name: row.contact_name,
       phone: row.contact_phone,

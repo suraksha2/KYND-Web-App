@@ -19,6 +19,7 @@ router.get('/', async (_req, res) => {
         rating,
         total_jobs,
         avatar,
+        working_hours,
         joined,
         created_at
       FROM service_providers 
@@ -35,7 +36,7 @@ router.get('/', async (_req, res) => {
 router.post('/', async (req, res) => {
   try {
     const body = req.body;
-    const { name, email, mobile, services, city, status = 'active', avatar, password } = body;
+    const { name, email, mobile, services, city, status = 'active', avatar, working_hours, password } = body;
 
     if (!name || !email || !mobile || !services || !city) {
       return res.status(400).json({ error: 'Missing required fields' });
@@ -45,9 +46,9 @@ router.post('/', async (req, res) => {
     const passwordHash = password ? await bcrypt.hash(password, 10) : null;
 
     const [result] = await pool.query(
-      `INSERT INTO service_providers (name, email, password_hash, mobile, services, city, status, avatar)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [name, email.trim().toLowerCase(), passwordHash, mobile, JSON.stringify(services), city, status, avatar || null]
+      `INSERT INTO service_providers (name, email, password_hash, mobile, services, city, status, avatar, working_hours)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [name, email.trim().toLowerCase(), passwordHash, mobile, JSON.stringify(services), city, status, avatar || null, working_hours ? JSON.stringify(working_hours) : null]
     );
 
     return res.status(201).json({
@@ -64,7 +65,7 @@ router.post('/', async (req, res) => {
 router.put('/', async (req, res) => {
   try {
     const body = req.body;
-    const { id, name, email, mobile, services, city, status, avatar, password } = body;
+    const { id, name, email, mobile, services, city, status, avatar, working_hours, password } = body;
 
     if (!id) {
       return res.status(400).json({ error: 'Provider ID is required' });
@@ -81,9 +82,9 @@ router.put('/', async (req, res) => {
 
     const [result] = await pool.query(
       `UPDATE service_providers 
-       SET name = ?, email = ?, mobile = ?, services = ?, city = ?, status = ?, avatar = ?
+       SET name = ?, email = ?, mobile = ?, services = ?, city = ?, status = ?, avatar = ?, working_hours = ?
        WHERE id = ?`,
-      [name, email.trim().toLowerCase(), mobile, JSON.stringify(services), city, status, avatar, id]
+      [name, email.trim().toLowerCase(), mobile, JSON.stringify(services), city, status, avatar, working_hours ? JSON.stringify(working_hours) : null, id]
     );
 
     return res.status(200).json({ success: true });

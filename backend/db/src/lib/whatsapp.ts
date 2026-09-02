@@ -1,3 +1,5 @@
+import { parseSgt } from './sgt';
+
 const WHATSAPP_API_URL = `https://graph.facebook.com/v19.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`;
 
 interface BookingDetails {
@@ -5,6 +7,8 @@ interface BookingDetails {
   serviceName: string;
   scheduledAt: string | null;
   schedule: string;
+  cadence?: string | null;
+  visitSeq?: number | null;
   contactName: string;
   contactPhone: string;
   contactAddress: string;
@@ -34,13 +38,6 @@ export async function sendProviderAssignmentWhatsApp(
     phone = '91' + phone;
   }
 
-  // MySQL DATETIME values are stored as Singapore local time (SGT).
-  function parseSgt(value: string | null) {
-    if (!value) return null;
-    if (/[Z+-]/.test(value)) return new Date(value);
-    return new Date(value.replace(' ', 'T') + '+08:00');
-  }
-
   const scheduleInfo =
     booking.schedule === 'instant'
       ? 'Instant (ASAP)'
@@ -57,13 +54,23 @@ export async function sendProviderAssignmentWhatsApp(
     .filter(Boolean)
     .join(', ');
 
+  // A recurring visit is a reminder for one date in an ongoing plan, not a brand
+  // new assignment, so it gets its own opening line.
+  const isRecurringVisit = booking.schedule === 'recurring' && !!booking.visitSeq;
+  const intro = isRecurringVisit
+    ? `Your next visit for a recurring booking on *Helpr* is coming up.\n\n`
+    : `You have been assigned a new service booking on *Helpr*.\n\n`;
+
   const messageText =
     `Hi ${providerName} 👋\n\n` +
-    `You have been assigned a new service booking on *Helpr*.\n\n` +
+    intro +
     `📋 *Booking Details*\n` +
     `Booking ID: ${booking.bookingId}\n` +
+    (isRecurringVisit ? `Visit: #${booking.visitSeq}\n` : '') +
     `Service: ${booking.serviceName}\n` +
-    `Schedule: ${scheduleInfo}\n\n` +
+    `Schedule: ${scheduleInfo}\n` +
+    (booking.schedule === 'recurring' && booking.cadence ? `Repeats: ${booking.cadence}\n` : '') +
+    `\n` +
     `👤 *Customer Details*\n` +
     `Name: ${booking.contactName}\n` +
     `Phone: ${booking.contactPhone}\n` +

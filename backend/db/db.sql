@@ -182,6 +182,7 @@ CREATE TABLE IF NOT EXISTS service_providers (
   rating DECIMAL(3,2) DEFAULT 0.00,
   total_jobs INT DEFAULT 0,
   avatar VARCHAR(255),
+  working_hours JSON,
   joined DATE DEFAULT (CURRENT_DATE),
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
@@ -196,6 +197,7 @@ CREATE TABLE IF NOT EXISTS bookings (
   schedule ENUM('instant', 'scheduled', 'recurring') NOT NULL,
   scheduled_at DATETIME,
   cadence VARCHAR(50),
+  recurrence JSON,
   contact_name VARCHAR(255) NOT NULL,
   contact_phone VARCHAR(20) NOT NULL,
   contact_address TEXT NOT NULL,
@@ -258,6 +260,35 @@ UPDATE bookings
                       IF(LOWER(COALESCE(history, '')) LIKE '%by provider%', 'provider', 'customer'))
  WHERE status = 'cancelled' AND cancelled_by IS NULL;
 
+-- Migration: add structured recurrence details for recurring bookings.
+SET @stmt := IF(
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'bookings'
+      AND COLUMN_NAME = 'recurrence') = 0,
+  'ALTER TABLE bookings ADD COLUMN recurrence JSON AFTER cadence',
+  'DO 0');
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- Individual visits of a recurring booking. The parent `bookings` row owns the
+-- cadence and the contact/payment details; each occurrence carries its own date,
+-- provider and status so cancelling or rescheduling one visit leaves the rest of
+-- the series intact. `notified_at` is what stops the dispatcher double-sending.
+CREATE TABLE IF NOT EXISTS booking_occurrences (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  booking_id INT NOT NULL,
+  seq INT NOT NULL,
+  scheduled_at DATETIME NOT NULL,
+  provider_id INT,
+  status ENUM('upcoming', 'completed', 'cancelled') DEFAULT 'upcoming',
+  notified_at DATETIME,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY unique_booking_occurrence (booking_id, seq),
+  KEY idx_occurrence_due (status, scheduled_at),
+  FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE CASCADE,
+  FOREIGN KEY (provider_id) REFERENCES service_providers(id) ON DELETE SET NULL
+);
+
 -- Reviews table for customer feedback on service providers
 CREATE TABLE IF NOT EXISTS reviews (
   id INT AUTO_INCREMENT PRIMARY KEY,
@@ -280,6 +311,15 @@ SET @stmt := IF(
     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'service_providers'
       AND COLUMN_NAME = 'review_count') = 0,
   'ALTER TABLE service_providers ADD COLUMN review_count INT DEFAULT 0',
+  'DO 0');
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- Migration: add working_hours to pre-existing service_providers tables.
+SET @stmt := IF(
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'service_providers'
+      AND COLUMN_NAME = 'working_hours') = 0,
+  'ALTER TABLE service_providers ADD COLUMN working_hours JSON',
   'DO 0');
 PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 

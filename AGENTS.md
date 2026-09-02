@@ -84,7 +84,40 @@ is written for **MySQL 8**, where:
 - expression defaults need parentheses: `DEFAULT (CURRENT_DATE)`.
 
 `mysql` aborts on the first error, so a mistake leaves a half-created schema that
-surfaces as `500`s from `/api/*`. A clean import creates **17 tables**.
+surfaces as `500`s from `/api/*`. A clean import creates **25 tables**.
+
+`DATETIME` columns hold **Singapore wall-clock time**, but mysql2 hands them back
+as JS `Date`s built in the *process* timezone. Doing date maths on such a value
+and writing it back silently shifts it by the local↔SGT offset. Use
+`src/lib/sgt.ts` (`sgtDateTime` to write, `parseSgt` to read) and select
+`DATE_FORMAT(col, '%Y-%m-%d %H:%i:%s')` when a date has to survive a round trip —
+`src/lib/occurrences.ts` does both. Note the frontends' own `toSgtIso`/`parseSgt`
+helpers assume a bare (offset-less) string, so a raw `Date` reaching them via JSON
+is also wrong by the same offset.
+
+## Recurring bookings
+
+A recurring booking is one `bookings` row (cadence in `cadence` + normalized
+`recurrence` JSON) plus one `booking_occurrences` row per visit:
+
+- `src/lib/recurrence.ts` — turns a preset (`weekly`) or a custom frequency
+  (`{times: 3, unit: 'week'}` → `'3 times/week'`) into `intervalDays` and the
+  next `PLANNED_OCCURRENCES` (4) visit dates.
+- `src/lib/occurrences.ts` — writes the series, tops it up so four visits stay
+  ahead, and finds visits due for notification. `(booking_id, seq)` is unique and
+  inserts use `INSERT IGNORE`, so re-running any of it is safe.
+- Provider matching in `POST /api/bookings` scores candidates across the **whole**
+  series, not just the first visit, but requires the first visit to be free.
+- `POST /api/internal/dispatch-due` (cron; `INTERNAL_API_TOKEN` bearer, min 16
+  chars) WhatsApps the partner about each visit starting within `withinHours`
+  (default 24), sets `notified_at` only on success, then tops the series up.
+  Suggested schedule: hourly.
+
+    0 * * * * curl -fsS -X POST http://127.0.0.1:3001/api/internal/dispatch-due \
+      -H "Authorization: Bearer $INTERNAL_API_TOKEN" >> /var/log/kynd-dispatch.log 2>&1
+
+  Nothing else sends this message: the auto-assignment in `POST /api/bookings`
+  does **not** notify, and `PUT /api/bookings/:id` (admin assign) notifies once.
 
 ## Pre-launch gate
 

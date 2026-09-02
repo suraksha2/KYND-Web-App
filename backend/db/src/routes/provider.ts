@@ -2,6 +2,7 @@ import { Router } from 'express';
 import pool from '../lib/mysql';
 import { hasAdminAccess } from '../lib/auth';
 import { getSession } from '../http/session';
+import { withOccurrences } from '../lib/occurrences';
 
 const router = Router();
 
@@ -32,7 +33,7 @@ router.get('/bookings', async (req, res) => {
       [session.id]
     );
 
-    return res.status(200).json({ data: rows });
+    return res.status(200).json({ data: await withOccurrences(rows as any[]) });
   } catch (error) {
     console.error('[GET /api/provider/bookings]', error);
     return res.status(500).json({ error: 'Failed to fetch assigned bookings' });

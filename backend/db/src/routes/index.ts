@@ -1,6 +1,7 @@
 import { Router } from 'express';
 
 import analytics from './analytics';
+import availability from './availability';
 import addons from './addons';
 import auth from './auth';
 import bookings from './bookings';
@@ -12,6 +13,7 @@ import clientCategories from './client-categories';
 import clients from './clients';
 import dashboard from './dashboard';
 import images from './images';
+import internal from './internal';
 import orders from './orders';
 import payments from './payments';
 import provider from './provider';
@@ -26,6 +28,7 @@ import waitlist from './waitlist';
 const router = Router();
 
 router.use('/analytics', analytics);
+router.use('/availability', availability);
 router.use('/addons', addons);
 router.use('/auth', auth);
 router.use('/bookings', bookings);
@@ -37,6 +40,7 @@ router.use('/client-categories', clientCategories);
 router.use('/clients', clients);
 router.use('/dashboard', dashboard);
 router.use('/images', images);
+router.use('/internal', internal);
 router.use('/orders', orders);
 router.use('/payments', payments);
 router.use('/provider', provider);

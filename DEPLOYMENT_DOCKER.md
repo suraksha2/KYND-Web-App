@@ -113,6 +113,7 @@ checkout must sit in an identically named directory on both machines.
 cd /path/to/service-app
 cp docker/env.example .env.docker
 openssl rand -hex 32          # paste into SESSION_SECRET
+openssl rand -hex 32          # paste into INTERNAL_API_TOKEN (recurring-visit cron)
 nano .env.docker              # set MySQL passwords + payment/WhatsApp keys
 ```
 
@@ -156,6 +157,28 @@ curl -X POST http://localhost:8080/mykynd/api/auth/signup \
 Then log in at `http://localhost:8080/mykynd/admin/`. Note that `db.sql` creates the **schema
 only** — no services/cities rows — so a fresh stack starts empty and lists
 render blank until you add data through the admin.
+
+### Recurring-visit reminders (cron)
+
+Each visit of a recurring booking lives in `booking_occurrences`, and partners are
+only told about one when the dispatcher runs. Nothing inside the containers
+schedules it, so add a host cron entry (hourly is plenty):
+
+```cron
+0 * * * * docker compose -f /path/to/service-app/docker-compose.yml --env-file /path/to/service-app/.env.docker exec -T backend node -e "fetch('http://127.0.0.1:3001/api/internal/dispatch-due',{method:'POST',headers:{Authorization:'Bearer '+process.env.INTERNAL_API_TOKEN}}).then(r=>r.text()).then(console.log)" >> /var/log/helpr-dispatch.log 2>&1
+```
+
+Or, more simply, hit it through the gateway from the host:
+
+```bash
+curl -fsS -X POST http://localhost:8080/mykynd/api/internal/dispatch-due \
+  -H "Authorization: Bearer $INTERNAL_API_TOKEN"
+# {"due":2,"notified":2,"failed":0,"occurrencesAdded":1}
+```
+
+It is idempotent — a visit already notified is never re-sent, and a send that
+fails stays queued for the next run. A `401` means `INTERNAL_API_TOKEN` is unset
+or shorter than 16 chars, which keeps the endpoint closed by design.
 
 ## 5. Put it on a domain (TLS) — Contabo + https://fayyaz.travel/mykynd
 

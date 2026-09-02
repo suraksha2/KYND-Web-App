@@ -1,13 +1,14 @@
 import {
   Loader2, Calendar, Clock, MapPin, Phone, User, IndianRupee, CheckCircle2, XCircle, StickyNote,
 } from 'lucide-react'
-import { STATUS_META, parseItems, formatDateTime } from '../utils/bookings'
+import { STATUS_META, parseItems, formatDateTime, nextVisit } from '../utils/bookings'
 
 export default function BookingCard({ booking, updating, onUpdate }) {
   const items = parseItems(booking.items)
   const meta = STATUS_META[booking.status] || STATUS_META.upcoming
   const StatusIcon = meta.icon
   const when = formatDateTime(booking.scheduled_at) || formatDateTime(booking.placed_at)
+  const upcomingVisit = nextVisit(booking)
 
   return (
     <div className="bg-white rounded-2xl border border-lightstone shadow-soft overflow-hidden">
@@ -29,7 +30,10 @@ export default function BookingCard({ booking, updating, onUpdate }) {
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3 text-sm">
           <Detail icon={Calendar} label={booking.schedule === 'instant' ? 'ASAP' : when} />
-          {booking.cadence && <Detail icon={Clock} label={booking.cadence} />}
+          {booking.cadence && <Detail icon={Clock} label={`Repeats ${booking.cadence}`} />}
+          {upcomingVisit && (
+            <Detail icon={Calendar} label={`Next visit #${upcomingVisit.seq} · ${formatDateTime(upcomingVisit.scheduled_at)}`} />
+          )}
           {booking.status === 'cancelled' ? (
             <div className="sm:col-span-2 -mt-1 mb-1">
               <span className="inline-flex items-center gap-1.5 rounded-full bg-red-50 text-red-700 ring-1 ring-red-100 px-2.5 py-1 text-xs font-semibold uppercase">

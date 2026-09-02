@@ -76,6 +76,10 @@ function isPublicApi(pathname: string, method: string): boolean {
   // Provider APIs are gated by the route handlers themselves (provider or admin).
   if (pathname.startsWith('/provider/')) return true;
 
+  // Machine-to-machine endpoints for the cron dispatcher. There is no session to
+  // verify; the handlers check INTERNAL_API_TOKEN themselves.
+  if (pathname.startsWith('/internal/')) return true;
+
   if (method === 'GET') {
     if (/^\/services(\/[^/]+)?$/.test(pathname)) return true;
     if (/^\/cities(\/.+)?$/.test(pathname)) return true;
@@ -88,6 +92,7 @@ function isPublicApi(pathname: string, method: string): boolean {
     if (/^\/catalog\/services(\/[^/]+)?$/.test(pathname)) return true;
     if (/^\/catalog\/services\/[^/]+\/quote$/.test(pathname)) return true;
     if (/^\/catalog\/services\/[^/]+\/addons$/.test(pathname)) return true;
+    if (/^\/availability(\/.+)?$/.test(pathname)) return true;
     // Customers verify their own payment status (client_secret already on client).
     if (/^\/payments\/[^/]+$/.test(pathname)) return true;
   }

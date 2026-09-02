@@ -15,6 +15,17 @@ const parsePrice = (str = '') => {
   return Number.isFinite(n) ? n : 0
 }
 
+const parseDurationMinutes = (str = '') => {
+  const s = String(str).toLowerCase()
+  const hourMatch = s.match(/(\d+(?:\.\d+)?)\s*(?:hour|hr|hrs|h)/)
+  if (hourMatch) return Math.round(parseFloat(hourMatch[1]) * 60)
+  const minMatch = s.match(/(\d+)\s*(?:min|mins|minute|minutes|m)/)
+  if (minMatch) return parseInt(minMatch[1], 10)
+  const n = parseFloat(s.replace(/[^0-9.]/g, ''))
+  if (Number.isFinite(n)) return n < 20 ? Math.round(n * 60) : Math.round(n)
+  return null
+}
+
 const formatPrice = (n) => `S$${Math.round(n)}`
 
 const normalizePhone = (value) => {
@@ -240,28 +251,71 @@ const Inclusions = ({ svc }) => {
 }
 
 /* ---------- How soon? ---------- */
-const HowSoonPanel = ({ open, setOpen, summary, schedule, setSchedule, date, setDate, time, setTime, cadence, setCadence, arrivalTime, errors, submitAttempt }) => {
+const HowSoonPanel = ({ open, setOpen, summary, schedule, setSchedule, date, setDate, time, setTime, recurrence, setRecurrence, customTimes, setCustomTimes, customUnit, setCustomUnit, arrivalTime, errors, submitAttempt, serviceName, city, duration }) => {
   const [showModal, setShowModal] = useState(false)
-  const [newAt, setNewAt] = useState('')
+  const [pickDate, setPickDate] = useState('')
+  const [selectedSlot, setSelectedSlot] = useState('')
+  const [slots, setSlots] = useState([])
+  const [loadingSlots, setLoadingSlots] = useState(false)
+  const [slotsError, setSlotsError] = useState(null)
+  const minDate = useMemo(() => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Singapore' }).format(new Date()), [])
 
   useEffect(() => {
     if (datetimeError) setShowModal(true)
   }, [submitAttempt])
 
+  useEffect(() => {
+    if (!showModal || !pickDate || !serviceName || !city || !duration) return
+    let ignore = false
+    const load = async () => {
+      setLoadingSlots(true)
+      setSlotsError(null)
+      try {
+        const q = new URLSearchParams({ service: serviceName, city, date: pickDate, duration: String(duration) })
+        const res = await fetch(`${API_BASE}/availability?${q.toString()}`)
+        const json = await res.json()
+        if (ignore) return
+        if (res.ok) {
+          setSlots(json.slots || [])
+        } else {
+          setSlotsError(json.error || 'Failed to load slots')
+          setSlots([])
+        }
+      } catch (e) {
+        if (!ignore) {
+          setSlotsError('Failed to load slots')
+          setSlots([])
+        }
+      } finally {
+        if (!ignore) setLoadingSlots(false)
+      }
+    }
+    load()
+    return () => { ignore = true }
+  }, [showModal, pickDate, serviceName, city, duration])
+
   const openModal = (type) => {
     setSchedule(type)
-    setNewAt(date && time ? `${date}T${time}` : '')
+    const initialDate = date || minDate
+    setPickDate(initialDate)
+    setSelectedSlot(time || '')
+    setSlots([])
+    setSlotsError(null)
     setShowModal(true)
   }
 
   const closeModal = () => setShowModal(false)
 
-  const confirmModal = () => {
-    if (!newAt) return
-    const [d, t] = newAt.split('T')
-    setDate(d)
-    setTime(t)
+  const confirmSlot = () => {
+    if (!pickDate || !selectedSlot) return
+    setDate(pickDate)
+    setTime(selectedSlot)
     setShowModal(false)
+  }
+
+  const onDateChange = (d) => {
+    setPickDate(d)
+    setSelectedSlot('')
   }
 
   const selectedLabel = date && time
@@ -270,7 +324,7 @@ const HowSoonPanel = ({ open, setOpen, summary, schedule, setSchedule, date, set
 
   const datetimeError = !!errors?.datetime && (!date || !time)
   const inputBase = "w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2"
-  const inputClass = datetimeError && !newAt
+  const inputClass = datetimeError && (!date || !time)
     ? `${inputBase} border-red-500 focus:border-red-500 focus:ring-red-500/20`
     : `${inputBase} border-lightstone focus:border-terracotta focus:ring-terracotta/25`
 
@@ -325,18 +379,50 @@ const HowSoonPanel = ({ open, setOpen, summary, schedule, setSchedule, date, set
               </button>
             </div>
             <label className="block mt-4">
-              <span className="block text-xs font-semibold text-charcoal mb-1.5">New date &amp; time</span>
+              <span className="block text-xs font-semibold text-charcoal mb-1.5">Date</span>
               <input
-                type="datetime-local"
-                step={1800}
-                value={newAt}
-                onChange={(e) => setNewAt(e.target.value)}
+                type="date"
+                min={minDate}
+                value={pickDate}
+                onChange={(e) => onDateChange(e.target.value)}
                 className={inputClass}
               />
-              {datetimeError && !newAt && (
+              {datetimeError && (!date || !time) && (
                 <p className="text-xs text-red-600 mt-1">{errors.datetime}</p>
               )}
             </label>
+
+            {loadingSlots && <p className="mt-4 text-sm text-warmgrey">Loading slots…</p>}
+
+            {slotsError && <p className="mt-4 text-xs text-red-600">{slotsError}</p>}
+
+            {!loadingSlots && !slotsError && pickDate && (
+              <>
+                {slots.length === 0 ? (
+                  <p className="mt-4 text-sm text-warmgrey">No available slots for this date. Try another.</p>
+                ) : (
+                  <>
+                    <p className="text-xs font-bold text-warmgrey uppercase tracking-wide mt-4 mb-2">Available slots</p>
+                    <div className="grid grid-cols-3 gap-2">
+                      {slots.map((slot) => (
+                        <button
+                          key={slot}
+                          type="button"
+                          onClick={() => setSelectedSlot(slot)}
+                          className={`rounded-full px-2 py-2 text-xs font-semibold border transition ${
+                            selectedSlot === slot
+                              ? 'bg-terracotta border-terracotta text-white'
+                              : 'bg-white border-lightstone text-charcoal hover:border-terracotta'
+                          }`}
+                        >
+                          {slot}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </>
+            )}
             {schedule === 'recurring' && (
               <>
                 <p className="text-xs font-bold text-warmgrey uppercase tracking-wide mt-4 mb-2">Cadence</p>
@@ -347,9 +433,9 @@ const HowSoonPanel = ({ open, setOpen, summary, schedule, setSchedule, date, set
                       <button
                         key={c}
                         type="button"
-                        onClick={() => setCadence(key)}
+                        onClick={() => setRecurrence({ type: 'preset', value: key })}
                         className={`rounded-full px-4 py-2 text-sm font-medium border transition ${
-                          cadence === key
+                          recurrence.type === 'preset' && recurrence.value === key
                             ? 'bg-accent-100 border-terracotta text-terracotta'
                             : 'bg-white border-lightstone text-charcoal'
                         }`}
@@ -358,12 +444,54 @@ const HowSoonPanel = ({ open, setOpen, summary, schedule, setSchedule, date, set
                       </button>
                     )
                   })}
+                  <button
+                    type="button"
+                    onClick={() => setRecurrence({ type: 'custom', times: customTimes, unit: customUnit })}
+                    className={`rounded-full px-4 py-2 text-sm font-medium border transition ${
+                      recurrence.type === 'custom'
+                        ? 'bg-accent-100 border-terracotta text-terracotta'
+                        : 'bg-white border-lightstone text-charcoal'
+                    }`}
+                  >
+                    Custom
+                  </button>
                 </div>
+
+                {recurrence.type === 'custom' && (
+                  <div className="mt-4 flex items-center gap-2">
+                    <input
+                      type="number"
+                      min={1}
+                      max={31}
+                      value={customTimes}
+                      onChange={(e) => {
+                        const n = Math.max(1, Math.min(31, Number(e.target.value) || 1))
+                        setCustomTimes(n)
+                        setRecurrence({ type: 'custom', times: n, unit: customUnit })
+                      }}
+                      className="w-16 rounded-lg border border-lightstone px-2 py-1.5 text-sm text-center"
+                    />
+                    <span className="text-xs text-warmgrey">time(s) per</span>
+                    <select
+                      value={customUnit}
+                      onChange={(e) => {
+                        const u = e.target.value
+                        setCustomUnit(u)
+                        setRecurrence({ type: 'custom', times: customTimes, unit: u })
+                      }}
+                      className="rounded-lg border border-lightstone px-2 py-1.5 text-sm bg-white"
+                    >
+                      <option value="day">day</option>
+                      <option value="week">week</option>
+                      <option value="month">month</option>
+                    </select>
+                  </div>
+                )}
               </>
             )}
             <div className="mt-5 flex gap-2">
               <button type="button" onClick={closeModal} className="flex-1 rounded-full bg-warmlinen hover:bg-lightstone text-charcoal font-semibold py-2.5 text-sm">Back</button>
-              <button type="button" onClick={confirmModal} disabled={!newAt} className="flex-1 rounded-full bg-terracotta hover:bg-charcoal disabled:opacity-50 text-white font-semibold py-2.5 text-sm">Confirm</button>
+              <button type="button" onClick={confirmSlot} disabled={!selectedSlot} className="flex-1 rounded-full bg-terracotta hover:bg-charcoal disabled:opacity-50 text-white font-semibold py-2.5 text-sm">Confirm</button>
             </div>
           </div>
         </div>
@@ -533,7 +661,9 @@ export default function ServiceDetail() {
   const [schedule, setSchedule] = useState('instant')
   const [date, setDate] = useState('')
   const [time, setTime] = useState('')
-  const [cadence, setCadence] = useState('weekly')
+  const [recurrence, setRecurrence] = useState({ type: 'preset', value: 'weekly' })
+  const [customTimes, setCustomTimes] = useState(3)
+  const [customUnit, setCustomUnit] = useState('week')
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('+65')
   const [address, setAddress] = useState('')
@@ -625,6 +755,11 @@ export default function ServiceDetail() {
     fetchAddons()
   }, [primary?.catalogId])
 
+  useEffect(() => {
+    setDate('')
+    setTime('')
+  }, [city])
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -638,6 +773,11 @@ export default function ServiceDetail() {
   const basePrice = selectedServices.reduce((sum, s) => sum + (s.price || parsePrice(s.pricingFrom)), 0)
   const addOnTotal = addons.reduce((sum, a) => sum + (selectedAddons[a.id] ? Number(a.customer_price) : 0), 0)
   const displayPrice = (schedule === 'recurring' ? Math.round(basePrice * 0.85) : basePrice) + addOnTotal
+  const serviceDuration = parseDurationMinutes(primary.duration) || 60
+
+  const cadence = recurrence.type === 'custom'
+    ? `${recurrence.times} time${recurrence.times > 1 ? 's' : ''}/${recurrence.unit}`
+    : recurrence.value
 
   const isValidPincode = (v) => /^\d{6}$/.test(v)
 
@@ -665,7 +805,7 @@ export default function ServiceDetail() {
     setErrors({})
     setSubmitting(true)
 
-    const bookingId = 'KYND' + Math.random().toString(36).slice(2, 8).toUpperCase()
+    const bookingId = Math.random().toString(36).slice(2, 8).toUpperCase()
     const scheduledAt = schedule !== 'instant' && date && time
       ? new Date(`${date}T${time}`).toISOString()
       : ''
@@ -677,6 +817,7 @@ export default function ServiceDetail() {
       schedule,
       scheduledAt,
       cadence: schedule === 'recurring' ? cadence : '',
+      recurrence: schedule === 'recurring' ? recurrence : null,
       contact: { name, phone, address, city, pincode, area },
       notes: notes.trim(),
       payment: pay,
@@ -697,7 +838,13 @@ export default function ServiceDetail() {
         })
         const data = await response.json()
         if (!response.ok) throw new Error(data.error || 'Failed to create booking')
-        const orderWithId = { ...order, id: data.id, provider: data.provider }
+        const orderWithId = {
+          ...order,
+          id: data.id,
+          provider: data.provider,
+          cadence: data.cadence || order.cadence,
+          recurrence: data.recurrence || order.recurrence,
+        }
         try { localStorage.setItem('kynd.lastOrder', JSON.stringify(orderWithId)) } catch { }
         addBooking(orderWithId)
         navigate('/booking/confirmed', { state: orderWithId, replace: true })
@@ -800,11 +947,18 @@ export default function ServiceDetail() {
               setDate={setDate}
               time={time}
               setTime={setTime}
-              cadence={cadence}
-              setCadence={setCadence}
+              recurrence={recurrence}
+              setRecurrence={setRecurrence}
+              customTimes={customTimes}
+              setCustomTimes={setCustomTimes}
+              customUnit={customUnit}
+              setCustomUnit={setCustomUnit}
               arrivalTime={arrivalTime}
               errors={errors}
               submitAttempt={submitAttempt}
+              serviceName={primary.name}
+              city={city}
+              duration={serviceDuration}
             />
 
             <SectionCard

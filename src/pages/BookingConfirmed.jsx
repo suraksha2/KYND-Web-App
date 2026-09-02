@@ -50,7 +50,13 @@ export default function BookingConfirmed() {
           throw new Error(data.error || 'Failed to create booking')
         }
 
-        const confirmedOrder = { ...paidOrder, id: data.id, provider: data.provider }
+        const confirmedOrder = {
+          ...paidOrder,
+          id: data.id,
+          provider: data.provider,
+          cadence: data.cadence || paidOrder.cadence,
+          recurrence: data.recurrence || paidOrder.recurrence,
+        }
 
         localStorage.removeItem('kynd.pendingOrder')
         try { localStorage.setItem('kynd.lastOrder', JSON.stringify(confirmedOrder)) } catch {}
@@ -68,42 +74,7 @@ export default function BookingConfirmed() {
     }
   }, [state])
 
-  useEffect(() => {
-    if (!order || order.provider) return
 
-    const assignFallback = async () => {
-      try {
-        const res = await fetch(`${API_BASE}/api/service-providers`)
-        const json = await res.json()
-        const providers = json.data || []
-        const items = order.items || []
-        const city = order.contact?.city
-        const serviceName = items[0]?.name
-
-        let match = providers.find(p =>
-          p.status === 'active' &&
-          p.city?.toLowerCase() === city?.toLowerCase() &&
-          serviceName &&
-          (p.services || []).some(s => s.toLowerCase() === serviceName.toLowerCase())
-        )
-
-        if (!match) {
-          match = providers.find(p =>
-            p.status === 'active' &&
-            p.city?.toLowerCase() === city?.toLowerCase()
-          )
-        }
-
-        if (match) {
-          setOrder(o => ({ ...o, provider: match }))
-        }
-      } catch (error) {
-        console.error('Fallback provider fetch failed:', error)
-      }
-    }
-
-    assignFallback()
-  }, [order])
 
   if (!order && !verifying) return <Navigate to="/" replace />
   if (verifying) {
@@ -145,7 +116,11 @@ export default function BookingConfirmed() {
     ? 'Instant — your Pro is being assigned'
     : order.schedule === 'scheduled'
       ? `Scheduled${order.scheduledAt ? ` for ${new Date(order.scheduledAt).toLocaleString('en-SG', sgt)}` : ''}`
-      : `Recurring (${order.cadence})`
+      : `Recurring (${order.cadence})${order.scheduledAt ? ` — first visit ${new Date(order.scheduledAt).toLocaleString('en-SG', sgt)}` : ''}`
+
+  const plannedVisits = order.schedule === 'recurring'
+    ? (order.recurrence?.occurrences || [])
+    : []
 
   const ProviderCard = () => {
     const p = order.provider
@@ -227,8 +202,20 @@ export default function BookingConfirmed() {
           )}
 
           <div className="mt-6 rounded-2xl bg-warmlinen p-4 text-left text-sm">
-            <div className="flex justify-between"><span className="text-warmgrey">Booking ID</span><span className="font-semibold">{order.bookingId}</span></div>
+            <div className="flex justify-between"><span className="text-warmgrey">Booking ID</span><span className="font-mono text-xs font-semibold">{order.bookingId}</span></div>
             <div className="mt-2 flex justify-between"><span className="text-warmgrey">When</span><span className="text-right">{scheduleLabel}</span></div>
+            {plannedVisits.length > 1 && (
+              <div className="mt-2 flex justify-between gap-3">
+                <span className="text-warmgrey shrink-0">Next visits</span>
+                <span className="text-right">
+                  {plannedVisits.slice(1).map(v => (
+                    <span key={v} className="block">
+                      {new Date(v).toLocaleString('en-SG', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', ...sgt })}
+                    </span>
+                  ))}
+                </span>
+              </div>
+            )}
             <div className="mt-2 flex justify-between"><span className="text-warmgrey">Address</span><span className="text-right max-w-[60%]">{[order.contact?.address, order.contact?.area, order.contact?.city, 'Singapore'].filter(Boolean).join(', ')}</span></div>
             <div className="mt-2 flex justify-between"><span className="text-warmgrey">Payment</span><span className="capitalize">{order.payment === 'cod' ? 'Cash after service' : order.payment.toUpperCase()}</span></div>
             <div className="mt-3 pt-3 border-t">

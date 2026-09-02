@@ -50,6 +50,8 @@ services:
       MYSQL_USER: ${MYSQL_USER:-helpr}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD}
       SESSION_SECRET: ${SESSION_SECRET}
+      # Bearer token for POST /api/internal/dispatch-due (recurring-visit cron).
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-}
       # Same-origin via nginx, so only add origins served from another host.
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
       ADMIN_SIGNUP_SECRET: ${ADMIN_SIGNUP_SECRET:-}

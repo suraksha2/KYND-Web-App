@@ -47,8 +47,14 @@ export default function Cart() {
   const { fetchServices } = useServices()
   const [schedule, setSchedule] = useState('instant')
   const [scheduledAt, setScheduledAt] = useState('')
-  const [cadence, setCadence] = useState('weekly')
+  const [recurrence, setRecurrence] = useState({ type: 'preset', value: 'weekly' })
+  const [customTimes, setCustomTimes] = useState(3)
+  const [customUnit, setCustomUnit] = useState('week')
   const navigate = useNavigate()
+
+  const cadence = recurrence.type === 'custom'
+    ? `${recurrence.times} time${recurrence.times > 1 ? 's' : ''}/${recurrence.unit}`
+    : recurrence.value
 
   // Fetch only the services that are in the cart
   useEffect(() => {
@@ -60,7 +66,7 @@ export default function Cart() {
 
   const proceed = () => {
     if (items.length === 0) return
-    navigate('/checkout', { state: { schedule, scheduledAt, cadence } })
+    navigate('/checkout', { state: { schedule, scheduledAt, cadence, recurrence } })
   }
 
   if (items.length === 0) {
@@ -148,10 +154,56 @@ export default function Cart() {
               <div className="mt-4 rounded-2xl bg-white ring-1 ring-lightstone p-4">
                 <label className="block text-xs font-semibold text-charcoal mb-1.5">Cadence</label>
                 <div className="flex flex-wrap gap-2">
-                  {['daily', 'weekly', 'biweekly', 'monthly'].map(c => (
-                    <button key={c} onClick={() => setCadence(c)} className={`px-3 py-1.5 rounded-full text-xs font-medium capitalize ${cadence === c ? 'bg-terracotta text-white' : 'bg-warmlinen text-charcoal hover:bg-lightstone'}`}>{c}</button>
-                  ))}
+                  {['daily', 'weekly', 'biweekly', 'monthly'].map(c => {
+                    const active = recurrence.type === 'preset' && recurrence.value === c
+                    return (
+                      <button
+                        key={c}
+                        onClick={() => setRecurrence({ type: 'preset', value: c })}
+                        className={`px-3 py-1.5 rounded-full text-xs font-medium capitalize ${active ? 'bg-terracotta text-white' : 'bg-warmlinen text-charcoal hover:bg-lightstone'}`}
+                      >
+                        {c}
+                      </button>
+                    )
+                  })}
+                  <button
+                    onClick={() => setRecurrence({ type: 'custom', times: customTimes, unit: customUnit })}
+                    className={`px-3 py-1.5 rounded-full text-xs font-medium ${recurrence.type === 'custom' ? 'bg-terracotta text-white' : 'bg-warmlinen text-charcoal hover:bg-lightstone'}`}
+                  >
+                    Custom
+                  </button>
                 </div>
+
+                {recurrence.type === 'custom' && (
+                  <div className="mt-4 flex items-center gap-2">
+                    <input
+                      type="number"
+                      min={1}
+                      max={31}
+                      value={customTimes}
+                      onChange={(e) => {
+                        const n = Math.max(1, Math.min(31, Number(e.target.value) || 1))
+                        setCustomTimes(n)
+                        setRecurrence({ type: 'custom', times: n, unit: customUnit })
+                      }}
+                      className="w-16 rounded-lg border border-lightstone px-2 py-1.5 text-sm text-center"
+                    />
+                    <span className="text-xs text-warmgrey">time(s) per</span>
+                    <select
+                      value={customUnit}
+                      onChange={(e) => {
+                        const u = e.target.value
+                        setCustomUnit(u)
+                        setRecurrence({ type: 'custom', times: customTimes, unit: u })
+                      }}
+                      className="rounded-lg border border-lightstone px-2 py-1.5 text-sm bg-white"
+                    >
+                      <option value="day">day</option>
+                      <option value="week">week</option>
+                      <option value="month">month</option>
+                    </select>
+                  </div>
+                )}
               </div>
             )}
           </div>

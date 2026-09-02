@@ -104,6 +104,8 @@ export default function BookingDetail() {
       ? `Recurring (${booking.cadence}) · started ${new Date(booking.placedAt).toLocaleDateString('en-SG', sgt)}`
       : booking.scheduledAt ? new Date(booking.scheduledAt).toLocaleString('en-SG', sgt) : '—'
 
+  const visits = booking.schedule === 'recurring' ? (booking.occurrences || []) : []
+
   return (
     <section className="pt-28 md:pt-32 pb-24">
       <div className="max-w-2xl mx-auto px-5">
@@ -168,6 +170,26 @@ export default function BookingDetail() {
             </div>
           )}
         </div>
+
+        {visits.length > 0 && (
+          <div className="mt-5 rounded-2xl bg-white ring-1 ring-lightstone p-5">
+            <h2 className="font-heading font-bold text-charcoal">Visit schedule</h2>
+            <p className="mt-1 text-xs text-warmgrey">Repeats {booking.cadence}. Your Pro is reminded before each visit.</p>
+            <ol className="mt-3 divide-y">
+              {visits.map(v => (
+                <li key={v.id || v.seq} className="py-2.5 flex items-center justify-between gap-3">
+                  <span className="text-sm text-charcoal">
+                    <span className="text-warmgrey mr-2">#{v.seq}</span>
+                    {v.scheduledAt ? new Date(v.scheduledAt).toLocaleString('en-SG', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', ...sgt }) : '—'}
+                  </span>
+                  <span className={`text-[11px] font-semibold uppercase shrink-0 ${v.status === 'completed' ? 'text-emerald-700' : v.status === 'cancelled' ? 'text-red-600' : 'text-warmgrey'}`}>
+                    {v.status}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          </div>
+        )}
 
         <div className="mt-5 rounded-2xl bg-white ring-1 ring-lightstone p-5">
           <h2 className="font-heading font-bold text-charcoal">Services</h2>

@@ -3,6 +3,8 @@ import { Plus, Search, Star, X, Wrench } from "lucide-react";
 import clsx from "clsx";
 import ModalPortal from "@/components/ModalPortal";
 import { apiFetch } from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
+import { useNavigate } from "react-router-dom";
 
 type Provider = {
   id: number;
@@ -38,6 +40,8 @@ const defaultForm = {
 };
 
 export default function ProPage() {
+  const { logout } = useAuth();
+  const navigate = useNavigate();
   const [providers, setProviders] = useState<Provider[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -65,6 +69,10 @@ export default function ProPage() {
       const json = await res.json();
       if (res.ok && Array.isArray(json.data)) {
         setProviders(json.data);
+      } else if (res.status === 401) {
+        setError("Session expired or missing. Signing out…");
+        await logout();
+        navigate("/login");
       } else {
         setError(json.error || "Failed to load providers.");
       }

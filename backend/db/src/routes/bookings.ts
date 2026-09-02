@@ -3,8 +3,124 @@ import pool from '../lib/mysql';
 import { sendProviderAssignmentWhatsApp } from '../lib/whatsapp';
 import { hasAdminAccess } from '../lib/auth';
 import { getSession } from '../http/session';
+import { normalizeRecurrence } from '../lib/recurrence';
+import { createOccurrences, withOccurrences } from '../lib/occurrences';
+import { sgtDateTime } from '../lib/sgt';
 
 const router = Router();
+
+const DEFAULT_WORKING_HOURS = {
+  mon: { start: '09:00', end: '18:00' },
+  tue: { start: '09:00', end: '18:00' },
+  wed: { start: '09:00', end: '18:00' },
+  thu: { start: '09:00', end: '18:00' },
+  fri: { start: '09:00', end: '18:00' },
+  sat: { start: '09:00', end: '18:00' },
+  sun: { start: '09:00', end: '18:00' },
+};
+
+function parseDurationMinutes(str: unknown): number {
+  if (!str) return 60;
+  const s = String(str).toLowerCase();
+  const hourMatch = s.match(/(\d+(?:\.\d+)?)\s*(?:hour|hr|hrs|h)/);
+  if (hourMatch) return Math.round(parseFloat(hourMatch[1]) * 60);
+  const minMatch = s.match(/(\d+)\s*(?:min|mins|minute|minutes|m)/);
+  if (minMatch) return parseInt(minMatch[1], 10);
+  const n = parseFloat(s.replace(/[^0-9.]/g, ''));
+  if (Number.isFinite(n)) {
+    return n < 20 ? Math.round(n * 60) : Math.round(n);
+  }
+  return 60;
+}
+
+function sgtDayKey(d: Date): string {
+  const label = new Intl.DateTimeFormat('en-US', {
+    weekday: 'short',
+    timeZone: 'Asia/Singapore',
+  }).format(d);
+  return label.toLowerCase();
+}
+
+function sgtTime(d: Date): string {
+  return new Intl.DateTimeFormat('en-GB', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+    timeZone: 'Asia/Singapore',
+  }).format(d);
+}
+
+function providerWorkingHours(provider: any): any {
+  try {
+    if (provider.working_hours) {
+      const parsed = typeof provider.working_hours === 'string'
+        ? JSON.parse(provider.working_hours)
+        : provider.working_hours;
+      if (parsed && typeof parsed === 'object') return parsed;
+    }
+  } catch { /* empty */ }
+  return DEFAULT_WORKING_HOURS;
+}
+
+function isFreeAt(provider: any, hours: any, visit: Date, durationMin: number, existing: any[]): boolean {
+  const window = hours[sgtDayKey(visit)];
+  if (!window || !window.start || !window.end) return false;
+
+  const endAt = new Date(visit.getTime() + durationMin * 60 * 1000);
+  if (sgtTime(visit) < window.start || sgtTime(endAt) > window.end) return false;
+
+  return !existing.some((b: any) => {
+    if (b.provider_id !== provider.id || !b.scheduled_at) return false;
+    const bStart = new Date(String(b.scheduled_at).replace(' ', 'T') + '+08:00');
+    if (isNaN(bStart.getTime())) return false;
+    const items = typeof b.items === 'string' ? JSON.parse(b.items) : b.items;
+    const bDur = Array.isArray(items)
+      ? items.reduce((sum: number, it: any) => sum + parseDurationMinutes(it.duration), 0)
+      : 60;
+    const bEnd = new Date(bStart.getTime() + bDur * 60 * 1000);
+    return visit < bEnd && endAt > bStart;
+  });
+}
+
+/**
+ * Pick the provider best able to serve every planned visit. A one-off booking
+ * passes a single date; a recurring one passes the whole expanded series, so the
+ * partner who can keep the entire cadence wins over one who is only free once.
+ */
+async function findAvailableProvider(
+  candidates: any[],
+  visits: Date[],
+  durationMin: number,
+  sgtDates: string[]
+): Promise<any | null> {
+  if (!candidates.length || !visits.length) return null;
+  const ids = candidates.map((p) => p.id);
+  const [existing]: any = await pool.query(
+    `SELECT provider_id, scheduled_at, items
+     FROM bookings
+     WHERE provider_id IN (${ids.map(() => '?').join(',')})
+       AND status != 'cancelled'
+       AND DATE(scheduled_at) IN (${sgtDates.map(() => '?').join(',')})`,
+    [...ids, ...sgtDates]
+  );
+
+  let best = candidates[0];
+  let bestScore = -1;
+  for (const p of candidates) {
+    const hours = providerWorkingHours(p);
+    // The first visit is the one the customer actually picked, so a provider who
+    // cannot make it is never preferred over one who can.
+    if (!isFreeAt(p, hours, visits[0], durationMin, existing)) continue;
+    const score = visits.filter((v) => isFreeAt(p, hours, v, durationMin, existing)).length;
+    if (score > bestScore) {
+      best = p;
+      bestScore = score;
+      if (score === visits.length) break;
+    }
+  }
+
+  return best;
+}
 
 router.post('/', async (req, res) => {
   try {
@@ -16,6 +132,7 @@ router.post('/', async (req, res) => {
       schedule,
       scheduledAt,
       cadence,
+      recurrence,
       contact,
       notes,
       payment,
@@ -43,42 +160,34 @@ router.post('/', async (req, res) => {
     if (!session) return res.status(401).json({ error: 'Authentication required.' });
     const userId = session.id;
 
-    // Convert an ISO UTC timestamp to a Singapore-local MySQL DATETIME string.
-    // MySQL DATETIME has no timezone, so all stored instants are treated as SGT.
-    const formatDateTime = (isoString: string | null) => {
-      if (!isoString) return null;
-      const d = new Date(isoString);
-      if (Number.isNaN(d.getTime())) return null;
-      const parts = new Intl.DateTimeFormat('en-GB', {
-        timeZone: 'Asia/Singapore',
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false,
-      }).formatToParts(d);
-      const get = (type: string) => parts.find((p) => p.type === type)?.value || '00';
-      return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')}:${get('second')}`;
-    };
-
     // Optional free-text instructions the customer leaves for the assigned partner.
     const trimmedNotes = typeof notes === 'string' ? notes.trim().slice(0, 500) : '';
 
+    // A recurring booking carries its cadence: either a preset ('weekly') or a
+    // custom frequency ('3 times/week'). Normalizing it here yields the visit
+    // series the assignment engine below has to keep free.
+    const firstVisit = scheduledAt ? new Date(scheduledAt) : null;
+    const plan = schedule === 'recurring'
+      ? normalizeRecurrence(recurrence, cadence, firstVisit)
+      : null;
+    if (schedule === 'recurring' && !plan) {
+      return res.status(400).json({ error: 'A recurring booking needs a valid cadence.' });
+    }
+
     const [result] = await pool.query(
       `INSERT INTO bookings (
-        booking_id, items, total, schedule, scheduled_at, cadence,
+        booking_id, items, total, schedule, scheduled_at, cadence, recurrence,
         contact_name, contact_phone, contact_address, contact_city, contact_pincode, contact_area,
         notes, payment, placed_at, status, history, user_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         bookingId,
         JSON.stringify(items),
         total,
         schedule,
-        formatDateTime(scheduledAt),
-        cadence || null,
+        sgtDateTime(scheduledAt),
+        plan?.cadence || cadence || null,
+        plan ? JSON.stringify(plan) : null,
         contact.name,
         contact.phone,
         contact.address,
@@ -87,9 +196,9 @@ router.post('/', async (req, res) => {
         contact.area || null,
         trimmedNotes || null,
         payment,
-        formatDateTime(placedAt),
+        sgtDateTime(placedAt),
         status,
-        JSON.stringify([{ at: formatDateTime(placedAt), type: 'created', note: 'Booking placed' }]),
+        JSON.stringify([{ at: sgtDateTime(placedAt), type: 'created', note: 'Booking placed' }]),
         userId
       ]
     );
@@ -100,35 +209,47 @@ router.post('/', async (req, res) => {
     const itemList = Array.isArray(items) ? items : JSON.parse(items || '[]');
     const firstItemName = itemList[0]?.name || itemList[0]?.serviceName || 'Service';
 
-    const [providers]: any = await pool.query(
-      `SELECT id, name, rating, total_jobs, avatar
+    let [candidates]: any = await pool.query(
+      `SELECT id, name, rating, total_jobs, avatar, working_hours
        FROM service_providers
        WHERE LOWER(city) = LOWER(?)
          AND status = 'active'
          AND JSON_CONTAINS(services, ?)
-       ORDER BY total_jobs ASC, rating DESC, id ASC
-       LIMIT 1`,
+       ORDER BY total_jobs ASC, rating DESC, id ASC`,
       [contact.city, JSON.stringify(firstItemName)]
     );
 
-    let provider = providers?.[0] || null;
-
-    // Fall back to any active provider in the city if no exact service match.
-    if (!provider) {
+    if (!candidates?.length) {
       const [fallback]: any = await pool.query(
-        `SELECT id, name, rating, total_jobs, avatar
+        `SELECT id, name, rating, total_jobs, avatar, working_hours
          FROM service_providers
          WHERE LOWER(city) = LOWER(?)
            AND status = 'active'
-         ORDER BY total_jobs ASC, rating DESC, id ASC
-         LIMIT 1`,
+         ORDER BY total_jobs ASC, rating DESC, id ASC`,
         [contact.city]
       );
-      provider = fallback?.[0] || null;
+      candidates = fallback || [];
+    }
+
+    let provider = candidates[0] || null;
+
+    if (provider && schedule !== 'instant' && scheduledAt) {
+      // Recurring bookings are matched against every planned visit, so the
+      // assigned partner can keep the whole cadence rather than just visit one.
+      const visits = (plan?.occurrences.length ? plan.occurrences : [scheduledAt])
+        .map((iso) => new Date(iso))
+        .filter((d) => !Number.isNaN(d.getTime()));
+      const sgtDates = Array.from(new Set(
+        visits.map((d) => (sgtDateTime(d) || '').split(' ')[0]).filter(Boolean)
+      ));
+      const durationMin = parseDurationMinutes(itemList[0]?.duration);
+      provider = sgtDates.length
+        ? await findAvailableProvider(candidates, visits, durationMin, sgtDates)
+        : candidates[0];
     }
 
     if (provider) {
-      const assignedAt = formatDateTime(new Date().toISOString());
+      const assignedAt = sgtDateTime(new Date());
       await pool.query(
         'UPDATE bookings SET provider_id = ?, assigned_at = ? WHERE id = ?',
         [provider.id, assignedAt, bookingDbId]
@@ -139,11 +260,19 @@ router.post('/', async (req, res) => {
       );
     }
 
+    // Materialize the individual visits so each one can be tracked, notified and
+    // completed on its own. The dispatcher tops the series up from here.
+    if (plan) {
+      await createOccurrences(bookingDbId, provider?.id ?? null, plan);
+    }
+
     return res.status(201).json({
       success: true,
       bookingId,
       id: bookingDbId,
-      provider
+      provider,
+      cadence: plan?.cadence || null,
+      recurrence: plan
     });
   } catch (error) {
     console.error('[POST /api/bookings]', error);
@@ -189,7 +318,7 @@ router.get('/', async (req, res) => {
     }
 
     const [rows] = await pool.query(query, params);
-    return res.status(200).json({ data: rows });
+    return res.status(200).json({ data: await withOccurrences(rows as any[]) });
   } catch (error) {
     console.error('[GET /api/bookings]', error);
     return res.status(500).json({ error: 'Failed to fetch bookings' });
@@ -219,24 +348,6 @@ router.patch('/:id', async (req, res) => {
       return res.status(403).json({ error: 'You can only modify your own bookings.' });
     }
 
-    const formatDateTime = (isoString: string | null) => {
-      if (!isoString) return null;
-      const d = new Date(isoString);
-      if (Number.isNaN(d.getTime())) return null;
-      const parts = new Intl.DateTimeFormat('en-GB', {
-        timeZone: 'Asia/Singapore',
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false,
-      }).formatToParts(d);
-      const get = (type: string) => parts.find((p) => p.type === type)?.value || '00';
-      return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')}:${get('second')}`;
-    };
-
     // Reschedule booking
     if (scheduledAt) {
       const [rows]: any = await pool.query(
@@ -264,15 +375,15 @@ router.patch('/:id', async (req, res) => {
       history.push({
         at: now,
         type: 'rescheduled',
-        note: `Rescheduled to ${formatDateTime(scheduledAt)}`,
+        note: `Rescheduled to ${sgtDateTime(scheduledAt)}`,
       });
 
       await pool.query(
         'UPDATE bookings SET scheduled_at = ?, schedule = ?, history = ? WHERE id = ?',
-        [formatDateTime(scheduledAt), 'scheduled', JSON.stringify(history), req.params.id]
+        [sgtDateTime(scheduledAt), 'scheduled', JSON.stringify(history), req.params.id]
       );
 
-      return res.status(200).json({ success: true, scheduledAt: formatDateTime(scheduledAt) });
+      return res.status(200).json({ success: true, scheduledAt: sgtDateTime(scheduledAt) });
     }
 
     if (!status || status !== 'cancelled') {
@@ -387,7 +498,7 @@ router.put('/:id', async (req, res) => {
 
     // Fetch booking details
     const [bookingRows]: any = await pool.query(
-      `SELECT b.booking_id, b.items, b.total, b.schedule, b.scheduled_at,
+      `SELECT b.booking_id, b.items, b.total, b.schedule, b.scheduled_at, b.cadence,
               b.contact_name, b.contact_phone, b.contact_address,
               b.contact_area, b.contact_city, b.contact_pincode, b.notes, b.payment
        FROM bookings b
@@ -419,6 +530,7 @@ router.put('/:id', async (req, res) => {
         serviceName,
         scheduledAt: booking.scheduled_at,
         schedule: booking.schedule,
+        cadence: booking.cadence,
         contactName: booking.contact_name,
         contactPhone: booking.contact_phone,
         contactAddress: booking.contact_address,
