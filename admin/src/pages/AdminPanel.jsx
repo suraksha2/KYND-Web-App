@@ -543,7 +543,7 @@ export default function AdminPanel() {
           {activeTab === "providers" && (
             <div className="p-8">
               <div className="mb-6">
-                <h3 className="font-heading text-xl font-bold text-charcoal">Service Providers</h3>
+                <h3 className="font-heading text-xl font-bold text-charcoal">Partners</h3>
               </div>
               {loading.providers ? (
                 <div className="flex items-center justify-center h-[320px]">

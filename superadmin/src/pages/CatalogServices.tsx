@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Plus, Pencil, Trash2, X, Upload, Package, Tag, Layers } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
 import clsx from 'clsx';
 import ModalPortal from '@/components/ModalPortal';
 import { apiFetch, serviceImageUrl } from '@/lib/api';
@@ -85,6 +86,9 @@ export default function CatalogServicesPage() {
   const [categoryFormError, setCategoryFormError] = useState<string | null>(null);
   const [savingCategory, setSavingCategory] = useState(false);
 
+  const [searchParams] = useSearchParams();
+  const query = searchParams.get('q')?.toLowerCase().trim() ?? '';
+
   const fetchCategories = async () => {
     try {
       const res = await apiFetch('/api/catalog/categories');
@@ -123,11 +127,17 @@ export default function CatalogServicesPage() {
       .catch((err) => console.error('Failed to fetch images', err));
   }, []);
 
-  const filteredServices = useMemo(
-    () =>
-      services.slice().sort((a, b) => a.name.localeCompare(b.name)),
-    [services]
-  );
+  const filteredServices = useMemo(() => {
+    let list = services;
+    if (query) {
+      list = services.filter((s) =>
+        s.name.toLowerCase().includes(query) ||
+        s.category.toLowerCase().includes(query) ||
+        (s.description ?? '').toLowerCase().includes(query)
+      );
+    }
+    return list.slice().sort((a, b) => a.name.localeCompare(b.name));
+  }, [services, query]);
 
   function buildEmptyForm(): any {
     return {
@@ -468,7 +478,7 @@ export default function CatalogServicesPage() {
         ) : filteredServices.length === 0 ? (
           <div className="text-center py-16">
             <Package size={32} className="text-lightstone mx-auto mb-3" />
-            <p className="text-sm text-warmgrey">No catalog services yet.</p>
+            <p className="text-sm text-warmgrey">{query ? 'No catalog services match your search.' : 'No catalog services yet.'}</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 p-5">

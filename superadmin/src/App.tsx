@@ -5,6 +5,8 @@ import Dashboard from './pages/Dashboard'
 import Clients from './pages/Clients'
 import Orders from './pages/Orders'
 import Services from './pages/Services'
+import Addons from './pages/Addons'
+import CatalogServices from './pages/CatalogServices'
 import Pro from './pages/Pro'
 import Analytics from './pages/Analytics'
 import CityServices from './pages/CityServices'
@@ -24,6 +26,8 @@ export default function App() {
         <Route path="/clients" element={<Clients />} />
         <Route path="/orders" element={<Orders />} />
         <Route path="/services" element={<Services />} />
+        <Route path="/catalog-services" element={<CatalogServices />} />
+        <Route path="/addons" element={<Addons />} />
         <Route path="/help-moments" element={<ServiceSubcategories />} />
         <Route path="/pro" element={<Pro />} />
         <Route path="/analytics" element={<Analytics />} />

@@ -4,11 +4,13 @@ import { Home, CalendarDays, MessageSquare, User } from 'lucide-react'
 import Header from '../components/Header'
 import Footer from '../components/Footer'
 import { useAuth } from '../context/AuthContext'
+import { useBookings } from '../context/BookingsContext'
 
 export default function MainLayout() {
   const { pathname, hash } = useLocation()
   const navigate = useNavigate()
   const { isAuthenticated } = useAuth()
+  const { activeCount } = useBookings()
 
   // Service detail has its own inline back button and hero, so the global header
   // is hidden there to match the native app design.
@@ -25,7 +27,7 @@ export default function MainLayout() {
 
   const tabs = [
     { tab: 'home',     path: '/',                                     icon: Home,          label: 'Home',     match: ['/'] },
-    { tab: 'bookings', path: '/bookings',                             icon: CalendarDays,  label: 'Bookings', match: ['/bookings', '/booking'] },
+    { tab: 'bookings', path: '/bookings',                             icon: CalendarDays,  label: 'Bookings', match: ['/bookings', '/booking'], dot: activeCount > 0 },
     { tab: 'messages', path: '/support',                              icon: MessageSquare, label: 'Messages', match: ['/support'] },
     { tab: 'profile',  path: isAuthenticated ? '/account' : '/login', icon: User,          label: 'Profile',  match: ['/account', '/login', '/signup'] },
   ]
@@ -48,7 +50,7 @@ export default function MainLayout() {
         className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-white/95 backdrop-blur-sm rounded-t-[26px] border-t border-lightstone/60 shadow-[0_-10px_30px_-14px_rgba(74,46,31,0.25)] tabbar-safe"
       >
         <ul className="grid grid-cols-4">
-          {tabs.map(({ tab, path, icon: Icon, label }) => {
+          {tabs.map(({ tab, path, icon: Icon, label, dot }) => {
             const active = activeTab === tab
             return (
               <li key={tab}>
@@ -60,14 +62,20 @@ export default function MainLayout() {
                     active ? 'text-terracotta' : 'text-warmgrey/70'
                   }`}
                 >
-                  <Icon
-                    className="w-[22px] h-[22px]"
-                    strokeWidth={active ? 2 : 1.75}
-                    fill={active ? 'currentColor' : 'none'}
-                  />
+                  <span className="relative">
+                    <Icon
+                      className="w-[22px] h-[22px]"
+                      strokeWidth={active ? 2 : 1.75}
+                      fill={active ? 'currentColor' : 'none'}
+                    />
+                    {dot && (
+                      <span className="absolute -top-0.5 -right-1 w-2.5 h-2.5 rounded-full bg-red-500 ring-2 ring-white" />
+                    )}
+                  </span>
                   <span className={`text-[11px] leading-none ${active ? 'font-bold' : 'font-medium'}`}>
                     {label}
                   </span>
+                  {dot && <span className="sr-only">(you have active bookings)</span>}
                 </button>
               </li>
             )

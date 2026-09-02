@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react'
 import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import {
   ArrowLeft, Calendar, Clock, MapPin, Phone, User, CreditCard, Wallet, Banknote,
-  CheckCircle2, XCircle, Repeat, Zap, AlertTriangle, RotateCcw, X
+  CheckCircle2, XCircle, Repeat, Zap, AlertTriangle, RotateCcw, X, StickyNote
 } from 'lucide-react'
 import { useBookings } from '../context/BookingsContext'
 import { iconForService } from '../lib/serviceIcon'
@@ -31,11 +31,18 @@ function toLocalInput(iso) {
   return new Date(d.getTime() - tz).toISOString().slice(0, 16)
 }
 
+const cancelledByLabel = (by) => {
+  if (by === 'customer') return 'Cancelled by you'
+  if (by === 'admin') return 'Cancelled by Helpr support'
+  if (by === 'provider') return 'Cancelled by the partner'
+  return 'Cancelled'
+}
+
 function StatusBanner({ booking }) {
   let cls = 'bg-accent-50 text-terracotta border-accent-100'
   let Icon = Calendar
   let label = 'Scheduled'
-  if (booking.status === 'cancelled') { cls = 'bg-red-50 text-red-700 border-red-100'; Icon = XCircle; label = 'Cancelled' }
+  if (booking.status === 'cancelled') { cls = 'bg-red-50 text-red-700 border-red-100'; Icon = XCircle; label = cancelledByLabel(booking.cancelledBy) }
   else if (booking.status === 'completed') { cls = 'bg-sage/10 text-sage border-sage/20'; Icon = CheckCircle2; label = 'Completed' }
   else if (booking.schedule === 'instant') { cls = 'bg-amber-50 text-amber-700 border-amber-100'; Icon = Zap; label = 'In progress — Pro on the way' }
   else if (booking.schedule === 'recurring') { cls = 'bg-indigo-50 text-indigo-700 border-indigo-100'; Icon = Repeat; label = `Recurring · ${booking.cadence}` }
@@ -56,6 +63,8 @@ export default function BookingDetail() {
   const [showCancel, setShowCancel] = useState(false)
   const [newAt, setNewAt] = useState(() => toLocalInput(booking?.scheduledAt) || '')
   const [reason, setReason] = useState('')
+  const [cancelling, setCancelling] = useState(false)
+  const [cancelError, setCancelError] = useState(null)
   const [imgFailed, setImgFailed] = useState({})
 
   const minDt = useMemo(() => toLocalInput(new Date(Date.now() + 60 * 60 * 1000).toISOString()), [])
@@ -70,15 +79,30 @@ export default function BookingDetail() {
     setShowReschedule(false)
   }
   const onConfirmCancel = async () => {
-    await cancelBooking(booking.bookingId, reason.trim())
-    setShowCancel(false)
+    setCancelling(true)
+    setCancelError(null)
+    const result = await cancelBooking(booking.bookingId, reason.trim())
+    setCancelling(false)
+    if (result?.ok) {
+      setShowCancel(false)
+      setReason('')
+    } else {
+      setCancelError(result?.error || 'Failed to cancel booking. Please try again.')
+    }
   }
 
+  const closeCancel = () => {
+    if (cancelling) return
+    setShowCancel(false)
+    setCancelError(null)
+  }
+
+  const sgt = { timeZone: 'Asia/Singapore' }
   const whenText = booking.schedule === 'instant'
-    ? `Instant booking · placed ${new Date(booking.placedAt).toLocaleString()}`
+    ? `Instant booking · placed ${new Date(booking.placedAt).toLocaleString('en-SG', sgt)}`
     : booking.schedule === 'recurring'
-      ? `Recurring (${booking.cadence}) · started ${new Date(booking.placedAt).toLocaleDateString()}`
-      : booking.scheduledAt ? new Date(booking.scheduledAt).toLocaleString() : '—'
+      ? `Recurring (${booking.cadence}) · started ${new Date(booking.placedAt).toLocaleDateString('en-SG', sgt)}`
+      : booking.scheduledAt ? new Date(booking.scheduledAt).toLocaleString('en-SG', sgt) : '—'
 
   return (
     <section className="pt-28 md:pt-32 pb-24">
@@ -114,7 +138,7 @@ export default function BookingDetail() {
             <div>
               <div className="text-xs text-warmgrey">Where</div>
               <div className="text-sm font-semibold text-charcoal">
-                {booking.contact?.address}, {booking.contact?.city} {booking.contact?.pincode}
+                {[booking.contact?.address, booking.contact?.area, booking.contact?.city, 'Singapore'].filter(Boolean).join(', ')}
               </div>
             </div>
           </div>
@@ -134,6 +158,15 @@ export default function BookingDetail() {
               </div>
             </div>
           </div>
+          {booking.notes && (
+            <div className="flex items-start gap-3">
+              <StickyNote className="w-4 h-4 text-terracotta mt-0.5" />
+              <div className="min-w-0">
+                <div className="text-xs text-warmgrey">Instructions for your partner</div>
+                <div className="text-sm font-semibold text-charcoal whitespace-pre-line break-words">{booking.notes}</div>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="mt-5 rounded-2xl bg-white ring-1 ring-lightstone p-5">
@@ -181,7 +214,7 @@ export default function BookingDetail() {
                   <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-terracotta shrink-0" />
                   <div>
                     <div className="font-semibold text-charcoal capitalize">{h.type}</div>
-                    <div className="text-warmgrey">{new Date(h.at).toLocaleString()}{h.note ? ` — ${h.note}` : ''}</div>
+                    <div className="text-warmgrey">{new Date(h.at).toLocaleString('en-SG', sgt)}{h.note ? ` — ${h.note}` : ''}</div>
                   </div>
                 </li>
               ))}
@@ -229,6 +262,7 @@ export default function BookingDetail() {
               <span className="block text-xs font-semibold text-charcoal mb-1.5">New date & time</span>
               <input
                 type="datetime-local"
+                step={1800}
                 min={minDt}
                 value={newAt}
                 onChange={(e) => setNewAt(e.target.value)}
@@ -245,14 +279,16 @@ export default function BookingDetail() {
 
       {/* Cancel modal */}
       {showCancel && (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={() => setShowCancel(false)}>
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={closeCancel}>
           <div onClick={(e) => e.stopPropagation()} className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl">
             <div className="flex items-start justify-between">
               <div>
-                <h3 className="font-bold text-charcoal">Cancel this booking?</h3>
-                <p className="text-xs text-warmgrey mt-0.5">This cannot be undone.</p>
+                <h3 className="font-bold text-charcoal">Are you sure you want to cancel?</h3>
+                <p className="text-xs text-warmgrey mt-0.5">
+                  Booking #{booking.bookingId} will be cancelled. This cannot be undone.
+                </p>
               </div>
-              <button onClick={() => setShowCancel(false)} className="text-warmgrey/70 hover:text-charcoal"><X className="w-4 h-4" /></button>
+              <button onClick={closeCancel} disabled={cancelling} className="text-warmgrey/70 hover:text-charcoal disabled:opacity-50"><X className="w-4 h-4" /></button>
             </div>
             <label className="block mt-4">
               <span className="block text-xs font-semibold text-charcoal mb-1.5">Reason (optional)</span>
@@ -260,13 +296,21 @@ export default function BookingDetail() {
                 rows={3}
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
+                disabled={cancelling}
                 placeholder="Plans changed, found another option, etc."
-                className="w-full rounded-lg border border-lightstone px-3 py-2 text-sm focus:outline-none focus:border-terracotta focus:ring-2 focus:ring-terracotta/25"
+                className="w-full rounded-lg border border-lightstone px-3 py-2 text-sm focus:outline-none focus:border-terracotta focus:ring-2 focus:ring-terracotta/25 disabled:opacity-60"
               />
             </label>
+            {cancelError && (
+              <p className="mt-3 flex items-start gap-1.5 text-xs text-red-600">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" /> {cancelError}
+              </p>
+            )}
             <div className="mt-5 flex gap-2">
-              <button onClick={() => setShowCancel(false)} className="flex-1 rounded-full bg-warmlinen hover:bg-lightstone text-charcoal font-semibold py-2.5 text-sm">Keep booking</button>
-              <button onClick={onConfirmCancel} className="flex-1 rounded-full bg-red-600 hover:bg-red-700 text-white font-semibold py-2.5 text-sm">Cancel booking</button>
+              <button onClick={closeCancel} disabled={cancelling} className="flex-1 rounded-full bg-warmlinen hover:bg-lightstone text-charcoal font-semibold py-2.5 text-sm disabled:opacity-50">Keep booking</button>
+              <button onClick={onConfirmCancel} disabled={cancelling} className="flex-1 rounded-full bg-red-600 hover:bg-red-700 text-white font-semibold py-2.5 text-sm disabled:opacity-60">
+                {cancelling ? 'Cancelling…' : 'Yes, cancel'}
+              </button>
             </div>
           </div>
         </div>

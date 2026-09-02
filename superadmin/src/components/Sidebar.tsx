@@ -4,6 +4,8 @@ import {
   Users,
   ShoppingCart,
   Package,
+  PackagePlus,
+  Layers,
   BarChart2,
   Settings,
   LogOut,
@@ -21,9 +23,11 @@ import { appPathname } from "../lib/app-path";
 
 const navItems = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-  { label: "Customers", href: "/clients", icon: Users },
+  { label: "Clients", href: "/clients", icon: Users },
   { label: "Orders", href: "/orders", icon: ShoppingCart },
   { label: "Services", href: "/services", icon: Package },
+  { label: "Catalog", href: "/catalog-services", icon: Layers },
+  { label: "Add-ons", href: "/addons", icon: PackagePlus },
   { label: "Help moments", href: "/help-moments", icon: HeartHandshake },
   { label: "Pro", href: "/pro", icon: Wrench },
   { label: "Analytics", href: "/analytics", icon: BarChart2 },

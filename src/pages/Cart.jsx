@@ -137,6 +137,7 @@ export default function Cart() {
                 <label className="block text-xs font-semibold text-charcoal mb-1.5">Date & time</label>
                 <input
                   type="datetime-local"
+                  step={1800}
                   value={scheduledAt}
                   onChange={e => setScheduledAt(e.target.value)}
                   className="w-full rounded-lg border border-lightstone px-3 py-2 text-sm focus:outline-none focus:border-terracotta focus:ring-2 focus:ring-terracotta/25"

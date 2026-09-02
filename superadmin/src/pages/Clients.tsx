@@ -199,7 +199,7 @@ export default function CustomersPage() {
         {/* Summary cards */}
         <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
           {[
-            { label: "Total Customers", value: customers.length.toLocaleString(),        icon: Users,         color: "bg-terracotta"  },
+            { label: "Total Clients", value: customers.length.toLocaleString(),        icon: Users,         color: "bg-terracotta"  },
             { label: "Active",          value: activeCount.toLocaleString(),              icon: Users,         color: "bg-sage" },
             { label: "Total Orders",    value: totalOrders.toLocaleString(),              icon: ShoppingCart,  color: "bg-terracotta"  },
             { label: "Total Revenue",   value: `S$${totalSpend.toLocaleString()}`,         icon: DollarSign,   color: "bg-terracotta"  },
@@ -253,12 +253,12 @@ export default function CustomersPage() {
             >
               <Download size={14} /> Export
             </button>
-            <button
+            {/* <button
               onClick={() => setShowModal(true)}
               className="inline-flex items-center gap-1.5 text-sm font-semibold bg-terracotta hover:bg-accent-700 text-white px-4 py-2 rounded-xl transition shadow-sm shadow-soft"
             >
               <UserPlus size={14} /> Add Customer
-            </button>
+            </button> */}
           </div>
         </div>
 
@@ -280,7 +280,7 @@ export default function CustomersPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-lightstone">
-                    {["Customer", "Mobile", "City", "Orders", "Total Spend", "Status", "Joined", ""].map(h => (
+                    {["Client", "Mobile", "City", "Orders", "Total Spend", "Status", "Joined", ""].map(h => (
                       <th key={h} className="px-4 py-3 text-left text-[11px] font-semibold text-warmgrey uppercase tracking-wide whitespace-nowrap">{h}</th>
                     ))}
                   </tr>
@@ -443,10 +443,10 @@ export default function CustomersPage() {
                   className="px-4 py-2 text-sm font-semibold text-warmgrey bg-accent-50 hover:bg-lightstone rounded-xl transition">
                   Cancel
                 </button>
-                <button type="submit"
+                {/* <button type="submit"
                   className="px-5 py-2 text-sm font-bold bg-terracotta hover:bg-accent-700 text-white rounded-xl shadow-sm shadow-soft transition">
                   Add Customer
-                </button>
+                </button> */}
               </div>
             </form>
           </div>

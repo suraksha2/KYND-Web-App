@@ -90,3 +90,16 @@ body {
     radial-gradient(rgba(74,46,31,0.08) 1px, transparent 1px);
   background-size: 22px 22px;
 }
+
+/* Hide the native browser calendar/clock icons on date/time inputs
+   so only the custom Lucide icons in our overlays are visible. */
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-calendar-picker-indicator {
+  opacity: 0;
+  cursor: pointer;
+}
+
+input[type="date"]::-moz-calendar-picker-indicator,
+input[type="time"]::-moz-calendar-picker-indicator {
+  opacity: 0;
+}

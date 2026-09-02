@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect } from 'react'
-import { API_BASE, serviceImageUrl } from '../lib/api'
+import { fetchCatalogServices } from '../lib/catalogServices'
 
 const ServicesContext = createContext()
 
@@ -16,34 +16,7 @@ export function ServicesProvider({ children }) {
   const [loading, setLoading] = useState(true)
 
   const fetchServices = async (slugs = null) => {
-    try {
-      let url = `${API_BASE}/services`
-      if (slugs && slugs.length > 0) {
-        url += `?slugs=${slugs.join(',')}`
-      }
-      const response = await fetch(url)
-      const result = await response.json()
-      if (result.data) {
-        const mappedServices = result.data.map(service => ({
-          id: service.id,
-          slug: service.name.toLowerCase().replace(/\s+/g, '-'),
-          name: service.name,
-          short: service.category || 'Professional service',
-          img: serviceImageUrl(service.image),
-          price: parseFloat(service.price),
-          pricingFrom: `S$${parseFloat(service.price).toFixed(2)}`,
-          duration: service.duration || 'Variable',
-          rating: service.rating || 0,
-          reviewCount: service.review_count || 0,
-          bullets: ['Professional service', 'Quality guaranteed', 'Trusted providers']
-        }))
-        return mappedServices
-      }
-      return []
-    } catch (error) {
-      console.error('Failed to fetch services:', error)
-      return []
-    }
+    return fetchCatalogServices(slugs)
   }
 
   useEffect(() => {

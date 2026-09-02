@@ -13,6 +13,16 @@ const readStore = () => {
 }
 
 /**
+ * Convert a MySQL DATETIME string stored as SGT into an unambiguous ISO string.
+ * If the value is already an offset/Z ISO string, leave it alone.
+ */
+function toSgtIso(v) {
+  if (!v || typeof v !== 'string') return v
+  if (/[Z+-]/.test(v)) return v
+  return v.replace(' ', 'T') + '+08:00'
+}
+
+/**
  * Transform a raw MySQL booking row into the camelCase shape the UI expects.
  */
 function transformBooking(row) {
@@ -20,13 +30,17 @@ function transformBooking(row) {
     if (!v) return []
     try { return typeof v === 'string' ? JSON.parse(v) : v } catch { return [] }
   }
+  const rawHistory = parseJson(row.history)
+  const history = Array.isArray(rawHistory)
+    ? rawHistory.map((h) => (typeof h === 'object' && h ? { ...h, at: toSgtIso(h.at) } : h))
+    : []
   return {
     id: row.id,
     bookingId: row.booking_id,
     items: parseJson(row.items),
     total: Number(row.total),
     schedule: row.schedule,
-    scheduledAt: row.scheduled_at,
+    scheduledAt: toSgtIso(row.scheduled_at),
     cadence: row.cadence,
     contact: {
       name: row.contact_name,
@@ -36,10 +50,14 @@ function transformBooking(row) {
       pincode: row.contact_pincode,
       area: row.contact_area
     },
+    notes: row.notes || '',
     payment: row.payment,
-    placedAt: row.placed_at,
+    placedAt: toSgtIso(row.placed_at),
     status: row.status,
-    history: parseJson(row.history),
+    cancelledBy: row.cancelled_by || null,
+    cancelledAt: toSgtIso(row.cancelled_at),
+    cancelReason: row.cancel_reason || '',
+    history,
     providerId: row.provider_id || row.providerId || null,
     provider: row.provider_name ? {
       id: row.provider_id,
@@ -48,7 +66,7 @@ function transformBooking(row) {
       avatar: row.provider_avatar,
       mobile: row.provider_mobile
     } : (row.provider || null),
-    assignedAt: row.assigned_at
+    assignedAt: toSgtIso(row.assigned_at)
   }
 }
 
@@ -117,36 +135,59 @@ export function BookingsProvider({ children }) {
     return booking
   }, [user?.id, token])
 
-  const cancelBooking = useCallback(async (bookingId, reason = '') => {
+  const applyCancelLocally = useCallback((bookingId, reason, cancelledBy = 'customer') => {
     setBookings(prev => prev.map(b => b.bookingId === bookingId
       ? {
           ...b,
           status: 'cancelled',
+          cancelledBy,
           cancelledAt: new Date().toISOString(),
           cancelReason: reason,
-          history: [...(b.history || []), { at: new Date().toISOString(), type: 'cancelled', note: reason || 'Cancelled by user' }],
+          history: [...(b.history || []), { at: new Date().toISOString(), type: 'cancelled', by: cancelledBy, note: reason || `Cancelled by ${cancelledBy}` }],
         }
       : b
     ))
+  }, [])
+
+  // Cancels server-side first so the UI never claims a cancellation that did not
+  // persist. Returns { ok, error } so callers can surface a failure.
+  const cancelBooking = useCallback(async (bookingId, reason = '') => {
+    const booking = bookings.find(b => b.bookingId === bookingId)
+
+    // Guests keep bookings only in localStorage — nothing to sync.
+    if (!booking?.id || !token) {
+      applyCancelLocally(bookingId, reason)
+      return { ok: true }
+    }
 
     try {
-      const booking = bookings.find(b => b.bookingId === bookingId)
-      if (!booking?.id) return
-
       const response = await fetch(`${API_BASE}/bookings/${booking.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         credentials: 'include',
         body: JSON.stringify({ status: 'cancelled', reason })
       })
-
+      const json = await response.json().catch(() => ({}))
       if (!response.ok) {
-        console.error('Failed to cancel booking on backend:', await response.text())
+        return { ok: false, error: json.error || 'Failed to cancel booking. Please try again.' }
       }
+
+      applyCancelLocally(bookingId, json.cancelReason ?? reason, json.cancelledBy || 'customer')
+
+      // Re-read the server state so status/history match the backend exactly.
+      const res = await fetch(`${API_BASE}/bookings`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+        credentials: 'include'
+      })
+      const list = await res.json().catch(() => ({}))
+      if (res.ok && Array.isArray(list.data)) setBookings(list.data.map(transformBooking))
+
+      return { ok: true }
     } catch (error) {
       console.error('Error cancelling booking:', error)
+      return { ok: false, error: 'Network error. Please check your connection and try again.' }
     }
-  }, [bookings, token])
+  }, [bookings, token, applyCancelLocally])
 
   const rescheduleBooking = useCallback(async (bookingId, newAt) => {
     setBookings(prev => prev.map(b => b.bookingId === bookingId
@@ -154,7 +195,7 @@ export function BookingsProvider({ children }) {
           ...b,
           schedule: 'scheduled',
           scheduledAt: newAt,
-          history: [...(b.history || []), { at: new Date().toISOString(), type: 'rescheduled', note: `Rescheduled to ${new Date(newAt).toLocaleString()}` }],
+          history: [...(b.history || []), { at: new Date().toISOString(), type: 'rescheduled', note: `Rescheduled to ${new Date(newAt).toLocaleString('en-SG', { timeZone: 'Asia/Singapore' })}` }],
         }
       : b
     ))
@@ -180,12 +221,14 @@ export function BookingsProvider({ children }) {
 
   const getBooking = useCallback((bookingId) => bookings.find(b => b.bookingId === bookingId) || null, [bookings])
 
-  // Bucket bookings: only completed bookings go to Past; everything else shows in Upcoming.
+  // Bucket bookings: finished ones (completed or cancelled) go to Past, which is
+  // what the Past tab's own copy promises. Leaving cancelled bookings in Upcoming
+  // made them render as live cards with a Cancel button that appeared to do nothing.
   const { upcoming, past } = useMemo(() => {
     const upcoming = []
     const past = []
     for (const b of bookings) {
-      if (b.status === 'completed') {
+      if (b.status === 'completed' || b.status === 'cancelled') {
         past.push(b)
       } else {
         upcoming.push(b)
@@ -200,7 +243,14 @@ export function BookingsProvider({ children }) {
     return { upcoming, past }
   }, [bookings])
 
-  const value = { bookings, upcoming, past, addBooking, cancelBooking, rescheduleBooking, getBooking }
+  // Bookings still in flight. `upcoming` also holds cancelled bookings, which
+  // need no attention, so they are excluded here.
+  const activeCount = useMemo(
+    () => bookings.filter(b => b.status !== 'completed' && b.status !== 'cancelled').length,
+    [bookings]
+  )
+
+  const value = { bookings, upcoming, past, activeCount, addBooking, cancelBooking, rescheduleBooking, getBooking }
   return <BookingsContext.Provider value={value}>{children}</BookingsContext.Provider>
 }
 

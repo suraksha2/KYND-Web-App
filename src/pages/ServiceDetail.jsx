@@ -1,6 +1,6 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useParams, Link, Navigate, useNavigate, useLocation } from 'react-router-dom'
-import { Check, X, ChevronLeft, Heart, Star, ShieldCheck, ChevronUp, ChevronDown, Calendar, Clock, CreditCard, Wallet, Banknote } from 'lucide-react'
+import { Check, X, ChevronLeft, Heart, Star, ShieldCheck, ChevronUp, ChevronDown, CreditCard, Wallet, Banknote } from 'lucide-react'
 import { useServices } from '../context/ServicesContext'
 import { useBookings } from '../context/BookingsContext'
 import { useAuth } from '../context/AuthContext'
@@ -17,13 +17,20 @@ const parsePrice = (str = '') => {
 
 const formatPrice = (n) => `S$${Math.round(n)}`
 
+const normalizePhone = (value) => {
+  const digits = value.replace(/\D/g, '')
+  const after65 = digits.startsWith('65') ? digits.slice(2) : digits
+  return '+65' + after65.slice(0, 8)
+}
+
 const inputCls = 'w-full rounded-xl border border-lightstone bg-white px-4 py-3 text-sm text-charcoal placeholder-warmgrey/60 focus:outline-none focus:border-terracotta focus:ring-2 focus:ring-terracotta/20 transition'
 const selectCls = 'w-full rounded-xl border border-lightstone bg-white px-4 py-3 pr-10 text-sm text-charcoal focus:outline-none focus:border-terracotta focus:ring-2 focus:ring-terracotta/20 transition appearance-none'
 
-const Field = ({ label, children }) => (
+const Field = ({ label, children, error }) => (
   <label className="block">
     <span className="block text-sm font-semibold text-charcoal mb-1.5">{label}</span>
     {children}
+    {error && <p className="text-xs text-red-600 mt-1">{error}</p>}
   </label>
 )
 
@@ -44,14 +51,16 @@ const SectionCard = ({ title, summary, open, setOpen, children }) => (
   </div>
 )
 
-const Pill = ({ selected, onClick, title, subtitle }) => (
+const Pill = ({ selected, onClick, title, subtitle, error }) => (
   <button
     type="button"
     onClick={onClick}
     className={`rounded-3xl border px-2 py-3 sm:py-4 text-center transition w-full ${
-      selected
-        ? 'bg-accent-100 border-terracotta text-terracotta'
-        : 'bg-white border-lightstone text-charcoal hover:border-terracotta/50'
+      error
+        ? 'bg-white border-red-500 ring-1 ring-red-500 text-charcoal'
+        : selected
+          ? 'bg-accent-100 border-terracotta text-terracotta'
+          : 'bg-white border-lightstone text-charcoal hover:border-terracotta/50'
     }`}
   >
     <div className={`text-sm sm:text-base font-bold ${selected ? 'text-terracotta' : 'text-charcoal'}`}>{title}</div>
@@ -59,10 +68,7 @@ const Pill = ({ selected, onClick, title, subtitle }) => (
   </button>
 )
 
-const ADDONS = [
-  { id: 'supplies', label: 'Bring cleaning supplies', price: 5 },
-  { id: 'fridge', label: 'Inside fridge clean', price: 8 },
-]
+const NOTES_MAX = 500
 
 const AddonToggle = ({ checked, onChange }) => (
   <button
@@ -78,22 +84,22 @@ const AddonToggle = ({ checked, onChange }) => (
 
 /* ---------- Sticky bottom booking bar ---------- */
 const BookingBar = ({ price, submitting }) => (
-  <div className="fixed bottom-[calc(76px_+_var(--safe-bottom))] md:bottom-0 left-0 right-0 z-50 bg-white/95 backdrop-blur border-t border-lightstone shadow-[0_-8px_24px_-12px_rgba(74,46,31,0.25)]">
+  <div className="fixed bottom-[calc(76px_+_var(--safe-bottom)_+_0.5rem)] md:bottom-0 left-0 right-0 z-50 bg-terracotta shadow-[0_-8px_24px_-12px_rgba(74,46,31,0.35)]">
     <div className="max-w-5xl mx-auto px-4 sm:px-6 py-3 sm:py-4">
-      <div className="hidden sm:block text-center text-xs text-warmgrey mb-2">Free cancellation up to 2 hrs before</div>
+      <div className="hidden sm:block text-center text-xs text-white/80 mb-2">Free cancellation up to 2 hrs before</div>
       <div className="flex items-center justify-between gap-4">
         <div className="min-w-0">
-          <div className="text-[11px] font-medium text-warmgrey uppercase tracking-wide">Total</div>
-          <div className="font-heading text-xl sm:text-2xl font-extrabold text-charcoal truncate">
+          <div className="text-[11px] font-medium text-white/80 uppercase tracking-wide">Total</div>
+          <div className="font-heading text-xl sm:text-2xl font-extrabold text-white truncate">
             {formatPrice(price)}
-            <span className="text-sm font-medium text-warmgrey">/hr</span>
+            <span className="text-sm font-medium text-white/80">/hr</span>
           </div>
         </div>
         <button
           type="submit"
           form="booking-form"
           disabled={submitting}
-          className="shrink-0 inline-flex items-center justify-center rounded-full bg-terracotta hover:bg-charcoal disabled:opacity-60 text-white font-semibold text-sm sm:text-base px-6 sm:px-8 py-3 transition"
+          className="shrink-0 inline-flex items-center justify-center rounded-full bg-white hover:bg-white/90 disabled:opacity-60 text-terracotta font-semibold text-sm sm:text-base px-6 sm:px-8 py-3 transition"
         >
           {submitting ? 'Confirming...' : 'Confirm booking'}
         </button>
@@ -234,7 +240,40 @@ const Inclusions = ({ svc }) => {
 }
 
 /* ---------- How soon? ---------- */
-const HowSoonPanel = ({ open, setOpen, summary, schedule, setSchedule, date, setDate, time, setTime, cadence, setCadence, arrivalTime }) => {
+const HowSoonPanel = ({ open, setOpen, summary, schedule, setSchedule, date, setDate, time, setTime, cadence, setCadence, arrivalTime, errors, submitAttempt }) => {
+  const [showModal, setShowModal] = useState(false)
+  const [newAt, setNewAt] = useState('')
+
+  useEffect(() => {
+    if (datetimeError) setShowModal(true)
+  }, [submitAttempt])
+
+  const openModal = (type) => {
+    setSchedule(type)
+    setNewAt(date && time ? `${date}T${time}` : '')
+    setShowModal(true)
+  }
+
+  const closeModal = () => setShowModal(false)
+
+  const confirmModal = () => {
+    if (!newAt) return
+    const [d, t] = newAt.split('T')
+    setDate(d)
+    setTime(t)
+    setShowModal(false)
+  }
+
+  const selectedLabel = date && time
+    ? new Date(`${date}T${time}`).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Singapore' })
+    : null
+
+  const datetimeError = !!errors?.datetime && (!date || !time)
+  const inputBase = "w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2"
+  const inputClass = datetimeError && !newAt
+    ? `${inputBase} border-red-500 focus:border-red-500 focus:ring-red-500/20`
+    : `${inputBase} border-lightstone focus:border-terracotta focus:ring-terracotta/25`
+
   return (
     <SectionCard
       title="How soon?"
@@ -245,76 +284,88 @@ const HowSoonPanel = ({ open, setOpen, summary, schedule, setSchedule, date, set
       <div className="grid grid-cols-3 gap-3">
         <Pill
           selected={schedule === 'instant'}
-          onClick={() => setSchedule('instant')}
+          onClick={() => { setSchedule('instant'); setDate(''); setTime('') }}
           title="Instant"
           subtitle={`arrives by ${arrivalTime}`}
         />
         <Pill
           selected={schedule === 'scheduled'}
-          onClick={() => setSchedule('scheduled')}
+          onClick={() => openModal('scheduled')}
           title="Scheduled"
           subtitle="pick a time"
+          error={datetimeError && schedule === 'scheduled'}
         />
         <Pill
           selected={schedule === 'recurring'}
-          onClick={() => setSchedule('recurring')}
+          onClick={() => openModal('recurring')}
           title="Recurring"
           subtitle="save 15%"
+          error={datetimeError && schedule === 'recurring'}
         />
       </div>
 
-      {schedule !== 'instant' && (
+      {schedule !== 'instant' && selectedLabel && (
         <div className="mt-4 rounded-2xl bg-warmlinen p-3 sm:p-4">
-          <p className="text-xs font-bold text-warmgrey uppercase tracking-wide mb-2">
-            {schedule === 'recurring' ? 'First visit' : 'Pick a time'}
+          <p className="text-sm font-medium text-charcoal">
+            {schedule === 'recurring' ? 'First visit' : 'Selected'}: {selectedLabel}
           </p>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="relative">
-              <input
-                type="date"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-                className={inputCls}
-                required
-              />
-              <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-warmgrey pointer-events-none" />
+        </div>
+      )}
+
+      {showModal && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={closeModal}>
+          <div onClick={(e) => e.stopPropagation()} className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl">
+            <div className="flex items-start justify-between">
+              <div>
+                <h3 className="font-bold text-charcoal">Schedule booking</h3>
+                <p className="text-xs text-warmgrey mt-0.5">Pick a date &amp; time.</p>
+              </div>
+              <button type="button" onClick={closeModal} className="text-warmgrey/70 hover:text-charcoal">
+                <X className="w-4 h-4" />
+              </button>
             </div>
-            <div className="relative">
+            <label className="block mt-4">
+              <span className="block text-xs font-semibold text-charcoal mb-1.5">New date &amp; time</span>
               <input
-                type="time"
-                value={time}
-                onChange={(e) => setTime(e.target.value)}
-                className={inputCls}
-                required
+                type="datetime-local"
+                step={1800}
+                value={newAt}
+                onChange={(e) => setNewAt(e.target.value)}
+                className={inputClass}
               />
-              <Clock className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-warmgrey pointer-events-none" />
+              {datetimeError && !newAt && (
+                <p className="text-xs text-red-600 mt-1">{errors.datetime}</p>
+              )}
+            </label>
+            {schedule === 'recurring' && (
+              <>
+                <p className="text-xs font-bold text-warmgrey uppercase tracking-wide mt-4 mb-2">Cadence</p>
+                <div className="flex flex-wrap gap-2">
+                  {['Daily', 'Weekly', 'Bi-weekly', 'Monthly'].map((c) => {
+                    const key = c.toLowerCase().replace('-', '')
+                    return (
+                      <button
+                        key={c}
+                        type="button"
+                        onClick={() => setCadence(key)}
+                        className={`rounded-full px-4 py-2 text-sm font-medium border transition ${
+                          cadence === key
+                            ? 'bg-accent-100 border-terracotta text-terracotta'
+                            : 'bg-white border-lightstone text-charcoal'
+                        }`}
+                      >
+                        {c}
+                      </button>
+                    )
+                  })}
+                </div>
+              </>
+            )}
+            <div className="mt-5 flex gap-2">
+              <button type="button" onClick={closeModal} className="flex-1 rounded-full bg-warmlinen hover:bg-lightstone text-charcoal font-semibold py-2.5 text-sm">Back</button>
+              <button type="button" onClick={confirmModal} disabled={!newAt} className="flex-1 rounded-full bg-terracotta hover:bg-charcoal disabled:opacity-50 text-white font-semibold py-2.5 text-sm">Confirm</button>
             </div>
           </div>
-
-          {schedule === 'recurring' && (
-            <>
-              <p className="text-xs font-bold text-warmgrey uppercase tracking-wide mt-4 mb-2">Cadence</p>
-              <div className="flex flex-wrap gap-2">
-                {['Daily', 'Weekly', 'Bi-weekly', 'Monthly'].map((c) => {
-                  const key = c.toLowerCase().replace('-', '')
-                  return (
-                    <button
-                      key={c}
-                      type="button"
-                      onClick={() => setCadence(key)}
-                      className={`rounded-full px-4 py-2 text-sm font-medium border transition ${
-                        cadence === key
-                          ? 'bg-accent-100 border-terracotta text-terracotta'
-                          : 'bg-white border-lightstone text-charcoal'
-                      }`}
-                    >
-                      {c}
-                    </button>
-                  )
-                })}
-              </div>
-            </>
-          )}
         </div>
       )}
     </SectionCard>
@@ -327,8 +378,12 @@ const AddressPaymentPanel = ({
   name, setName, phone, setPhone,
   address, setAddress, city, setCity,
   area, setArea, pincode, setPincode,
-  pay, setPay
+  notes, setNotes,
+  pay, setPay,
+  errors
 }) => {
+  const fieldInputClass = (field) => errors?.[field] ? `${inputCls} !border-red-500` : inputCls
+  const fieldSelectClass = (field) => errors?.[field] ? `${selectCls} !border-red-500` : selectCls
   const cityData = availableCities.find(c => c.name === city)
   const cityAreas = cityData?.areas || []
   return (
@@ -336,11 +391,19 @@ const AddressPaymentPanel = ({
       <div className="rounded-2xl bg-white ring-1 ring-lightstone p-4">
         <h4 className="font-heading font-bold text-charcoal">Contact</h4>
         <div className="mt-3 grid sm:grid-cols-2 gap-4">
-          <Field label="Full name">
-            <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder="Enter your name" required />
+          <Field label="Full name" error={errors?.name}>
+            <input className={fieldInputClass('name')} value={name} onChange={(e) => setName(e.target.value)} placeholder="Enter your name" required />
           </Field>
-          <Field label="Phone">
-            <input className={inputCls} type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Enter your phone" required />
+          <Field label="Phone" error={errors?.phone}>
+            <input
+              className={fieldInputClass('phone')}
+              type="tel"
+              value={phone}
+              onChange={(e) => setPhone(normalizePhone(e.target.value))}
+              pattern="[+]65[89][0-9]{7}"
+              title="Enter a valid Singapore number: +65 followed by 8 digits starting with 8 or 9"
+              required
+            />
           </Field>
         </div>
       </div>
@@ -348,35 +411,19 @@ const AddressPaymentPanel = ({
       <div className="rounded-2xl bg-white ring-1 ring-lightstone p-4">
         <h4 className="font-heading font-bold text-charcoal">Service address</h4>
         <div className="mt-3 grid gap-4">
-          <Field label="Address">
+          <Field label="Address" error={errors?.address}>
             <textarea
-              className={`${inputCls} min-h-[80px] resize-none`}
+              className={`${fieldInputClass('address')} min-h-[80px] resize-none`}
               value={address}
               onChange={(e) => setAddress(e.target.value)}
               placeholder="Enter your address"
               required
             />
           </Field>
-          <Field label="City">
+          <Field label="Area" error={errors?.area}>
             <div className="relative">
               <select
-                className={selectCls}
-                value={city}
-                onChange={(e) => { setCity(e.target.value); setArea(''); setPincode('') }}
-                required
-              >
-                <option value="">Select city</option>
-                {availableCities.map(c => (
-                  <option key={c.id} value={c.name}>{c.name}</option>
-                ))}
-              </select>
-              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-warmgrey pointer-events-none" />
-            </div>
-          </Field>
-          <Field label="Area">
-            <div className="relative">
-              <select
-                className={selectCls}
+                className={fieldSelectClass('area')}
                 value={area}
                 onChange={(e) => setArea(e.target.value)}
                 disabled={!cityAreas.length}
@@ -390,9 +437,60 @@ const AddressPaymentPanel = ({
               <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-warmgrey pointer-events-none" />
             </div>
           </Field>
-          <Field label="Pincode">
-            <input className={inputCls} value={pincode} onChange={(e) => setPincode(e.target.value)} placeholder="Enter your pincode" required />
+          <Field label="City" error={errors?.city}>
+            <div className="relative">
+              <select
+                className={fieldSelectClass('city')}
+                value={city}
+                onChange={(e) => { setCity(e.target.value); setArea(''); setPincode('') }}
+                required
+              >
+                <option value="">Select city</option>
+                {availableCities.map(c => (
+                  <option key={c.id} value={c.name}>{c.name}</option>
+                ))}
+              </select>
+              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-warmgrey pointer-events-none" />
+            </div>
           </Field>
+          <Field label="Country">
+            <input
+              className={inputCls}
+              value="Singapore"
+              readOnly
+              tabIndex={-1}
+            />
+          </Field>
+          <Field label="Pincode" error={errors?.pincode}>
+            <input
+              className={fieldInputClass('pincode')}
+              value={pincode}
+              onChange={(e) => {
+                const digits = e.target.value.replace(/\D/g, '').slice(0, 6)
+                setPincode(digits)
+              }}
+              inputMode="numeric"
+              pattern="\d{6}"
+              maxLength={6}
+              placeholder="Enter your pincode"
+              required
+            />
+          </Field>
+        </div>
+      </div>
+
+      <div className="rounded-2xl bg-white ring-1 ring-lightstone p-4">
+        <h4 className="font-heading font-bold text-charcoal">Instructions for your partner</h4>
+        <p className="text-xs text-warmgrey mt-1">Optional — gate codes, pets, which rooms to focus on, anything else they should know.</p>
+        <div className="mt-3">
+          <textarea
+            className={`${inputCls} min-h-[90px] resize-none`}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value.slice(0, NOTES_MAX))}
+            placeholder="e.g. Doorbell is broken, please call on arrival. Friendly dog at home."
+            maxLength={NOTES_MAX}
+          />
+          <p className="mt-1 text-right text-xs text-warmgrey">{notes.length}/{NOTES_MAX}</p>
         </div>
       </div>
 
@@ -412,7 +510,7 @@ const AddressPaymentPanel = ({
           <label className={`flex items-center gap-3 p-3 rounded-xl border transition cursor-pointer ${pay === 'cod' ? 'bg-accent-100 border-terracotta' : 'bg-white border-lightstone'}`}>
             <input type="radio" name="payment" value="cod" checked={pay === 'cod'} onChange={() => setPay('cod')} className="accent-terracotta" />
             <Banknote className="w-4 h-4 text-charcoal" />
-            <span className="text-sm font-medium text-charcoal">Cash after service</span>
+            <span className="text-sm font-medium text-charcoal">Cash</span>
           </label>
         </div>
       </div>
@@ -430,18 +528,23 @@ export default function ServiceDetail() {
   const [availableCities, setAvailableCities] = useState([])
 
   const [openSections, setOpenSections] = useState({ how: false, addons: false, payment: false })
+  const [errors, setErrors] = useState({})
+  const [submitAttempt, setSubmitAttempt] = useState(0)
   const [schedule, setSchedule] = useState('instant')
   const [date, setDate] = useState('')
   const [time, setTime] = useState('')
   const [cadence, setCadence] = useState('weekly')
   const [name, setName] = useState('')
-  const [phone, setPhone] = useState('')
+  const [phone, setPhone] = useState('+65')
   const [address, setAddress] = useState('')
-  const [city, setCity] = useState('')
+  const [city, setCity] = useState('Singapore')
   const [area, setArea] = useState('')
   const [pincode, setPincode] = useState('')
+  const [notes, setNotes] = useState('')
   const [pay, setPay] = useState('card')
-  const [selectedAddons, setSelectedAddons] = useState({ supplies: false, fridge: false })
+  const [addons, setAddons] = useState([])
+  const [addonsLoading, setAddonsLoading] = useState(false)
+  const [selectedAddons, setSelectedAddons] = useState({})
   const [submitting, setSubmitting] = useState(false)
 
   const stateSlugs = location.state?.selectedSlugs || []
@@ -453,7 +556,7 @@ export default function ServiceDetail() {
 
   const arrivalTime = useMemo(() => {
     const d = new Date(Date.now() + 15 * 60 * 1000)
-    return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })
+    return d.toLocaleTimeString('en-SG', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Asia/Singapore' })
   }, [])
 
   useEffect(() => {
@@ -505,6 +608,23 @@ export default function ServiceDetail() {
     }
   }, [slug, services])
 
+  useEffect(() => {
+    if (!primary?.catalogId) return
+    const fetchAddons = async () => {
+      setAddonsLoading(true)
+      try {
+        const res = await fetch(`${API_BASE}/catalog/services/${primary.catalogId}/addons`)
+        const json = await res.json()
+        if (json.data) setAddons(json.data)
+      } catch (error) {
+        console.error('Failed to fetch add-ons:', error)
+      } finally {
+        setAddonsLoading(false)
+      }
+    }
+    fetchAddons()
+  }, [primary?.catalogId])
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -516,13 +636,33 @@ export default function ServiceDetail() {
   if (!primary) return <Navigate to="/services" replace />
 
   const basePrice = selectedServices.reduce((sum, s) => sum + (s.price || parsePrice(s.pricingFrom)), 0)
-  const addOnTotal = ADDONS.reduce((sum, a) => sum + (selectedAddons[a.id] ? a.price : 0), 0)
+  const addOnTotal = addons.reduce((sum, a) => sum + (selectedAddons[a.id] ? Number(a.customer_price) : 0), 0)
   const displayPrice = (schedule === 'recurring' ? Math.round(basePrice * 0.85) : basePrice) + addOnTotal
+
+  const isValidPincode = (v) => /^\d{6}$/.test(v)
 
   const onSubmit = async (e) => {
     e.preventDefault()
-    if (!name || !phone || !address || !city || !pincode) return
-    if (schedule !== 'instant' && (!date || !time)) return
+    if (!token) {
+      navigate('/login', { state: { from: location.pathname } })
+      return
+    }
+    const nextErrors = {}
+    if (schedule !== 'instant' && (!date || !time)) nextErrors.datetime = 'Please pick a date & time'
+    if (!name.trim()) nextErrors.name = 'Required'
+    if (!phone.trim()) nextErrors.phone = 'Required'
+    if (!address.trim()) nextErrors.address = 'Required'
+    if (!city) nextErrors.city = 'Required'
+    if (!area) nextErrors.area = 'Required'
+    if (!pincode.trim()) nextErrors.pincode = 'Required'
+    else if (!isValidPincode(pincode.trim())) nextErrors.pincode = 'Enter a valid 6-digit postal code'
+    if (Object.keys(nextErrors).length) {
+      setErrors(nextErrors)
+      setOpenSections(prev => ({ ...prev, how: !!nextErrors.datetime, addons: false, payment: !nextErrors.datetime }))
+      setSubmitAttempt(c => c + 1)
+      return
+    }
+    setErrors({})
     setSubmitting(true)
 
     const bookingId = 'KYND' + Math.random().toString(36).slice(2, 8).toUpperCase()
@@ -533,11 +673,12 @@ export default function ServiceDetail() {
       bookingId,
       items: selectedServices.map(s => ({ slug: s.slug, name: s.name, img: s.img, priceFrom: s.price || parsePrice(s.pricingFrom), duration: s.duration, qty: 1 })),
       total: displayPrice,
-      addOns: ADDONS.filter(a => selectedAddons[a.id]).map(a => ({ id: a.id, name: a.label, price: a.price })),
+      addOns: addons.filter(a => selectedAddons[a.id]).map(a => ({ id: a.id, name: a.name, price: Number(a.customer_price) })),
       schedule,
       scheduledAt,
       cadence: schedule === 'recurring' ? cadence : '',
       contact: { name, phone, address, city, pincode, area },
+      notes: notes.trim(),
       payment: pay,
       placedAt: new Date().toISOString()
     }
@@ -662,6 +803,8 @@ export default function ServiceDetail() {
               cadence={cadence}
               setCadence={setCadence}
               arrivalTime={arrivalTime}
+              errors={errors}
+              submitAttempt={submitAttempt}
             />
 
             <SectionCard
@@ -671,16 +814,32 @@ export default function ServiceDetail() {
               setOpen={() => setOpenSections(prev => ({ ...prev, how: false, addons: !prev.addons, payment: false }))}
             >
               <div className="space-y-1">
-                {ADDONS.map(a => (
-                  <label key={a.id} className="flex items-center justify-between gap-3 p-3 -mx-1 rounded-2xl hover:bg-warmlinen transition cursor-pointer">
-                    <span className="text-sm sm:text-base text-charcoal font-medium">{a.label} <span className="text-warmgrey font-normal">+S${a.price}</span></span>
-                    <AddonToggle
-                      checked={selectedAddons[a.id]}
-                      onChange={(checked) => setSelectedAddons(prev => ({ ...prev, [a.id]: checked }))}
-                    />
-                  </label>
-                ))}
+                {addonsLoading ? (
+                  <p className="text-sm text-warmgrey py-2">Loading add-ons…</p>
+                ) : addons.length === 0 ? (
+                  <p className="text-sm text-warmgrey py-2">No add-ons available.</p>
+                ) : (
+                  addons.map(a => (
+                    <label key={a.id} className="flex items-center justify-between gap-3 p-3 -mx-1 rounded-2xl hover:bg-warmlinen transition cursor-pointer">
+                      <span className="text-sm sm:text-base text-charcoal font-medium">{a.name} <span className="text-warmgrey font-normal">+S${Math.round(Number(a.customer_price))}</span></span>
+                      <AddonToggle
+                        checked={!!selectedAddons[a.id]}
+                        onChange={(checked) => setSelectedAddons(prev => ({ ...prev, [a.id]: checked }))}
+                      />
+                    </label>
+                  ))
+                )}
               </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedAddons({})
+                  setOpenSections(prev => ({ ...prev, how: false, addons: false, payment: true }))
+                }}
+                className="mt-4 w-full rounded-full bg-warmlinen hover:bg-lightstone text-charcoal font-semibold py-2.5 text-sm transition"
+              >
+                Skip add-ons
+              </button>
             </SectionCard>
 
             <SectionCard
@@ -697,7 +856,9 @@ export default function ServiceDetail() {
                 city={city} setCity={setCity}
                 area={area} setArea={setArea}
                 pincode={pincode} setPincode={setPincode}
+                notes={notes} setNotes={setNotes}
                 pay={pay} setPay={setPay}
+                errors={errors}
               />
             </SectionCard>
           </form>

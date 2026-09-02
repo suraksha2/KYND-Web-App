@@ -1,10 +1,10 @@
 import { Bell, Search, ChevronDown } from "lucide-react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useSearchParams } from "react-router-dom";
 import { appPathname } from "../lib/app-path";
 
 const pageTitles: Record<string, string> = {
   "/dashboard": "Dashboard",
-  "/clients": "Customers",
+  "/clients": "Clients",
   "/orders": "Orders",
   "/services": "Services",
   "/analytics": "Analytics",
@@ -14,7 +14,7 @@ const pageTitles: Record<string, string> = {
 
 const pageSubs: Record<string, string> = {
   "/dashboard": "Welcome back, here's what's happening today.",
-  "/clients": "Manage your customers.",
+  "/clients": "Manage your clients.",
   "/orders": "View and manage orders.",
   "/services": "Manage available services.",
   "/analytics": "Track your performance.",
@@ -24,6 +24,8 @@ const pageSubs: Record<string, string> = {
 
 export default function Header() {
   const pathname = appPathname(useLocation().pathname);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const query = searchParams.get("q") ?? "";
   const title =
     Object.entries(pageTitles).find(([key]) => pathname.startsWith(key))?.[1] ?? "Admin Panel";
   const sub =
@@ -41,6 +43,8 @@ export default function Header() {
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-warmgrey" />
           <input
             type="text"
+            value={query}
+            onChange={(e) => setSearchParams(e.target.value ? { q: e.target.value } : {}, { replace: true })}
             placeholder="Search anything..."
             className="pl-8 pr-4 py-2 text-sm bg-white border border-lightstone rounded-xl focus:outline-none focus:ring-2 focus:ring-terracotta/30 focus:border-terracotta w-56 placeholder:text-warmgrey transition"
           />

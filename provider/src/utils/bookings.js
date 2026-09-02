@@ -16,21 +16,28 @@ export function parseItems(items) {
   }
 }
 
-export function formatDateTime(value) {
+function parseSgt(value) {
   if (!value) return null
-  const d = new Date(value)
-  if (Number.isNaN(d.getTime())) return String(value)
-  return d.toLocaleString(undefined, {
+  const s = String(value)
+  if (/[Z+-]/.test(s)) return new Date(s)
+  return new Date(s.replace(' ', 'T') + '+08:00')
+}
+
+export function formatDateTime(value) {
+  const d = parseSgt(value)
+  if (!d || Number.isNaN(d.getTime())) return value ? String(value) : null
+  return d.toLocaleString('en-SG', {
     day: 'numeric', month: 'short', year: 'numeric',
     hour: 'numeric', minute: '2-digit',
+    timeZone: 'Asia/Singapore',
   })
 }
 
 export function bookingDate(booking) {
   const raw = booking?.scheduled_at || booking?.placed_at
-  if (!raw) return null
-  const d = new Date(raw)
-  return Number.isNaN(d.getTime()) ? null : d
+  const d = parseSgt(raw)
+  if (!d || Number.isNaN(d.getTime())) return null
+  return d
 }
 
 export function isSameDay(a, b) {
@@ -59,7 +66,7 @@ export function lastSevenDays(bookings) {
     const dayBookings = bookings.filter((b) => isSameDay(bookingDate(b), day))
     days.push({
       date: day,
-      label: day.toLocaleDateString(undefined, { weekday: 'short' }),
+      label: day.toLocaleDateString('en-SG', { weekday: 'short', timeZone: 'Asia/Singapore' }),
       count: dayBookings.length,
       earnings: dayBookings
         .filter((b) => b.status === 'completed')

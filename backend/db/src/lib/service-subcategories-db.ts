@@ -48,25 +48,40 @@ function mapRow(row: DbSubcategoryRow): ServiceSubcategory {
   };
 }
 
+const DEFAULT_MARKUP_PCT = 30;
+
+function catalogSellPrice(defaultPartnerCost: number | null | string, markupOverride: number | null | string): number | null {
+  if (defaultPartnerCost === null) return null;
+  const cost = Number(defaultPartnerCost);
+  if (!Number.isFinite(cost)) return null;
+  const markup = markupOverride !== null && markupOverride !== undefined ? Number(markupOverride) : DEFAULT_MARKUP_PCT;
+  const sell = Math.round(cost * (1 + (Number.isFinite(markup) ? markup : DEFAULT_MARKUP_PCT) / 100));
+  return sell;
+}
+
 async function fetchServicesForSubcategory(subcategoryId: number) {
   const [svcRows] = await pool.query(
-    `SELECT s.id, s.name, s.category, s.price, s.image, s.duration
-     FROM services s
+    `SELECT s.id, s.name, s.image, s.default_partner_cost, s.markup_pct_override, c.name as category
+     FROM catalog_services s
+     JOIN catalog_categories c ON s.category_id = c.id
      JOIN service_subcategory_services ss ON s.id = ss.service_id
      WHERE ss.subcategory_id = ?
      ORDER BY s.id`,
     [subcategoryId]
   );
 
-  return (svcRows as any[]).map((s) => ({
-    id: s.id.toString(),
-    name: s.name,
-    category: s.category,
-    price: s.price ? parseFloat(s.price) : null,
-    image: s.image,
-    duration: s.duration,
-    pricingFrom: s.price ? `S$${parseFloat(s.price).toFixed(2)}` : "",
-  }));
+  return (svcRows as any[]).map((s) => {
+    const price = catalogSellPrice(s.default_partner_cost, s.markup_pct_override);
+    return {
+      id: s.id.toString(),
+      name: s.name,
+      category: s.category,
+      price,
+      image: s.image,
+      duration: 'Variable',
+      pricingFrom: price !== null ? `S$${price.toFixed(2)}` : 'Custom quote',
+    };
+  });
 }
 
 async function syncSubcategoryServices(
@@ -98,7 +113,7 @@ export async function getServiceSubcategories(): Promise<ServiceSubcategory[]> {
             sc.created_at, sc.updated_at
      FROM service_subcategories sc
      LEFT JOIN service_subcategory_services ss ON sc.id = ss.subcategory_id
-     LEFT JOIN services s ON ss.service_id = s.id
+     LEFT JOIN catalog_services s ON ss.service_id = s.id
      GROUP BY sc.id
      ORDER BY sc.sort_order, sc.id`
   );

@@ -1,9 +1,12 @@
 import path from 'path';
 import dotenv from 'dotenv';
 
+const projectRoot = path.join(__dirname, '..');
+
 // Next.js used to load these implicitly; Express does not.
-dotenv.config({ path: path.join(process.cwd(), '.env.local') });
-dotenv.config();
+// Resolve relative to this source file so the API can be launched from any cwd.
+dotenv.config({ path: path.join(projectRoot, '.env.local') });
+dotenv.config({ path: path.join(projectRoot, '.env') });
 
 // Express 4 does not forward rejected promises from async handlers, which would
 // hang the request instead of returning a 500. A few ported handlers rely on
@@ -24,7 +27,7 @@ app.use(express.json({ limit: '5mb' }));
 
 // Service artwork. Next.js served `public/` automatically; the SPAs resolve
 // image URLs against this origin with `/api` stripped.
-app.use(express.static(path.join(process.cwd(), 'public'), { fallthrough: true }));
+app.use(express.static(path.join(projectRoot, 'public'), { fallthrough: true }));
 
 app.get('/health', (_req, res) => res.json({ ok: true }));
 

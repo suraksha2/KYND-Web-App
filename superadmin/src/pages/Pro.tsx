@@ -180,7 +180,7 @@ export default function ProPage() {
     <div className="space-y-5 pb-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-charcoal">Service Providers</h1>
+          <h1 className="text-2xl font-bold text-charcoal">Partners</h1>
           <p className="text-sm text-warmgrey mt-0.5">Manage professionals and their services</p>
         </div>
         <div className="flex items-center gap-2">
@@ -198,7 +198,7 @@ export default function ProPage() {
             onClick={() => setShowModal(true)}
             className="inline-flex items-center gap-1.5 text-sm font-semibold bg-terracotta hover:bg-accent-700 text-white px-4 py-2 rounded-xl transition shadow-sm shadow-soft"
           >
-            <Plus size={14} /> Add Provider
+            <Plus size={14} /> Add Partner
           </button>
         </div>
       </div>
@@ -310,7 +310,7 @@ export default function ProPage() {
             <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 border border-lightstone overflow-hidden">
               <div className="flex items-center justify-between px-6 py-4 border-b border-lightstone">
                 <div>
-                  <h2 className="text-base font-bold text-charcoal">Add Service Provider</h2>
+                  <h2 className="text-base font-bold text-charcoal">Add Partner</h2>
                   <p className="text-xs text-warmgrey mt-0.5">Fill in the details below</p>
                 </div>
                 <button onClick={handleClose} className="p-1.5 hover:bg-accent-50 rounded-lg transition">
@@ -445,7 +445,7 @@ export default function ProPage() {
                     disabled={saving}
                     className="flex-1 px-4 py-2.5 text-sm font-semibold bg-terracotta hover:bg-accent-700 text-white rounded-xl transition disabled:opacity-60"
                   >
-                    {saving ? "Adding..." : "Add Provider"}
+                    {saving ? "Adding..." : "Add Partner"}
                   </button>
                 </div>
               </form>

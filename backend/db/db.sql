@@ -83,18 +83,6 @@ CREATE TABLE IF NOT EXISTS services (
   review_count INT DEFAULT 0
 );
 
--- Link subcategories to the services they contain.
--- Must come after `services`: MySQL cannot create a foreign key to a table
--- that does not exist yet (ERROR 1824).
-CREATE TABLE IF NOT EXISTS service_subcategory_services (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  subcategory_id INT NOT NULL,
-  service_id INT NOT NULL,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (subcategory_id) REFERENCES service_subcategories(id) ON DELETE CASCADE,
-  FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE CASCADE
-);
-
 -- Clients table
 CREATE TABLE IF NOT EXISTS clients (
   id INT AUTO_INCREMENT PRIMARY KEY,
@@ -214,9 +202,13 @@ CREATE TABLE IF NOT EXISTS bookings (
   contact_city VARCHAR(100) NOT NULL,
   contact_pincode VARCHAR(20) NOT NULL,
   contact_area VARCHAR(100),
+  notes TEXT,
   payment VARCHAR(50) NOT NULL,
   placed_at DATETIME NOT NULL,
   status ENUM('upcoming', 'completed', 'cancelled') DEFAULT 'upcoming',
+  cancelled_by ENUM('customer', 'admin', 'provider'),
+  cancelled_at DATETIME,
+  cancel_reason VARCHAR(255),
   user_id INT,
   provider_id INT,
   assigned_at DATETIME,
@@ -237,6 +229,34 @@ SET @stmt := IF(
   'ALTER TABLE bookings ADD COLUMN user_id INT',
   'DO 0');
 PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- Migration: add the optional customer instructions column for the partner.
+SET @stmt := IF(
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'bookings'
+      AND COLUMN_NAME = 'notes') = 0,
+  'ALTER TABLE bookings ADD COLUMN notes TEXT AFTER contact_area',
+  'DO 0');
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- Migration: record who cancelled a booking (and why) so the apps can show it.
+SET @stmt := IF(
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'bookings'
+      AND COLUMN_NAME = 'cancelled_by') = 0,
+  'ALTER TABLE bookings
+     ADD COLUMN cancelled_by ENUM(''customer'', ''admin'', ''provider'') AFTER status,
+     ADD COLUMN cancelled_at DATETIME AFTER cancelled_by,
+     ADD COLUMN cancel_reason VARCHAR(255) AFTER cancelled_at',
+  'DO 0');
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- Backfill: existing cancelled rows predate the column. Their history JSON
+-- records the actor in the note text, so infer it there; default to customer.
+UPDATE bookings
+   SET cancelled_by = IF(LOWER(COALESCE(history, '')) LIKE '%by admin%', 'admin',
+                      IF(LOWER(COALESCE(history, '')) LIKE '%by provider%', 'provider', 'customer'))
+ WHERE status = 'cancelled' AND cancelled_by IS NULL;
 
 -- Reviews table for customer feedback on service providers
 CREATE TABLE IF NOT EXISTS reviews (
@@ -272,3 +292,111 @@ CREATE TABLE IF NOT EXISTS waitlist (
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY unique_waitlist_email (email)
 );
+
+-- Modular catalog schema (v2). Legacy `services` and `service_categories` tables
+-- remain in place until the storefront and admin UIs are fully migrated.
+CREATE TABLE IF NOT EXISTS catalog_categories (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  description TEXT,
+  variant_schema JSON NOT NULL DEFAULT (JSON_ARRAY()),
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS catalog_services (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  category_id INT NOT NULL,
+  name VARCHAR(255) NOT NULL,
+  description TEXT,
+  image VARCHAR(255),
+  status ENUM('live', 'pending_rates', 'paused') DEFAULT 'pending_rates',
+  default_partner_cost DECIMAL(10,2),
+  markup_pct_override DECIMAL(5,2),
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (category_id) REFERENCES catalog_categories(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS service_booking_modes (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  service_id INT NOT NULL,
+  mode ENUM('on_demand', 'scheduled', 'recurring') NOT NULL,
+  min_lead_time_hours INT,
+  blackout_dates JSON,
+  recurrence_frequency VARCHAR(50),
+  recurrence_discount_pct DECIMAL(5,2),
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (service_id) REFERENCES catalog_services(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS service_pricing_rules (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  service_id INT NOT NULL,
+  strategy ENUM('flat', 'hourly', 'tiered', 'per_unit', 'custom_quote') NOT NULL,
+  params JSON NOT NULL DEFAULT (JSON_OBJECT()),
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (service_id) REFERENCES catalog_services(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS addons (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  customer_price DECIMAL(10,2) NOT NULL,
+  partner_cost DECIMAL(10,2),
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS service_addons (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  service_id INT,
+  category_id INT,
+  addon_id INT NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (service_id) REFERENCES catalog_services(id) ON DELETE CASCADE,
+  FOREIGN KEY (category_id) REFERENCES catalog_categories(id) ON DELETE CASCADE,
+  FOREIGN KEY (addon_id) REFERENCES addons(id) ON DELETE CASCADE,
+  CHECK (service_id IS NOT NULL OR category_id IS NOT NULL)
+);
+
+CREATE TABLE IF NOT EXISTS service_variant_attributes (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  service_id INT NOT NULL,
+  attribute_key VARCHAR(100) NOT NULL,
+  attribute_value TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (service_id) REFERENCES catalog_services(id) ON DELETE CASCADE
+);
+
+-- Link help moments (service_subcategories) to catalog services.
+CREATE TABLE IF NOT EXISTS service_subcategory_services (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  subcategory_id INT NOT NULL,
+  service_id INT NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (subcategory_id) REFERENCES service_subcategories(id) ON DELETE CASCADE,
+  FOREIGN KEY (service_id) REFERENCES catalog_services(id) ON DELETE CASCADE
+);
+
+-- Migration: add description to catalog_categories if it was created before this column.
+SET @stmt := IF(
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'catalog_categories'
+      AND COLUMN_NAME = 'description') = 0,
+  'ALTER TABLE catalog_categories ADD COLUMN description TEXT AFTER name',
+  'DO 0');
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- Migration: add image to catalog_services if it was created before this column.
+SET @stmt := IF(
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'catalog_services'
+      AND COLUMN_NAME = 'image') = 0,
+  'ALTER TABLE catalog_services ADD COLUMN image VARCHAR(255) AFTER description',
+  'DO 0');
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;

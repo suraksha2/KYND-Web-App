@@ -1,19 +1,20 @@
 import { useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Star, MessageCircle, Calendar, Clock, RotateCcw, Pause, SkipForward, Eye, Plus, Sparkles, X } from 'lucide-react'
+import { Star, MessageCircle, Calendar, Clock, RotateCcw, Pause, SkipForward, Eye, Plus, Sparkles, X, AlertTriangle } from 'lucide-react'
 import { useBookings } from '../context/BookingsContext'
 import { useAuth } from '../context/AuthContext'
 import { useServices } from '../context/ServicesContext'
 import { API_BASE, serviceImageUrl } from '../lib/api'
 
-const fmtTime = (d) => new Date(d).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
-const fmtDay = (d) => new Date(d).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }).toUpperCase()
-const fmtShortDay = (d) => new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }).toUpperCase()
+const SGT = { timeZone: 'Asia/Singapore' }
+const fmtTime = (d) => new Date(d).toLocaleTimeString('en-SG', { hour: 'numeric', minute: '2-digit', ...SGT })
+const fmtDay = (d) => new Date(d).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', ...SGT }).toUpperCase()
+const fmtShortDay = (d) => new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', ...SGT }).toUpperCase()
 const fmtNext = (d) => {
   const date = new Date(d)
-  const weekday = date.toLocaleDateString('en-GB', { weekday: 'short' })
-  const day = date.getDate()
-  const month = date.toLocaleDateString('en-GB', { month: 'short' })
+  const weekday = date.toLocaleDateString('en-GB', { weekday: 'short', ...SGT })
+  const day = date.toLocaleDateString('en-GB', { day: 'numeric', ...SGT })
+  const month = date.toLocaleDateString('en-GB', { month: 'short', ...SGT })
   return `${weekday} ${day} ${month}, ${fmtTime(date)}`
 }
 
@@ -25,6 +26,14 @@ function toLocalInput(iso) {
 }
 
 const arrivalTime = (b) => fmtTime(new Date(b.placedAt).getTime() + 15 * 60 * 1000)
+
+// Who cancelled, from the customer's point of view.
+const cancelledByLabel = (by) => {
+  if (by === 'customer') return 'Cancelled by you'
+  if (by === 'admin') return 'Cancelled by Helpr support'
+  if (by === 'provider') return 'Cancelled by the partner'
+  return 'Cancelled'
+}
 
 function StarRating({ rating }) {
   return (
@@ -215,6 +224,9 @@ function UpcomingCard({ booking }) {
 
   const [showReschedule, setShowReschedule] = useState(false)
   const [newAt, setNewAt] = useState('')
+  const [showCancel, setShowCancel] = useState(false)
+  const [cancelling, setCancelling] = useState(false)
+  const [cancelError, setCancelError] = useState(null)
   const minDt = useMemo(() => toLocalInput(new Date(Date.now() + 60 * 60 * 1000).toISOString()), [])
 
   const openReschedule = () => {
@@ -228,10 +240,19 @@ function UpcomingCard({ booking }) {
     setShowReschedule(false)
   }
 
-  const handleCancel = () => {
-    if (window.confirm('Cancel this booking?')) {
-      cancelBooking(booking.bookingId, 'Cancelled by customer')
-    }
+  const closeCancel = () => {
+    if (cancelling) return
+    setShowCancel(false)
+    setCancelError(null)
+  }
+
+  const onConfirmCancel = async () => {
+    setCancelling(true)
+    setCancelError(null)
+    const result = await cancelBooking(booking.bookingId, 'Cancelled by customer')
+    setCancelling(false)
+    if (result?.ok) setShowCancel(false)
+    else setCancelError(result?.error || 'Failed to cancel booking. Please try again.')
   }
 
   return (
@@ -281,7 +302,7 @@ function UpcomingCard({ booking }) {
               <RotateCcw className="w-3.5 h-3.5" /> Reschedule
             </button>
             <button
-              onClick={handleCancel}
+              onClick={() => setShowCancel(true)}
               className="flex-1 min-w-[80px] inline-flex items-center justify-center gap-1.5 rounded-full bg-white ring-1 ring-lightstone hover:ring-terracotta text-charcoal font-semibold px-4 py-2 text-sm transition"
             >
               Cancel
@@ -303,6 +324,7 @@ function UpcomingCard({ booking }) {
                 <span className="block text-xs font-semibold text-charcoal mb-1.5">New date & time</span>
                 <input
                   type="datetime-local"
+                  step={1800}
                   min={minDt}
                   value={newAt}
                   onChange={(e) => setNewAt(e.target.value)}
@@ -316,6 +338,33 @@ function UpcomingCard({ booking }) {
             </div>
           </div>
         )}
+
+        {showCancel && (
+          <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={closeCancel}>
+            <div onClick={(e) => e.stopPropagation()} className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl">
+              <div className="flex items-start justify-between">
+                <div>
+                  <h3 className="font-bold text-charcoal">Are you sure you want to cancel?</h3>
+                  <p className="text-xs text-warmgrey mt-0.5">
+                    Booking #{booking.bookingId} will be cancelled. This cannot be undone.
+                  </p>
+                </div>
+                <button onClick={closeCancel} disabled={cancelling} className="text-warmgrey/70 hover:text-charcoal disabled:opacity-50"><X className="w-4 h-4" /></button>
+              </div>
+              {cancelError && (
+                <p className="mt-3 flex items-start gap-1.5 text-xs text-red-600">
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" /> {cancelError}
+                </p>
+              )}
+              <div className="mt-5 flex gap-2">
+                <button onClick={closeCancel} disabled={cancelling} className="flex-1 rounded-full bg-warmlinen hover:bg-lightstone text-charcoal font-semibold py-2.5 text-sm disabled:opacity-50">Keep booking</button>
+                <button onClick={onConfirmCancel} disabled={cancelling} className="flex-1 rounded-full bg-red-600 hover:bg-red-700 text-white font-semibold py-2.5 text-sm disabled:opacity-60">
+                  {cancelling ? 'Cancelling…' : 'Yes, cancel'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -325,7 +374,10 @@ function PastCard({ booking }) {
   const navigate = useNavigate()
   const firstItem = booking.items?.[0]
   const providerName = booking.provider?.name || 'A Pro'
-  const date = fmtShortDay(booking.placedAt)
+  const isCancelled = booking.status === 'cancelled'
+  const date = isCancelled && booking.cancelledAt
+    ? fmtShortDay(booking.cancelledAt)
+    : fmtShortDay(booking.placedAt)
 
   const handleBookAgain = () => {
     const slug = firstItem?.slug
@@ -338,9 +390,20 @@ function PastCard({ booking }) {
         <div className="flex-1 min-w-0">
           <h3 className="font-heading text-lg font-bold text-charcoal">{firstItem?.name || 'Service'}</h3>
           <p className="mt-1 text-sm text-warmgrey">{providerName} · S${booking.total}</p>
-          <div className="mt-1">
-            <UserRating booking={booking} />
-          </div>
+          {isCancelled ? (
+            <div className="mt-2">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-red-50 text-red-700 ring-1 ring-red-100 px-2.5 py-1 text-xs font-semibold">
+                <X className="w-3.5 h-3.5" /> {cancelledByLabel(booking.cancelledBy)}
+              </span>
+              {booking.cancelReason && (
+                <p className="mt-1.5 text-xs text-warmgrey break-words">“{booking.cancelReason}”</p>
+              )}
+            </div>
+          ) : (
+            <div className="mt-1">
+              <UserRating booking={booking} />
+            </div>
+          )}
         </div>
         <span className="shrink-0 text-xs font-bold text-warmgrey uppercase tracking-wide">{date}</span>
       </div>
@@ -374,19 +437,21 @@ export default function Bookings() {
   }, [firstUpcoming, services])
 
   const recurringCta = useMemo(() => {
-    if (tab !== 'past' || !past.length) return null
-    const first = past[0]
-    const serviceName = first.items?.[0]?.name
+    // Only services actually delivered should drive the "make it recurring"
+    // pitch — cancelled bookings share the Past tab but were never performed.
+    const completed = past.filter(b => b.status === 'completed')
+    if (tab !== 'past' || !completed.length) return null
+    const serviceName = completed[0].items?.[0]?.name
     if (!serviceName) return null
     const now = new Date()
-    const count = past.filter(b =>
+    const count = completed.filter(b =>
       b.items?.[0]?.name === serviceName &&
       new Date(b.placedAt).getMonth() === now.getMonth() &&
       new Date(b.placedAt).getFullYear() === now.getFullYear()
     ).length
     if (count < 2) return null
     return { serviceName, count }
-  }, [past])
+  }, [past, tab])
 
   return (
     <section className="pt-24 md:pt-28 pb-28">

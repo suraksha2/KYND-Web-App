@@ -7,7 +7,7 @@
 // deadline is pinned in localStorage on the first visit, so it survives reloads
 // and new tabs: once it has passed the visitor never sees the landing page again
 // (clear the `kynd:launchAt` key to replay it).
-export const LAUNCH_COUNTDOWN_SECONDS = 60
+export const LAUNCH_COUNTDOWN_SECONDS = 5
 
 const STORAGE_KEY = 'kynd:launchAt'
 

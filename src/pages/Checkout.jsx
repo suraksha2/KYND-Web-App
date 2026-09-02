@@ -15,11 +15,13 @@ const Field = ({ label, children }) => (
 
 const inputCls = 'w-full rounded-lg border border-lightstone px-3 py-2 text-sm focus:outline-none focus:border-terracotta focus:ring-2 focus:ring-terracotta/25'
 
+const NOTES_MAX = 500
+
 export default function Checkout() {
   const { items, subtotal, clear } = useCart()
   const { addBooking } = useBookings()
   const { token } = useAuth()
-  const { state } = useLocation()
+  const { state, pathname } = useLocation()
   const navigate = useNavigate()
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
@@ -28,6 +30,7 @@ export default function Checkout() {
   const [cities, setCities] = useState([])
   const [selectedArea, setSelectedArea] = useState('')
   const [pincode, setPincode] = useState('')
+  const [notes, setNotes] = useState('')
   const [pay, setPay] = useState('card')
   const [submitting, setSubmitting] = useState(false)
   const [payError, setPayError] = useState(null)
@@ -98,6 +101,7 @@ export default function Checkout() {
       total: subtotal,
       schedule, scheduledAt, cadence,
       contact: { name, phone, address, city, pincode, area: selectedArea },
+      notes: notes.trim(),
       payment: pay,
       placedAt: new Date().toISOString()
     }
@@ -125,9 +129,31 @@ export default function Checkout() {
     navigate('/booking/confirmed', { state: orderWithId, replace: true })
   }
 
+  const isValidPincode = (v) => /^\d{6}$/.test(v)
+
+  const hasErrors = () => {
+    const next = {}
+    if (!name.trim()) next.name = 'Required'
+    if (!phone.trim()) next.phone = 'Required'
+    if (!address.trim()) next.address = 'Required'
+    if (!city) next.city = 'Required'
+    if (!selectedArea) next.area = 'Required'
+    if (!pincode.trim()) next.pincode = 'Required'
+    else if (!isValidPincode(pincode.trim())) next.pincode = 'Enter a valid 6-digit postal code'
+    return next
+  }
+
   const submit = async (e) => {
     e.preventDefault()
-    if (!name || !phone || !address || !pincode) return
+    if (!token) {
+      navigate('/login', { state: { from: pathname } })
+      return
+    }
+    const nextErrors = hasErrors()
+    if (Object.keys(nextErrors).length) {
+      alert(nextErrors.pincode || nextErrors.address || 'Please complete your address.')
+      return
+    }
     setPayError(null)
     setSubmitting(true)
 
@@ -191,10 +217,11 @@ export default function Checkout() {
     }
   }
 
+  const sgt = { timeZone: 'Asia/Singapore' }
   const scheduleLabel = schedule === 'instant'
     ? 'Instant — Pro arrives in ~15 min'
     : schedule === 'scheduled'
-      ? `Scheduled${scheduledAt ? ` for ${new Date(scheduledAt).toLocaleString()}` : ''}`
+      ? `Scheduled${scheduledAt ? ` for ${new Date(scheduledAt).toLocaleString('en-SG', sgt)}` : ''}`
       : `Recurring (${cadence})`
 
   return (
@@ -224,6 +251,14 @@ export default function Checkout() {
               <div className="mt-4 grid gap-4">
                 <Field label="Address"><textarea rows={2} className={inputCls} value={address} onChange={e => setAddress(e.target.value)} required /></Field>
                 <div className="grid sm:grid-cols-2 gap-4">
+                  <Field label="Area">
+                    <select className={inputCls} value={selectedArea} onChange={handleAreaChange} required>
+                      <option value="">Select area</option>
+                      {cityAreas.map(area => (
+                        <option key={area} value={area}>{area}</option>
+                      ))}
+                    </select>
+                  </Field>
                   <Field label="City">
                     {loadingCities ? (
                       <select className={inputCls} disabled>
@@ -239,16 +274,39 @@ export default function Checkout() {
                       </select>
                     )}
                   </Field>
-                  <Field label="Area">
-                    <select className={inputCls} value={selectedArea} onChange={handleAreaChange} required>
-                      <option value="">Select area</option>
-                      {cityAreas.map(area => (
-                        <option key={area} value={area}>{area}</option>
-                      ))}
-                    </select>
-                  </Field>
                 </div>
-                <Field label="Pincode"><input className={inputCls} value={pincode} onChange={e => setPincode(e.target.value)} placeholder="Enter your pincode" required /></Field>
+                <Field label="Country"><input className={inputCls} value="Singapore" readOnly tabIndex={-1} /></Field>
+                <Field label="Pincode">
+                  <input
+                    className={inputCls}
+                    value={pincode}
+                    onChange={e => {
+                      const digits = e.target.value.replace(/\D/g, '').slice(0, 6)
+                      setPincode(digits)
+                    }}
+                    inputMode="numeric"
+                    pattern="\d{6}"
+                    maxLength={6}
+                    placeholder="Enter your pincode"
+                    required
+                  />
+                </Field>
+              </div>
+            </div>
+
+            <div className="rounded-2xl bg-white ring-1 ring-lightstone p-5">
+              <h2 className="font-heading font-bold text-charcoal">Instructions for your partner</h2>
+              <p className="text-xs text-warmgrey mt-1">Optional — gate codes, pets, which rooms to focus on, anything else they should know.</p>
+              <div className="mt-4">
+                <textarea
+                  rows={3}
+                  className={inputCls}
+                  value={notes}
+                  onChange={e => setNotes(e.target.value.slice(0, NOTES_MAX))}
+                  placeholder="e.g. Doorbell is broken, please call on arrival. Friendly dog at home."
+                  maxLength={NOTES_MAX}
+                />
+                <p className="mt-1 text-right text-[11px] text-warmgrey">{notes.length}/{NOTES_MAX}</p>
               </div>
             </div>
 

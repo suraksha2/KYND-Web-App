@@ -83,12 +83,14 @@ function isPublicApi(pathname: string, method: string): boolean {
     if (/^\/city-areas$/.test(pathname)) return true;
     if (/^\/service-categories(\/[^/]+)?$/.test(pathname)) return true;
     if (/^\/service-subcategories(\/[^/]+)?$/.test(pathname)) return true;
+    if (/^\/images$/.test(pathname)) return true;
+    if (/^\/catalog\/categories(\/[^/]+)?$/.test(pathname)) return true;
+    if (/^\/catalog\/services(\/[^/]+)?$/.test(pathname)) return true;
+    if (/^\/catalog\/services\/[^/]+\/quote$/.test(pathname)) return true;
+    if (/^\/catalog\/services\/[^/]+\/addons$/.test(pathname)) return true;
     // Customers verify their own payment status (client_secret already on client).
     if (/^\/payments\/[^/]+$/.test(pathname)) return true;
   }
-
-  // Customers create bookings without an admin session.
-  if (method === 'POST' && pathname === '/bookings') return true;
 
   // Customers create payment intents during checkout without an admin session.
   if (method === 'POST' && pathname === '/payments/create-intent') return true;
@@ -119,6 +121,11 @@ export async function apiAuthGate(req: Request, res: Response, next: NextFunctio
   if (!hasAdminAccess(session.role)) {
     // Customers can read their own bookings; the route filters by user_id.
     if (pathname === '/bookings' && req.method === 'GET') return next();
+    // Customers can place new bookings for themselves.
+    if (pathname === '/bookings' && req.method === 'POST') return next();
+    // Customers can cancel/reschedule their own booking; the route verifies
+    // ownership against session.id before touching the row.
+    if (req.method === 'PATCH' && /^\/bookings\/[^/]+$/.test(pathname)) return next();
     return res.status(403).json({ error: 'Admin access required.' });
   }
 

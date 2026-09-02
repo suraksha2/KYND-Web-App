@@ -1,6 +1,7 @@
 import { Link, Navigate, useLocation } from 'react-router-dom'
 import { CheckCircle2, Loader2, Star, User } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { useAuth } from '../context/AuthContext'
 import { API_ORIGIN as API_BASE, serviceImageUrl } from '../lib/api'
 
 export default function BookingConfirmed() {
@@ -10,6 +11,7 @@ export default function BookingConfirmed() {
   })())
   const [verifying, setVerifying] = useState(false)
   const [verificationError, setVerificationError] = useState(null)
+  const { token } = useAuth()
 
   useEffect(() => {
     const verifyPayment = async () => {
@@ -39,7 +41,8 @@ export default function BookingConfirmed() {
 
         const response = await fetch(`${API_BASE}/api/bookings`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+          credentials: 'include',
           body: JSON.stringify(paidOrder)
         })
         const data = await response.json()
@@ -133,14 +136,15 @@ export default function BookingConfirmed() {
     )
   }
 
+  const sgt = { timeZone: 'Asia/Singapore' }
   const arrivalTime = order.schedule === 'instant'
-    ? new Date(new Date(order.placedAt || Date.now()).getTime() + 15 * 60 * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+    ? new Date(new Date(order.placedAt || Date.now()).getTime() + 15 * 60 * 1000).toLocaleTimeString('en-SG', { hour: 'numeric', minute: '2-digit', ...sgt })
     : ''
 
   const scheduleLabel = order.schedule === 'instant'
     ? 'Instant — your Pro is being assigned'
     : order.schedule === 'scheduled'
-      ? `Scheduled${order.scheduledAt ? ` for ${new Date(order.scheduledAt).toLocaleString()}` : ''}`
+      ? `Scheduled${order.scheduledAt ? ` for ${new Date(order.scheduledAt).toLocaleString('en-SG', sgt)}` : ''}`
       : `Recurring (${order.cadence})`
 
   const ProviderCard = () => {
@@ -186,7 +190,7 @@ export default function BookingConfirmed() {
             <CheckCircle2 className="w-7 h-7" />
           </div>
           <h1 className="font-heading text-3xl md:text-4xl font-extrabold text-charcoal">
-            Booked! Arriving by {arrivalTime}
+            Booked! Estimated {arrivalTime}
           </h1>
 
           <div className="mt-7">
@@ -225,7 +229,7 @@ export default function BookingConfirmed() {
           <div className="mt-6 rounded-2xl bg-warmlinen p-4 text-left text-sm">
             <div className="flex justify-between"><span className="text-warmgrey">Booking ID</span><span className="font-semibold">{order.bookingId}</span></div>
             <div className="mt-2 flex justify-between"><span className="text-warmgrey">When</span><span className="text-right">{scheduleLabel}</span></div>
-            <div className="mt-2 flex justify-between"><span className="text-warmgrey">Address</span><span className="text-right max-w-[60%]">{order.contact?.address}, {order.contact?.city} {order.contact?.pincode}</span></div>
+            <div className="mt-2 flex justify-between"><span className="text-warmgrey">Address</span><span className="text-right max-w-[60%]">{[order.contact?.address, order.contact?.area, order.contact?.city, 'Singapore'].filter(Boolean).join(', ')}</span></div>
             <div className="mt-2 flex justify-between"><span className="text-warmgrey">Payment</span><span className="capitalize">{order.payment === 'cod' ? 'Cash after service' : order.payment.toUpperCase()}</span></div>
             <div className="mt-3 pt-3 border-t">
               <div className="text-warmgrey mb-2">Services</div>

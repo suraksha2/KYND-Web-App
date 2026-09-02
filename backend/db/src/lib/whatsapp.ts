@@ -11,6 +11,7 @@ interface BookingDetails {
   contactArea: string | null;
   contactCity: string;
   contactPincode: string;
+  notes?: string | null;
   total: number;
   payment: string;
 }
@@ -33,11 +34,18 @@ export async function sendProviderAssignmentWhatsApp(
     phone = '91' + phone;
   }
 
+  // MySQL DATETIME values are stored as Singapore local time (SGT).
+  function parseSgt(value: string | null) {
+    if (!value) return null;
+    if (/[Z+-]/.test(value)) return new Date(value);
+    return new Date(value.replace(' ', 'T') + '+08:00');
+  }
+
   const scheduleInfo =
     booking.schedule === 'instant'
       ? 'Instant (ASAP)'
       : booking.scheduledAt
-      ? new Date(booking.scheduledAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })
+      ? (parseSgt(booking.scheduledAt)?.toLocaleString('en-SG', { timeZone: 'Asia/Singapore' }) ?? booking.schedule)
       : booking.schedule;
 
   const addressLine = [
@@ -60,6 +68,7 @@ export async function sendProviderAssignmentWhatsApp(
     `Name: ${booking.contactName}\n` +
     `Phone: ${booking.contactPhone}\n` +
     `Address: ${addressLine}\n\n` +
+    (booking.notes ? `📝 *Instructions*\n${booking.notes}\n\n` : '') +
     `💰 Amount: S$${Number(booking.total).toLocaleString('en-SG')}\n` +
     `Payment: ${booking.payment}\n\n` +
     `Please reach the customer on time. Thank you! 🙏`;

@@ -1,8 +1,10 @@
 import { Router } from 'express';
 
 import analytics from './analytics';
+import addons from './addons';
 import auth from './auth';
 import bookings from './bookings';
+import catalog from './catalog';
 import cities from './cities';
 import cityAreas from './city-areas';
 import cityServices from './city-services';
@@ -24,8 +26,10 @@ import waitlist from './waitlist';
 const router = Router();
 
 router.use('/analytics', analytics);
+router.use('/addons', addons);
 router.use('/auth', auth);
 router.use('/bookings', bookings);
+router.use('/catalog', catalog);
 router.use('/cities', cities);
 router.use('/city-areas', cityAreas);
 router.use('/city-services', cityServices);

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Plus, Search, Pencil, Trash2, X, HeartHandshake, Package, ExternalLink } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
 import clsx from "clsx";
 import ModalPortal from "@/components/ModalPortal";
 import { apiFetch, serviceImageUrl } from "@/lib/api";
@@ -49,7 +50,8 @@ function slugify(text: string) {
 }
 
 export default function ServiceSubcategoriesPage() {
-  const [search, setSearch] = useState("");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const search = searchParams.get('q') ?? '';
   const [moments, setMoments] = useState<HelpMoment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -94,7 +96,7 @@ export default function ServiceSubcategoriesPage() {
 
   useEffect(() => {
     fetchMoments();
-    apiFetch("/api/services")
+    apiFetch("/api/catalog/services")
       .then((res) => res.json())
       .then((json) => {
         setCatalogServices(
@@ -105,7 +107,7 @@ export default function ServiceSubcategoriesPage() {
           }))
         );
       })
-      .catch((err) => console.error("Failed to fetch services", err));
+      .catch((err) => console.error("Failed to fetch catalog services", err));
 
     apiFetch("/api/images")
       .then((res) => res.json())
@@ -264,7 +266,7 @@ export default function ServiceSubcategoriesPage() {
                 type="search"
                 placeholder="Search…"
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(e) => setSearchParams(e.target.value ? { q: e.target.value } : {}, { replace: true })}
                 className="pl-9 pr-3 py-2 text-sm border border-lightstone rounded-xl bg-gray-50 focus:outline-none focus:ring-2 focus:ring-terracotta/30 w-44 sm:w-52"
               />
             </div>
@@ -492,7 +494,7 @@ export default function ServiceSubcategoriesPage() {
                     Linked services ({form.serviceIds.length} selected)
                   </label>
                   {catalogServices.length === 0 ? (
-                    <p className="text-xs text-warmgrey">Add services first under Services.</p>
+                    <p className="text-xs text-warmgrey">Add catalog services first under Catalog Services.</p>
                   ) : (
                     <div className="max-h-40 overflow-y-auto border border-lightstone rounded-xl p-3 space-y-2 bg-gray-50">
                       {catalogServices.map((s) => (

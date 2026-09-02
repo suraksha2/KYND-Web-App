@@ -60,7 +60,7 @@ const PhoneAppScreen = ({ variant = 'home' }) => {
           <div className="flex items-center gap-2 text-neutral-400"><div className="w-3 h-3 rounded-full border-2 border-neutral-300" /><span>Service started</span></div>
           <div className="mt-2 rounded-lg bg-brand-50 p-2">
             <div className="font-semibold text-brand-800">Priya R.</div>
-            <div className="text-neutral-600">Arriving in 12 min</div>
+            <div className="text-neutral-600">Estimated in 12 min</div>
           </div>
         </div>
       </div>

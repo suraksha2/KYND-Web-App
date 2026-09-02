@@ -1,16 +1,22 @@
+import { useMemo } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
 import { Image, MapPin, CreditCard, Bell, Globe, Shield, Gift, HelpCircle, ChevronRight } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useBookings } from '../context/BookingsContext'
 
-function Row({ icon: Icon, label, value, last }) {
+function Row({ icon: Icon, label, value, last, onClick }) {
+  const Tag = onClick ? 'button' : 'div'
   return (
-    <div className={`flex items-center gap-3 px-4 py-4 ${last ? '' : 'border-b border-lightstone'}`}>
+    <Tag
+      type={onClick ? 'button' : undefined}
+      onClick={onClick}
+      className={`w-full flex items-center gap-3 px-4 py-4 bg-transparent ${last ? '' : 'border-b border-lightstone'} ${onClick ? 'cursor-pointer hover:bg-accent-50/50 transition text-left' : ''}`}
+    >
       <Icon className="w-4 h-4 text-warmgrey shrink-0" />
       <span className="flex-1 text-sm font-medium text-charcoal">{label}</span>
       {value && <span className="text-sm text-warmgrey mr-2">{value}</span>}
       <ChevronRight className="w-4 h-4 text-warmgrey/70" />
-    </div>
+    </Tag>
   )
 }
 
@@ -18,6 +24,15 @@ export default function Account() {
   const { user, isAuthenticated, logout } = useAuth()
   const { bookings } = useBookings()
   const navigate = useNavigate()
+
+  const savedAddress = useMemo(() => {
+    const latest = bookings[0]?.contact?.address
+    if (latest) return latest
+    try {
+      const lastOrder = JSON.parse(localStorage.getItem('kynd.lastOrder') || 'null')
+      return lastOrder?.contact?.address || null
+    } catch { return null }
+  }, [bookings])
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace state={{ from: '/account' }} />
@@ -39,7 +54,12 @@ export default function Account() {
   return (
     <section className="pt-28 md:pt-32 pb-24">
       <div className="max-w-md mx-auto px-5">
-        <div className="flex items-center gap-4">
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => navigate('/account')}
+          className="flex items-center gap-4 cursor-pointer"
+        >
           <div className="w-16 h-16 rounded-full border-2 border-dashed border-lightstone bg-white grid place-items-center text-warmgrey">
             <div className="flex flex-col items-center">
               <Image className="w-5 h-5" />
@@ -53,11 +73,21 @@ export default function Account() {
         </div>
 
         <div className="mt-5 grid grid-cols-2 gap-3">
-          <div className="bg-white rounded-2xl ring-1 ring-lightstone p-4">
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={() => navigate('/bookings')}
+            className="bg-white rounded-2xl ring-1 ring-lightstone p-4 cursor-pointer hover:bg-accent-50/50 transition"
+          >
             <div className="text-xs text-warmgrey">Bookings</div>
             <div className="mt-1 text-2xl font-extrabold text-charcoal">{bookings.length}</div>
           </div>
-          <div className="bg-white rounded-2xl ring-1 ring-lightstone p-4">
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={() => navigate('/account')}
+            className="bg-white rounded-2xl ring-1 ring-lightstone p-4 cursor-pointer hover:bg-accent-50/50 transition"
+          >
             <div className="text-xs text-warmgrey">Since</div>
             <div className="mt-1 text-2xl font-extrabold text-charcoal">{memberYear}</div>
           </div>
@@ -66,16 +96,26 @@ export default function Account() {
         <div className="mt-8">
           <h2 className="text-xs font-bold text-warmgrey uppercase tracking-wide">Saved details</h2>
           <div className="mt-3 bg-white rounded-2xl ring-1 ring-lightstone overflow-hidden">
-            <div className="flex items-center gap-3 px-4 py-4">
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => navigate('/account')}
+              className="flex items-center gap-3 px-4 py-4 cursor-pointer hover:bg-accent-50/50 transition"
+            >
               <MapPin className="w-4 h-4 text-warmgrey shrink-0" />
               <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium text-charcoal truncate">{user?.address || 'No home address saved'}</div>
+                <div className="text-sm font-medium text-charcoal truncate">{savedAddress || 'No home address saved'}</div>
                 <div className="text-xs text-warmgrey">Home address</div>
               </div>
               <ChevronRight className="w-4 h-4 text-warmgrey/70" />
             </div>
             <div className="mx-4 border-t border-lightstone" />
-            <div className="flex items-center gap-3 px-4 py-4">
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => navigate('/account')}
+              className="flex items-center gap-3 px-4 py-4 cursor-pointer hover:bg-accent-50/50 transition"
+            >
               <CreditCard className="w-4 h-4 text-warmgrey shrink-0" />
               <div className="flex-1 min-w-0">
                 <div className="text-sm font-medium text-charcoal truncate">{user?.paymentMethod || 'No payment method saved'}</div>
@@ -89,11 +129,11 @@ export default function Account() {
         <div className="mt-8">
           <h2 className="text-xs font-bold text-warmgrey uppercase tracking-wide">Account</h2>
           <div className="mt-3 bg-white rounded-2xl ring-1 ring-lightstone overflow-hidden">
-            <Row icon={Bell} label="Notifications" />
-            <Row icon={Globe} label="Language" value="English" />
-            <Row icon={Shield} label="Trust & Safety" />
-            <Row icon={Gift} label="Refer a friend" />
-            <Row icon={HelpCircle} label="Help & support" last />
+            <Row icon={Bell} label="Notifications" onClick={() => navigate('/account')} />
+            <Row icon={Globe} label="Language" value="English" onClick={() => navigate('/account')} />
+            <Row icon={Shield} label="Trust & Safety" onClick={() => navigate('/tnc')} />
+            <Row icon={Gift} label="Refer a friend" onClick={() => navigate('/account')} />
+            <Row icon={HelpCircle} label="Help & support" onClick={() => navigate('/support')} last />
           </div>
         </div>
 

@@ -21,7 +21,8 @@ router.get('/bookings', async (req, res) => {
     const [rows] = await pool.query(
       `SELECT id, booking_id, items, total, schedule, scheduled_at, cadence,
               contact_name, contact_phone, contact_address, contact_city,
-              contact_pincode, contact_area, payment, placed_at, status,
+              contact_pincode, contact_area, notes, payment, placed_at, status,
+              cancelled_by, cancelled_at, cancel_reason,
               provider_id, assigned_at
        FROM bookings
        WHERE provider_id = ?
@@ -81,16 +82,30 @@ router.put('/bookings/:id', async (req, res) => {
       history = [];
     }
     const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+    const cancelledBy = isProvider ? 'provider' : 'admin';
     history.push({
       at: now,
-      type: 'status',
+      type: status === 'cancelled' ? 'cancelled' : 'status',
+      by: cancelledBy,
       note: `Marked ${status} by ${session.role}`,
     });
 
-    await pool.query(
-      'UPDATE bookings SET status = ?, history = ? WHERE id = ?',
-      [status, JSON.stringify(history), req.params.id]
-    );
+    if (status === 'cancelled') {
+      await pool.query(
+        `UPDATE bookings
+            SET status = ?, cancelled_by = ?, cancelled_at = ?, history = ?
+          WHERE id = ?`,
+        [status, cancelledBy, now, JSON.stringify(history), req.params.id]
+      );
+    } else {
+      // Re-opening or completing clears any stale cancellation metadata.
+      await pool.query(
+        `UPDATE bookings
+            SET status = ?, cancelled_by = NULL, cancelled_at = NULL, cancel_reason = NULL, history = ?
+          WHERE id = ?`,
+        [status, JSON.stringify(history), req.params.id]
+      );
+    }
 
     return res.status(200).json({ success: true, status });
   } catch (error) {

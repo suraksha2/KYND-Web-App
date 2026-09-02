@@ -17,6 +17,7 @@ router.post('/', async (req, res) => {
       scheduledAt,
       cadence,
       contact,
+      notes,
       payment,
       placedAt,
       status = 'upcoming'
@@ -26,22 +27,51 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    // Link to the logged-in customer if a valid token is present.
-    const session = await getSession(req);
-    const userId = session?.id || null;
+    // Validate Singapore address: full name, phone, street, city, area and a 6-digit
+    // postal code. This is a hard guard for any client that bypasses the storefront.
+    const { name, phone, address, city, pincode, area } = contact || {};
+    const isValidPincode = (v: unknown) => typeof v === 'string' && /^\d{6}$/.test(v);
+    if (!name?.trim() || !phone?.trim() || !address?.trim() || !city?.trim() || !area?.trim() || !pincode) {
+      return res.status(400).json({ error: 'Missing contact/address fields' });
+    }
+    if (!isValidPincode(pincode)) {
+      return res.status(400).json({ error: 'Invalid postal code. Enter a 6-digit Singapore postal code.' });
+    }
 
-    // Convert ISO datetime to MySQL datetime format
+    // Booking creation now requires an authenticated customer.
+    const session = req.session;
+    if (!session) return res.status(401).json({ error: 'Authentication required.' });
+    const userId = session.id;
+
+    // Convert an ISO UTC timestamp to a Singapore-local MySQL DATETIME string.
+    // MySQL DATETIME has no timezone, so all stored instants are treated as SGT.
     const formatDateTime = (isoString: string | null) => {
       if (!isoString) return null;
-      return new Date(isoString).toISOString().slice(0, 19).replace('T', ' ');
+      const d = new Date(isoString);
+      if (Number.isNaN(d.getTime())) return null;
+      const parts = new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'Asia/Singapore',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+      }).formatToParts(d);
+      const get = (type: string) => parts.find((p) => p.type === type)?.value || '00';
+      return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')}:${get('second')}`;
     };
+
+    // Optional free-text instructions the customer leaves for the assigned partner.
+    const trimmedNotes = typeof notes === 'string' ? notes.trim().slice(0, 500) : '';
 
     const [result] = await pool.query(
       `INSERT INTO bookings (
         booking_id, items, total, schedule, scheduled_at, cadence,
         contact_name, contact_phone, contact_address, contact_city, contact_pincode, contact_area,
-        payment, placed_at, status, history, user_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        notes, payment, placed_at, status, history, user_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         bookingId,
         JSON.stringify(items),
@@ -55,6 +85,7 @@ router.post('/', async (req, res) => {
         contact.city,
         contact.pincode,
         contact.area || null,
+        trimmedNotes || null,
         payment,
         formatDateTime(placedAt),
         status,
@@ -165,15 +196,45 @@ router.get('/', async (req, res) => {
   }
 });
 
-// PATCH cancel booking (for clients)
+// PATCH cancel / reschedule booking (for clients)
 router.patch('/:id', async (req, res) => {
   try {
     const body = req.body;
     const { status, reason, scheduledAt } = body;
 
+    const session = await getSession(req);
+    if (!session) {
+      return res.status(401).json({ error: 'Authentication required.' });
+    }
+
+    // Customers may only touch their own bookings; admins may touch any.
+    const [ownerRows]: any = await pool.query(
+      'SELECT user_id FROM bookings WHERE id = ?',
+      [req.params.id]
+    );
+    if (!ownerRows || ownerRows.length === 0) {
+      return res.status(404).json({ error: 'Booking not found.' });
+    }
+    if (!hasAdminAccess(session.role) && Number(ownerRows[0].user_id) !== Number(session.id)) {
+      return res.status(403).json({ error: 'You can only modify your own bookings.' });
+    }
+
     const formatDateTime = (isoString: string | null) => {
       if (!isoString) return null;
-      return new Date(isoString).toISOString().slice(0, 19).replace('T', ' ');
+      const d = new Date(isoString);
+      if (Number.isNaN(d.getTime())) return null;
+      const parts = new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'Asia/Singapore',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+      }).formatToParts(d);
+      const get = (type: string) => parts.find((p) => p.type === type)?.value || '00';
+      return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')}:${get('second')}`;
     };
 
     // Reschedule booking
@@ -220,7 +281,7 @@ router.patch('/:id', async (req, res) => {
 
     // Check if booking exists
     const [rows]: any = await pool.query(
-      'SELECT id, history, contact_phone FROM bookings WHERE id = ?',
+      'SELECT id, history, contact_phone, status, cancelled_by, cancelled_at, cancel_reason FROM bookings WHERE id = ?',
       [req.params.id]
     );
 
@@ -229,6 +290,24 @@ router.patch('/:id', async (req, res) => {
     }
 
     const booking = rows[0];
+
+    // Already cancelled: report the existing cancellation instead of appending a
+    // duplicate history entry every time the client retries.
+    if (booking.status === 'cancelled') {
+      return res.status(200).json({
+        success: true,
+        status: 'cancelled',
+        cancelledBy: booking.cancelled_by,
+        cancelledAt: booking.cancelled_at,
+        cancelReason: booking.cancel_reason,
+      });
+    }
+    if (booking.status === 'completed') {
+      return res.status(409).json({ error: 'A completed booking cannot be cancelled.' });
+    }
+
+    // Who pulled the trigger — drives the "Cancelled by ..." label in the apps.
+    const cancelledBy = hasAdminAccess(session.role) ? 'admin' : 'customer';
 
     // Append cancellation to history
     let history: any[] = [];
@@ -242,18 +321,28 @@ router.patch('/:id', async (req, res) => {
     }
 
     const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+    const trimmedReason = typeof reason === 'string' ? reason.trim().slice(0, 255) : '';
     history.push({
       at: now,
       type: 'cancelled',
-      note: reason || 'Cancelled by client',
+      by: cancelledBy,
+      note: trimmedReason || `Cancelled by ${cancelledBy}`,
     });
 
     await pool.query(
-      'UPDATE bookings SET status = ?, history = ? WHERE id = ?',
-      [status, JSON.stringify(history), req.params.id]
+      `UPDATE bookings
+          SET status = ?, cancelled_by = ?, cancelled_at = ?, cancel_reason = ?, history = ?
+        WHERE id = ?`,
+      [status, cancelledBy, now, trimmedReason || null, JSON.stringify(history), req.params.id]
     );
 
-    return res.status(200).json({ success: true, status });
+    return res.status(200).json({
+      success: true,
+      status,
+      cancelledBy,
+      cancelledAt: now,
+      cancelReason: trimmedReason || null,
+    });
   } catch (error) {
     console.error('[PATCH /api/bookings/[id]]', error);
     return res.status(500).json({ error: 'Failed to cancel booking' });
@@ -300,7 +389,7 @@ router.put('/:id', async (req, res) => {
     const [bookingRows]: any = await pool.query(
       `SELECT b.booking_id, b.items, b.total, b.schedule, b.scheduled_at,
               b.contact_name, b.contact_phone, b.contact_address,
-              b.contact_area, b.contact_city, b.contact_pincode, b.payment
+              b.contact_area, b.contact_city, b.contact_pincode, b.notes, b.payment
        FROM bookings b
        WHERE b.id = ?`,
       [bookingId]
@@ -336,6 +425,7 @@ router.put('/:id', async (req, res) => {
         contactArea: booking.contact_area,
         contactCity: booking.contact_city,
         contactPincode: booking.contact_pincode,
+        notes: booking.notes,
         total: booking.total,
         payment: booking.payment,
       });

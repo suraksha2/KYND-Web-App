@@ -115,7 +115,7 @@ export default function AnalyticsPage() {
             sub: "vs last month",
           },
           {
-            label: "Unique Customers",
+            label: "Unique Clients",
             value: Number(kpi.uniqueCustomers ?? 0).toLocaleString(),
             icon: Users, color: "bg-terracotta",
             badge: null,

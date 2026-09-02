@@ -3,7 +3,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { Search, ArrowRight } from 'lucide-react'
 import { iconForService } from '../lib/serviceIcon'
 import { taglineForService } from '../lib/serviceTagline'
-import { API_BASE, serviceImageUrl } from '../lib/api'
+import { fetchCatalogServices } from '../lib/catalogServices'
 
 function ServicesSearch({ value, onChange }) {
   return (
@@ -67,23 +67,10 @@ export default function Services() {
   useEffect(() => {
     const fetchServices = async () => {
       try {
-        const response = await fetch(`${API_BASE}/services`)
-        const result = await response.json()
-        if (result.data) {
-          const mappedServices = result.data.map(service => ({
-            id: service.id,
-            slug: service.name.toLowerCase().replace(/\s+/g, '-'),
-            name: service.name,
-            category: service.category || '',
-            img: serviceImageUrl(service.image),
-            price: parseFloat(service.price),
-            pricingFrom: `S$${parseFloat(service.price).toFixed(2)}`,
-            duration: service.duration || 'Variable'
-          }))
-          setServices(mappedServices)
-        }
+        const mappedServices = await fetchCatalogServices()
+        setServices(mappedServices)
       } catch (error) {
-        console.error('Failed to fetch services:', error)
+        console.error('Failed to fetch catalog services:', error)
       } finally {
         setLoading(false)
       }

@@ -4,7 +4,7 @@ import { Plus, Image as ImageIcon, Star, ShieldCheck, FileText, UserCheck } from
 import { iconForService } from '../../lib/serviceIcon'
 import { taglineForService } from '../../lib/serviceTagline'
 // import { useCart } from '../../context/CartContext'
-import { API_BASE, serviceImageUrl } from '../../lib/api'
+import { fetchCatalogServices } from '../../lib/catalogServices'
 
 const ServiceTile = ({ s }) => {
   const [imgFailed, setImgFailed] = useState(false)
@@ -61,24 +61,10 @@ export default function Services() {
   useEffect(() => {
     const fetchServices = async () => {
       try {
-        const response = await fetch(`${API_BASE}/services`)
-        const result = await response.json()
-        if (result.data) {
-          const mappedServices = result.data.map(service => ({
-            id: service.id,
-            slug: service.name.toLowerCase().replace(/\s+/g, '-'),
-            name: service.name,
-            short: service.category || 'Professional service',
-            img: serviceImageUrl(service.image),
-            price: parseFloat(service.price),
-            pricingFrom: `S$${parseFloat(service.price).toFixed(2)}`,
-            duration: 'Variable',
-            bullets: ['Professional service', 'Quality guaranteed', 'Trusted providers']
-          }))
-          setServices(mappedServices)
-        }
+        const mappedServices = await fetchCatalogServices()
+        setServices(mappedServices)
       } catch (error) {
-        console.error('Failed to fetch services:', error)
+        console.error('Failed to fetch catalog services:', error)
       } finally {
         setLoading(false)
       }

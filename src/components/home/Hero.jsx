@@ -159,13 +159,13 @@ export default function Hero() {
                 Trusted help for<br />
                 <span className="text-terracotta">life's moments.</span>
               </h1>
-              <p className="mt-4 text-base md:text-lg font-semibold text-warmgrey max-w-sm mx-0">
+              <p className="mt-4 text-base md:text-lg font-semibold text-charcoal max-w-sm mx-0">
                 Professional. Background-checked.<br /> Human.
               </p>
             </div>
 
             <div className="md:w-1/2 mt-6 md:mt-0 space-y-5">
-              <LocationSearch cities={cities} />
+              {/* <LocationSearch cities={cities} /> */}
 
               <div className="inline-flex items-start gap-2.5 rounded-full bg-sage/10 border border-sage/20 px-4 py-3 max-w-md text-left mx-0">
                 <ShieldCheck className="w-5 h-5 text-sage shrink-0 mt-0.5" />
@@ -199,13 +199,13 @@ export default function Hero() {
             Trusted<br />help for<br />
             <span className="text-terracotta">life’s<br />moments.</span>
           </h1>
-          <p className="mt-3.5 font-medium text-warmgrey leading-snug text-[clamp(14px,4.2vw,17px)]">
+          <p className="mt-3.5 font-semibold text-charcoal leading-snug text-[clamp(14px,4.6vw,18px)]">
             Professional. Background-checked.<br />Human.
           </p>
         </div>
 
         <div className="relative z-10 mt-auto px-5 pt-12 pb-5 space-y-3">
-          <LocationSearch cities={cities} variant="mobile" />
+          {/* <LocationSearch cities={cities} variant="mobile" /> */}
 
           <div className="flex items-start gap-3 rounded-[18px] bg-sage/20 backdrop-blur-[6px] px-4 py-3.5">
             <ShieldCheck className="w-5 h-5 text-sage shrink-0 mt-0.5" />
