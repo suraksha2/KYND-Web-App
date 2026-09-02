@@ -2,10 +2,17 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Prevent any rogue child from triggering horizontal scroll on mobile */
+html, body, #root { min-height: 100%; overflow-x: hidden; max-width: 100%; }
+
 /* next/font used to inject these; the fonts are loaded from index.html now. */
 :root {
   --font-sans: 'Plus Jakarta Sans';
   --font-heading: 'Sora';
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
 }
 
 body {
@@ -13,6 +20,17 @@ body {
   -webkit-font-smoothing: antialiased;
   color: #2B2926;
   background: #F5F1EA;
+  padding-top: var(--safe-top);
+  padding-left: var(--safe-left);
+  padding-right: var(--safe-right);
+}
+
+/* Defensive override: force normal page scroll */
+html, body {
+  position: static !important;
+  overflow-y: visible !important;
+  overflow-x: hidden !important;
+  height: auto !important;
 }
 
 /* Custom scrollbar */
@@ -25,4 +43,20 @@ body {
 ::-webkit-scrollbar-thumb {
   background: #D6CEC2;
   border-radius: 3px;
+}
+
+/* Hide scrollbars while keeping scrollability */
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* subtle grid */
+.bg-grid {
+  background-image:
+    radial-gradient(rgba(74,46,31,0.08) 1px, transparent 1px);
+  background-size: 22px 22px;
 }

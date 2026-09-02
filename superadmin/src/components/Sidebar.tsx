@@ -17,9 +17,14 @@ import {
   HeartHandshake,
 } from "lucide-react";
 import clsx from "clsx";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { appPathname } from "../lib/app-path";
+
+interface SidebarProps {
+  mobileOpen?: boolean;
+  onClose?: () => void;
+}
 
 const navItems = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
@@ -35,11 +40,15 @@ const navItems = [
   { label: "Settings", href: "/settings", icon: Settings },
 ];
 
-export default function Sidebar() {
+export default function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const { logout } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
+
+  useEffect(() => {
+    if (mobileOpen) setCollapsed(false);
+  }, [mobileOpen]);
 
   function handleLogout() {
     logout();
@@ -47,12 +56,15 @@ export default function Sidebar() {
   }
 
   return (
-    <aside
-      className={clsx(
-        "flex flex-col bg-white text-charcoal border-r border-lightstone transition-all duration-300 shrink-0",
-        collapsed ? "w-[68px]" : "w-60"
-      )}
-    >
+    <>
+      {mobileOpen && <div className="fixed inset-0 bg-black/30 z-30 md:hidden" onClick={onClose} />}
+      <aside
+        className={clsx(
+          "flex flex-col bg-white text-charcoal border-r border-lightstone transition-all duration-300 shrink-0 z-40",
+          collapsed && !mobileOpen ? "w-[68px]" : "w-60",
+          mobileOpen ? "fixed inset-y-0 left-0 flex md:static" : "hidden md:flex"
+        )}
+      >
       {/* Logo */}
       <div className={clsx(
         "flex items-center border-b border-lightstone h-16 shrink-0",
@@ -75,7 +87,10 @@ export default function Sidebar() {
         )}
         {!collapsed && (
           <button
-            onClick={() => setCollapsed(true)}
+            onClick={() => {
+              if (mobileOpen && onClose) onClose();
+              else setCollapsed(true);
+            }}
             className="p-1.5 rounded-lg text-warmgrey hover:text-terracotta hover:bg-accent-50 transition"
           >
             <PanelLeftClose size={17} />
@@ -106,6 +121,7 @@ export default function Sidebar() {
             <Link
               key={href}
               to={href}
+              onClick={() => onClose?.()}
               className={clsx(
                 "flex items-center gap-3 px-2.5 py-2.5 rounded-xl text-sm font-medium transition-all duration-150",
                 active
@@ -137,5 +153,6 @@ export default function Sidebar() {
         </button>
       </div>
     </aside>
+    </>
   );
 }

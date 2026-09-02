@@ -305,7 +305,7 @@ export default function AdminPanel() {
     <div className="min-h-screen bg-warmlinen">
 
       {/* Navbar */}
-      <header className="w-full flex items-center justify-between px-6 pt-4">
+      <header className="w-full flex items-center justify-between px-4 md:px-6 pt-4">
 
           {/* Logo */}
           <span className="font-heading font-extrabold lowercase tracking-tight text-terracotta text-2xl select-none">kynd</span>
@@ -336,11 +336,11 @@ export default function AdminPanel() {
       </header>
 
       {/* Main */}
-      <main className="max-w-6xl mx-auto mt-10 px-4">
+      <main className="max-w-6xl mx-auto mt-6 md:mt-10 px-4">
 
         {/* Heading */}
         <div className="mb-8">
-          <h2 className="font-heading text-4xl font-bold text-charcoal">
+          <h2 className="font-heading text-3xl md:text-4xl font-bold text-charcoal">
             Super-Admin Dashboard
           </h2>
 
@@ -350,7 +350,7 @@ export default function AdminPanel() {
         </div>
 
         {/* Tabs */}
-        <div className="bg-white inline-flex rounded-2xl p-2 shadow-sm mb-8 gap-2">
+        <div className="bg-white inline-flex flex-wrap rounded-2xl p-2 shadow-sm mb-8 gap-2">
           {tabs.map((tab) => (
             <button
               key={tab.id}
@@ -411,7 +411,7 @@ export default function AdminPanel() {
           {activeTab === "orders" && (
             <>
               {/* Sort Header */}
-              <div className="flex items-center gap-10 px-8 py-5 border-b border-lightstone text-sm font-medium text-warmgrey">
+              <div className="flex items-center flex-wrap gap-4 md:gap-10 px-8 py-5 border-b border-lightstone text-sm font-medium text-warmgrey">
                 <span className="text-warmgrey">Sort by:</span>
                 <button
                   onClick={() => handleSort('date')}
@@ -453,7 +453,7 @@ export default function AdminPanel() {
                 ) : (
                   <div className="space-y-4">
                     {sortedOrders.map((order) => (
-                      <div key={order.id} className="grid grid-cols-[minmax(0,1fr)_140px_100px] items-center gap-4 p-4 bg-warmlinen rounded-xl">
+                      <div key={order.id} className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_140px_100px] items-center gap-2 md:gap-4 p-4 bg-warmlinen rounded-xl">
                         <div className="flex items-center gap-4 min-w-0">
                           <div className="w-10 h-10 rounded-full bg-terracotta/10 flex items-center justify-center text-terracotta font-semibold shrink-0">
                             {order.clientName?.charAt(0) || 'U'}
@@ -468,11 +468,11 @@ export default function AdminPanel() {
                             )}
                           </div>
                         </div>
-                        <div className="text-right">
+                        <div className="text-left md:text-right">
                           <p className="font-semibold text-charcoal">S${order.amount?.toLocaleString() || 0}</p>
                           <p className="text-sm text-warmgrey">{new Date(order.date).toLocaleDateString()}</p>
                         </div>
-                        <div className="flex justify-center">
+                        <div className="flex justify-start md:justify-center">
                           <div className="px-3 py-1 rounded-full text-xs font-medium bg-sage/10 text-sage">
                             {order.status || 'Pending'}
                           </div>
@@ -564,7 +564,7 @@ export default function AdminPanel() {
               ) : (
                 <div className="space-y-4">
                   {providers.map((provider) => (
-                    <div key={provider.id} className="flex items-center justify-between p-4 bg-warmlinen rounded-xl">
+                    <div key={provider.id} className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 md:gap-0 p-4 bg-warmlinen rounded-xl">
                       <div className="flex items-center gap-4">
                         <div className="w-12 h-12 rounded-full bg-terracotta/10 flex items-center justify-center text-terracotta font-semibold text-lg">
                           {provider.name?.charAt(0) || 'P'}
@@ -575,7 +575,7 @@ export default function AdminPanel() {
                           <p className="text-sm text-warmgrey">{provider.city || 'No city'}</p>
                         </div>
                       </div>
-                      <div className="text-right">
+                      <div className="text-left md:text-right">
                         <div className="flex items-center gap-1 mb-1">
                           <span className="text-yellow-500">⭐</span>
                           <span className="font-semibold text-charcoal">{provider.rating || 0}</span>
@@ -617,7 +617,7 @@ export default function AdminPanel() {
               ) : (
                 <div className="space-y-4">
                   {clients.map((client) => (
-                    <div key={client.id} className="grid grid-cols-[minmax(0,1fr)_160px_120px] items-center gap-4 p-4 bg-warmlinen rounded-xl">
+                    <div key={client.id} className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_160px_120px] items-center gap-2 md:gap-4 p-4 bg-warmlinen rounded-xl">
                       <div className="flex items-center gap-4 min-w-0">
                         <div className="w-10 h-10 rounded-full bg-terracotta/10 flex items-center justify-center text-terracotta font-semibold shrink-0">
                           {client.avatar || client.name?.charAt(0) || 'U'}
@@ -627,11 +627,11 @@ export default function AdminPanel() {
                           <p className="text-sm text-warmgrey truncate">{client.mobile || 'No phone'}</p>
                         </div>
                       </div>
-                      <div className="text-center">
+                      <div className="text-left md:text-center">
                         <p className="font-semibold text-charcoal">{client.totalOrders || 0} orders</p>
                         <p className="text-sm text-warmgrey">S${(client.totalSpend || 0).toLocaleString()}</p>
                       </div>
-                      <span className={`justify-self-end px-3 py-1 rounded-full text-xs font-medium ${
+                      <span className={`justify-self-start md:justify-self-end px-3 py-1 rounded-full text-xs font-medium ${
                         client.status === 'Active' ? 'bg-sage/10 text-sage' : 'bg-lightstone/40 text-warmgrey'
                       }`}>
                         {client.status || 'Active'}

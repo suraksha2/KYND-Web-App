@@ -1,15 +1,24 @@
-import { Bell, Search, ChevronDown } from "lucide-react";
+import { Bell, Search, ChevronDown, Menu } from "lucide-react";
 import { useLocation, useSearchParams } from "react-router-dom";
 import { appPathname } from "../lib/app-path";
+
+interface HeaderProps {
+  onMenuClick?: () => void;
+}
 
 const pageTitles: Record<string, string> = {
   "/dashboard": "Dashboard",
   "/clients": "Clients",
   "/orders": "Orders",
   "/services": "Services",
+  "/catalog-services": "Catalog",
+  "/addons": "Add-ons",
+  "/help-moments": "Help Moments",
+  "/pro": "Pro",
   "/analytics": "Analytics",
   "/city-services": "Serviceable City",
   "/settings": "Settings",
+  "/users": "Users",
 };
 
 const pageSubs: Record<string, string> = {
@@ -17,12 +26,17 @@ const pageSubs: Record<string, string> = {
   "/clients": "Manage your clients.",
   "/orders": "View and manage orders.",
   "/services": "Manage available services.",
+  "/catalog-services": "Manage the modular service catalog.",
+  "/addons": "Manage add-on options.",
+  "/help-moments": "Manage help moments and subcategories.",
+  "/pro": "Manage pro services.",
   "/analytics": "Track your performance.",
   "/city-services": "Manage serviceable cities.",
   "/settings": "Configure your preferences.",
+  "/users": "Manage admin users.",
 };
 
-export default function Header() {
+export default function Header({ onMenuClick }: HeaderProps) {
   const pathname = appPathname(useLocation().pathname);
   const [searchParams, setSearchParams] = useSearchParams();
   const query = searchParams.get("q") ?? "";
@@ -32,10 +46,21 @@ export default function Header() {
     Object.entries(pageSubs).find(([key]) => pathname.startsWith(key))?.[1] ?? "";
 
   return (
-    <header className="h-16 bg-warmlinen border-b border-lightstone flex items-center justify-between px-6 shrink-0">
-      <div>
-        <h1 className="text-[15px] font-semibold text-charcoal leading-tight">{title}</h1>
-        {sub && <p className="text-xs text-warmgrey leading-tight mt-0.5">{sub}</p>}
+    <header className="h-16 bg-warmlinen border-b border-lightstone flex items-center justify-between px-4 md:px-6 shrink-0">
+      <div className="flex items-center gap-2 min-w-0">
+        {onMenuClick && (
+          <button
+            onClick={onMenuClick}
+            className="p-2 rounded-xl hover:bg-white transition md:hidden"
+            aria-label="Open menu"
+          >
+            <Menu size={20} className="text-warmgrey" />
+          </button>
+        )}
+        <div className="min-w-0">
+          <h1 className="text-[15px] font-semibold text-charcoal leading-tight">{title}</h1>
+          {sub && <p className="text-xs text-warmgrey leading-tight mt-0.5">{sub}</p>}
+        </div>
       </div>
       <div className="flex items-center gap-2">
         {/* Search */}
