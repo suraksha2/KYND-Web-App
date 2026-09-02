@@ -5,7 +5,7 @@ import { hasAdminAccess } from '../lib/auth';
 import { getSession } from '../http/session';
 import { normalizeRecurrence } from '../lib/recurrence';
 import { createOccurrences, withOccurrences } from '../lib/occurrences';
-import { sgtDateTime } from '../lib/sgt';
+import { sgtDateTime, parseSgt } from '../lib/sgt';
 
 const router = Router();
 
@@ -71,8 +71,8 @@ function isFreeAt(provider: any, hours: any, visit: Date, durationMin: number, e
 
   return !existing.some((b: any) => {
     if (b.provider_id !== provider.id || !b.scheduled_at) return false;
-    const bStart = new Date(String(b.scheduled_at).replace(' ', 'T') + '+08:00');
-    if (isNaN(bStart.getTime())) return false;
+    const bStart = parseSgt(b.scheduled_at);
+    if (!bStart) return false;
     const items = typeof b.items === 'string' ? JSON.parse(b.items) : b.items;
     const bDur = Array.isArray(items)
       ? items.reduce((sum: number, it: any) => sum + parseDurationMinutes(it.duration), 0)
