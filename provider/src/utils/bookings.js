@@ -52,13 +52,12 @@ export function isSameDay(a, b) {
     a.getDate() === b.getDate()
 }
 
-// The soonest visit still ahead of a recurring booking, or null for a one-off.
+// The soonest uncompleted visit of a recurring booking, or null for a one-off.
 export function nextVisit(booking) {
-  const now = Date.now()
   return (booking?.occurrences || [])
     .filter((o) => o.status === 'upcoming')
     .map((o) => ({ ...o, at: parseSgt(o.scheduled_at) }))
-    .filter((o) => o.at && o.at.getTime() >= now)
+    .filter((o) => o.at && !Number.isNaN(o.at.getTime()))
     .sort((a, b) => a.at - b.at)[0] || null
 }
 
