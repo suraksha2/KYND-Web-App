@@ -9,6 +9,16 @@ function roundMoney(n: number) {
   return Math.round(n * 100) / 100;
 }
 
+function safeJson(value: any, fallback: any = null) {
+  if (value === null || value === undefined) return fallback;
+  if (typeof value !== 'string') return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
+}
+
 function minutesFromTime(t: string) {
   const [h, m] = t.split(':').map(Number);
   if (Number.isNaN(h) || Number.isNaN(m)) return null;
@@ -59,6 +69,20 @@ function computeBaseCost(rule: any, durationHours: number, partySize: number, st
       cost = roundMoney(Number(params?.amount ?? 0));
       break;
     }
+    case 'tiered': {
+      const tiers = Array.isArray(params?.tiers) ? params.tiers : [];
+      const sorted = [...tiers]
+        .filter((t: any) => typeof t.up_to === 'number' && !Number.isNaN(t.up_to))
+        .sort((a: any, b: any) => a.up_to - b.up_to);
+      const tier = sorted.find((t: any) => partySize <= t.up_to) || sorted[sorted.length - 1];
+      if (tier && typeof tier.amount === 'number') {
+        cost = roundMoney(tier.amount);
+        rate = partySize > 0 ? roundMoney(cost / partySize) : 0;
+      } else {
+        cost = 0;
+      }
+      break;
+    }
     case 'custom_quote': {
       return { cost: null as number | null, rate: null as number | null };
     }
@@ -72,7 +96,8 @@ function computeBaseCost(rule: any, durationHours: number, partySize: number, st
 router.get('/categories', async (_req, res) => {
   try {
     const [rows] = await pool.query('SELECT id, name, variant_schema, created_at, updated_at FROM catalog_categories ORDER BY name');
-    return res.status(200).json({ data: rows });
+    const data = (rows as any[]).map((c) => ({ ...c, variant_schema: safeJson(c.variant_schema, []) }));
+    return res.status(200).json({ data });
   } catch (err) {
     console.error('[GET /api/catalog/categories]', err);
     return res.status(500).json({ error: 'Failed to fetch categories.' });
@@ -86,7 +111,7 @@ router.get('/categories/:id', async (req, res) => {
     if (!categories.length) {
       return res.status(404).json({ error: 'Category not found.' });
     }
-    return res.status(200).json({ data: categories[0] });
+    return res.status(200).json({ data: { ...categories[0], variant_schema: safeJson(categories[0].variant_schema, []) } });
   } catch (err) {
     console.error('[GET /api/catalog/categories/:id]', err);
     return res.status(500).json({ error: 'Failed to fetch category.' });
@@ -152,11 +177,15 @@ router.get('/services/:id', async (req, res) => {
     );
     const [variantRows] = await pool.query('SELECT * FROM service_variant_attributes WHERE service_id = ?', [serviceId]);
 
+    const service = { ...services[0], variant_schema: safeJson(services[0].variant_schema, []) };
+    const parsedPricing = (pricingRows as any[]).map((r) => ({ ...r, params: safeJson(r.params, {}) }));
+    const parsedModes = (modeRows as any[]).map((m) => ({ ...m, blackout_dates: safeJson(m.blackout_dates, []) }));
+
     return res.status(200).json({
       data: {
-        ...services[0],
-        booking_modes: modeRows,
-        pricing_rules: pricingRows,
+        ...service,
+        booking_modes: parsedModes,
+        pricing_rules: parsedPricing,
         addons: addonRows,
         variants: variantRows,
       },
@@ -407,7 +436,7 @@ router.get('/services/:id/quote', async (req, res) => {
     if (!rules.length) {
       return res.status(400).json({ error: 'No pricing rule configured for this service.' });
     }
-    const rule = rules[0];
+    const rule = { ...rules[0], params: safeJson(rules[0].params, {}) };
 
     const { cost: baseCost, rate } = computeBaseCost(rule, duration, partySize, startTime);
 

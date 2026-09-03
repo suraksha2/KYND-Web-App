@@ -74,10 +74,10 @@ export default function Header({ onMenuClick }: HeaderProps) {
         </div>
 
         {/* Notification bell */}
-        <button className="relative p-2 rounded-xl hover:bg-white transition group">
+        {/* <button className="relative p-2 rounded-xl hover:bg-white transition group">
           <Bell size={17} className="text-warmgrey group-hover:text-terracotta transition" />
           <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-red-500 rounded-full ring-2 ring-warmlinen" />
-        </button>
+        </button> */}
 
         {/* Divider */}
         <div className="w-px h-6 bg-lightstone mx-1" />

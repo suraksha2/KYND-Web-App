@@ -83,7 +83,11 @@ export default function CatalogServicesPage() {
   const [deleting, setDeleting] = useState(false);
 
   const [showCategoryModal, setShowCategoryModal] = useState(false);
-  const [categoryForm, setCategoryForm] = useState({ name: '', description: '' });
+  const [categoryForm, setCategoryForm] = useState<{ name: string; description: string; variant_schema: any[] }>({
+    name: '',
+    description: '',
+    variant_schema: [],
+  });
   const [categoryFormError, setCategoryFormError] = useState<string | null>(null);
   const [savingCategory, setSavingCategory] = useState(false);
 
@@ -95,7 +99,15 @@ export default function CatalogServicesPage() {
       const res = await apiFetch('/api/catalog/categories');
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? 'Failed to load categories.');
-      setCategories(json.data ?? []);
+      const data = (json.data ?? []).map((c: any) => {
+        let variant_schema = c.variant_schema;
+        if (typeof variant_schema === 'string') {
+          try { variant_schema = JSON.parse(variant_schema); } catch { variant_schema = []; }
+        }
+        if (!Array.isArray(variant_schema)) variant_schema = [];
+        return { ...c, variant_schema };
+      });
+      setCategories(data);
     } catch (err) {
       console.error('Failed to fetch categories', err);
     }
@@ -140,6 +152,23 @@ export default function CatalogServicesPage() {
     return list.slice().sort((a, b) => a.name.localeCompare(b.name));
   }, [services, query]);
 
+  const selectedCategory = useMemo(() => {
+    return categories.find((c) => c.id === Number(form?.category_id));
+  }, [categories, form?.category_id]);
+
+  useEffect(() => {
+    const schema = selectedCategory?.variant_schema;
+    if (!Array.isArray(schema) || !schema.length) return;
+    setForm((prev: any) => {
+      const existing = new Map((prev.variants || []).map((v: Variant) => [v.attribute_key, v.attribute_value]));
+      const next = schema.map((attr: any) => ({
+        attribute_key: String(attr.key ?? ''),
+        attribute_value: existing.get(String(attr.key ?? '')) || '',
+      }));
+      return { ...prev, variants: next };
+    });
+  }, [selectedCategory]);
+
   function buildEmptyForm(): any {
     return {
       name: '',
@@ -171,7 +200,7 @@ export default function CatalogServicesPage() {
   }
 
   function openCreateCategory() {
-    setCategoryForm({ name: '', description: '' });
+    setCategoryForm({ name: '', description: '', variant_schema: [] });
     setCategoryFormError(null);
     setShowCategoryModal(true);
   }
@@ -192,13 +221,14 @@ export default function CatalogServicesPage() {
         body: JSON.stringify({
           name: categoryForm.name.trim(),
           description: categoryForm.description.trim() || null,
+          variant_schema: categoryForm.variant_schema,
         }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? 'Failed to create category.');
 
       setShowCategoryModal(false);
-      setCategoryForm({ name: '', description: '' });
+      setCategoryForm({ name: '', description: '', variant_schema: [] });
       await fetchCategories();
       setForm((prev: any) => ({ ...prev, category_id: json.id }));
     } catch (err) {
@@ -850,6 +880,69 @@ export default function CatalogServicesPage() {
                       </button>
                     </div>
                   )}
+
+                  {rule.strategy === 'tiered' && (
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold text-warmgrey">Tiers</p>
+                      {(rule.params.tiers || []).map((tier: any, index: number) => (
+                        <div key={index} className="grid grid-cols-3 gap-3 items-end">
+                          <div>
+                            <label className="block text-[10px] text-warmgrey mb-1">Up to (units)</label>
+                            <input
+                              type="number"
+                              min="1"
+                              value={tier.up_to || ''}
+                              onChange={(e) => {
+                                const tiers = [...(rule.params.tiers || [])];
+                                tiers[index] = { ...tiers[index], up_to: Number(e.target.value) };
+                                updatePricingField('params.tiers', tiers);
+                              }}
+                              className={inputCls}
+                              placeholder="e.g. 2"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] text-warmgrey mb-1">Total price</label>
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={tier.amount || ''}
+                              onChange={(e) => {
+                                const tiers = [...(rule.params.tiers || [])];
+                                tiers[index] = { ...tiers[index], amount: Number(e.target.value) };
+                                updatePricingField('params.tiers', tiers);
+                              }}
+                              className={inputCls}
+                              placeholder="e.g. 50"
+                            />
+                          </div>
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const tiers = (rule.params.tiers || []).filter((_: any, i: number) => i !== index);
+                                updatePricingField('params.tiers', tiers);
+                              }}
+                              className="p-2 rounded-lg text-warmgrey hover:text-rosewood hover:bg-dustyrose/10 transition"
+                            >
+                              <X size={14} />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const tiers = [...(rule.params.tiers || []), { up_to: '', amount: '' }];
+                          updatePricingField('params.tiers', tiers);
+                        }}
+                        className="text-xs font-semibold text-terracotta hover:text-accent-700"
+                      >
+                        + Add tier
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 {/* Booking modes */}
@@ -874,42 +967,84 @@ export default function CatalogServicesPage() {
                 <div>
                   <p className="text-xs font-semibold text-warmgrey uppercase tracking-wide mb-2">Variant attributes</p>
                   <div className="space-y-2">
-                    {(form.variants || []).map((v: Variant, index: number) => (
-                      <div key={index} className="grid grid-cols-5 gap-2 items-center">
-                        <div className="col-span-2">
-                          <input
-                            type="text"
-                            value={v.attribute_key}
-                            onChange={(e) => setVariant(index, 'attribute_key', e.target.value)}
-                            className={inputCls}
-                            placeholder="key"
-                          />
-                        </div>
-                        <div className="col-span-2">
-                          <input
-                            type="text"
-                            value={v.attribute_value}
-                            onChange={(e) => setVariant(index, 'attribute_value', e.target.value)}
-                            className={inputCls}
-                            placeholder="value"
-                          />
-                        </div>
+                    {Array.isArray(selectedCategory?.variant_schema) ? (
+                      selectedCategory.variant_schema.map((attr: any, index: number) => {
+                        const value = (form.variants || [])[index]?.attribute_value || '';
+                        if (attr.type === 'select') {
+                          const options = String(attr.options || '')
+                            .split(',')
+                            .map((s: string) => s.trim())
+                            .filter(Boolean);
+                          return (
+                            <div key={index} className="space-y-1">
+                              <label className="block text-[10px] text-warmgrey">{attr.label || attr.key}</label>
+                              <select
+                                value={value}
+                                onChange={(e) => setVariant(index, 'attribute_value', e.target.value)}
+                                className={inputCls}
+                              >
+                                <option value="">Select…</option>
+                                {options.map((opt: string) => (
+                                  <option key={opt} value={opt}>{opt}</option>
+                                ))}
+                              </select>
+                            </div>
+                          );
+                        }
+                        const inputType = attr.type === 'number' ? 'number' : 'text';
+                        return (
+                          <div key={index} className="space-y-1">
+                            <label className="block text-[10px] text-warmgrey">{attr.label || attr.key}</label>
+                            <input
+                              type={inputType}
+                              value={value}
+                              onChange={(e) => setVariant(index, 'attribute_value', e.target.value)}
+                              className={inputCls}
+                              placeholder={String(attr.label || attr.key)}
+                            />
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <>
+                        {(form.variants || []).map((v: Variant, index: number) => (
+                          <div key={index} className="grid grid-cols-5 gap-2 items-center">
+                            <div className="col-span-2">
+                              <input
+                                type="text"
+                                value={v.attribute_key}
+                                onChange={(e) => setVariant(index, 'attribute_key', e.target.value)}
+                                className={inputCls}
+                                placeholder="key"
+                              />
+                            </div>
+                            <div className="col-span-2">
+                              <input
+                                type="text"
+                                value={v.attribute_value}
+                                onChange={(e) => setVariant(index, 'attribute_value', e.target.value)}
+                                className={inputCls}
+                                placeholder="value"
+                              />
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => removeVariant(index)}
+                              className="p-2 rounded-lg text-warmgrey hover:text-rosewood hover:bg-dustyrose/10 transition"
+                            >
+                              <X size={14} />
+                            </button>
+                          </div>
+                        ))}
                         <button
                           type="button"
-                          onClick={() => removeVariant(index)}
-                          className="p-2 rounded-lg text-warmgrey hover:text-rosewood hover:bg-dustyrose/10 transition"
+                          onClick={addVariant}
+                          className="text-xs font-semibold text-terracotta hover:text-accent-700"
                         >
-                          <X size={14} />
+                          + Add variant attribute
                         </button>
-                      </div>
-                    ))}
-                    <button
-                      type="button"
-                      onClick={addVariant}
-                      className="text-xs font-semibold text-terracotta hover:text-accent-700"
-                    >
-                      + Add variant attribute
-                    </button>
+                      </>
+                    )}
                   </div>
                 </div>
 
@@ -1005,6 +1140,96 @@ export default function CatalogServicesPage() {
                     placeholder="Short description…"
                   />
                 </div>
+
+                <div>
+                  <p className="text-xs font-semibold text-warmgrey uppercase tracking-wide mb-2">Variant schema</p>
+                  <div className="space-y-2">
+                    {categoryForm.variant_schema.map((attr: any, index: number) => (
+                      <div key={index} className="grid grid-cols-6 gap-2 items-end">
+                        <div className="col-span-1">
+                          <input
+                            type="text"
+                            value={attr.key || ''}
+                            onChange={(e) => {
+                              const schema = [...categoryForm.variant_schema];
+                              schema[index] = { ...schema[index], key: e.target.value };
+                              setCategoryForm((p) => ({ ...p, variant_schema: schema }));
+                            }}
+                            className={inputCls}
+                            placeholder="key"
+                          />
+                        </div>
+                        <div className="col-span-2">
+                          <input
+                            type="text"
+                            value={attr.label || ''}
+                            onChange={(e) => {
+                              const schema = [...categoryForm.variant_schema];
+                              schema[index] = { ...schema[index], label: e.target.value };
+                              setCategoryForm((p) => ({ ...p, variant_schema: schema }));
+                            }}
+                            className={inputCls}
+                            placeholder="label"
+                          />
+                        </div>
+                        <div className="col-span-1">
+                          <select
+                            value={attr.type || 'text'}
+                            onChange={(e) => {
+                              const schema = [...categoryForm.variant_schema];
+                              schema[index] = { ...schema[index], type: e.target.value };
+                              setCategoryForm((p) => ({ ...p, variant_schema: schema }));
+                            }}
+                            className={inputCls}
+                          >
+                            <option value="text">Text</option>
+                            <option value="select">Select</option>
+                            <option value="number">Number</option>
+                          </select>
+                        </div>
+                        <div className={attr.type === 'select' ? 'col-span-1' : 'col-span-1 opacity-50'}>
+                          <input
+                            type="text"
+                            value={attr.options || ''}
+                            disabled={attr.type !== 'select'}
+                            onChange={(e) => {
+                              const schema = [...categoryForm.variant_schema];
+                              schema[index] = { ...schema[index], options: e.target.value };
+                              setCategoryForm((p) => ({ ...p, variant_schema: schema }));
+                            }}
+                            className={inputCls}
+                            placeholder="opt1, opt2"
+                          />
+                        </div>
+                        <div className="col-span-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const schema = categoryForm.variant_schema.filter((_: any, i: number) => i !== index);
+                              setCategoryForm((p) => ({ ...p, variant_schema: schema }));
+                            }}
+                            className="p-2 rounded-lg text-warmgrey hover:text-rosewood hover:bg-dustyrose/10 transition"
+                          >
+                            <X size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setCategoryForm((p) => ({
+                          ...p,
+                          variant_schema: [...p.variant_schema, { key: '', label: '', type: 'text', options: '' }],
+                        }))
+                      }
+                      className="text-xs font-semibold text-terracotta hover:text-accent-700"
+                    >
+                      + Add attribute
+                    </button>
+                  </div>
+                </div>
+
                 {categoryFormError && <p className="text-xs text-rosewood">{categoryFormError}</p>}
                 <div className="flex justify-end gap-2 pt-1">
                   <button
