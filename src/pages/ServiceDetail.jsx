@@ -8,6 +8,7 @@ import { iconForService } from '../lib/serviceIcon'
 import { localServiceImage, servicePeopleImage } from '../lib/serviceImage'
 import { taglineForService } from '../lib/serviceTagline'
 import { API_BASE, appUrl } from '../lib/api'
+import { OFFERS, getStoredOffer, storeOffer, clearStoredOffer, computeDiscount, offerIsApplicable } from '../lib/offers'
 
 /* ---------- helpers ---------- */
 const parsePrice = (str = '') => {
@@ -93,8 +94,90 @@ const AddonToggle = ({ checked, onChange }) => (
   </button>
 )
 
+/* ---------- Offer selector modal ---------- */
+const OfferModal = ({ open, onClose, subtotal, selectedServicesCount, selectedOffer, onSelect, onClear }) => {
+  if (!open) return null
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl">
+        <div className="flex items-start justify-between">
+          <div>
+            <h3 className="font-bold text-charcoal">Apply a discount</h3>
+            <p className="text-xs text-warmgrey mt-0.5">Select an offer to use on this booking.</p>
+          </div>
+          <button type="button" onClick={onClose} className="text-warmgrey/70 hover:text-charcoal">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="mt-4 space-y-3">
+          {OFFERS.map((offer) => {
+            const applicable = offerIsApplicable(offer, selectedServicesCount)
+            const discount = applicable ? computeDiscount(offer, subtotal, selectedServicesCount) : 0
+            const selected = selectedOffer?.id === offer.id
+            return (
+              <button
+                key={offer.id}
+                type="button"
+                disabled={!applicable}
+                onClick={() => onSelect(offer)}
+                className={`w-full text-left rounded-2xl border p-4 transition ${
+                  selected
+                    ? 'bg-accent-50 border-terracotta'
+                    : applicable
+                      ? 'bg-white border-lightstone hover:border-terracotta/50'
+                      : 'bg-lightstone/30 border-lightstone opacity-60 cursor-not-allowed'
+                }`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <span className="inline-flex items-center rounded-full bg-warmlinen text-charcoal font-semibold px-2 py-1 text-[10px]">
+                      {offer.badge}
+                    </span>
+                    <h4 className="mt-2 font-semibold text-charcoal text-sm">{offer.title}</h4>
+                    <p className="text-xs text-warmgrey">{offer.subtitle}</p>
+                    {!applicable && (
+                      <p className="text-xs text-red-600 mt-1">Add 3 or more services to use this offer.</p>
+                    )}
+                  </div>
+                  <div className="shrink-0 text-right">
+                    {discount > 0 ? (
+                      <span className="text-sm font-bold text-terracotta">- {formatPrice(discount)}</span>
+                    ) : (
+                      applicable && <span className="text-sm font-bold text-terracotta">Free</span>
+                    )}
+                  </div>
+                </div>
+              </button>
+            )
+          })}
+        </div>
+
+        <div className="mt-5 flex gap-2">
+          {selectedOffer && (
+            <button
+              type="button"
+              onClick={onClear}
+              className="flex-1 rounded-full bg-warmlinen hover:bg-lightstone text-charcoal font-semibold py-2.5 text-sm transition"
+            >
+              Remove offer
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onClose}
+            className={`flex-1 rounded-full bg-terracotta hover:bg-charcoal text-white font-semibold py-2.5 text-sm transition ${selectedOffer ? '' : 'w-full'}`}
+          >
+            Done
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /* ---------- Sticky bottom booking bar ---------- */
-const BookingBar = ({ price, submitting }) => (
+const BookingBar = ({ price, discount, submitting }) => (
   <div className="fixed bottom-[calc(76px_+_var(--safe-bottom)_+_0.5rem)] md:bottom-0 left-0 right-0 z-50 bg-terracotta shadow-[0_-8px_24px_-12px_rgba(74,46,31,0.35)]">
     <div className="max-w-5xl mx-auto px-4 sm:px-6 py-3 sm:py-4">
       <div className="hidden sm:block text-center text-xs text-white/80 mb-2">Free cancellation up to 2 hrs before</div>
@@ -105,6 +188,7 @@ const BookingBar = ({ price, submitting }) => (
             {formatPrice(price)}
             <span className="text-sm font-medium text-white/80">/hr</span>
           </div>
+          {discount > 0 && <div className="text-xs text-white/80 mt-0.5">You save {formatPrice(discount)}</div>}
         </div>
         <button
           type="submit"
@@ -508,6 +592,9 @@ const AddressPaymentPanel = ({
   area, setArea, pincode, setPincode,
   notes, setNotes,
   pay, setPay,
+  selectedOffer,
+  discount,
+  onOpenOfferModal,
   errors
 }) => {
   const fieldInputClass = (field) => errors?.[field] ? `${inputCls} !border-red-500` : inputCls
@@ -623,6 +710,43 @@ const AddressPaymentPanel = ({
       </div>
 
       <div className="rounded-2xl bg-white ring-1 ring-lightstone p-4">
+        <div className="flex items-center justify-between">
+          <h4 className="font-heading font-bold text-charcoal">Promo / discount</h4>
+          {selectedOffer && discount > 0 && (
+            <span className="text-xs font-semibold text-terracotta">- {formatPrice(discount)}</span>
+          )}
+        </div>
+        <div className="mt-3">
+          {selectedOffer ? (
+            <div className="flex items-center justify-between gap-3 rounded-xl bg-accent-50 p-3">
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-charcoal">
+                  {selectedOffer.title}
+                  {discount === 0 && <span className="ml-1.5 text-xs text-warmgrey">(not applicable)</span>}
+                </div>
+                <div className="text-xs text-warmgrey">{selectedOffer.subtitle}</div>
+              </div>
+              <button
+                type="button"
+                onClick={onOpenOfferModal}
+                className="shrink-0 text-xs font-semibold text-terracotta hover:text-charcoal transition"
+              >
+                Change
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={onOpenOfferModal}
+              className="w-full text-left rounded-xl bg-warmlinen hover:bg-lightstone px-4 py-3 text-sm font-semibold text-charcoal transition"
+            >
+              Apply a discount
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="rounded-2xl bg-white ring-1 ring-lightstone p-4">
         <h4 className="font-heading font-bold text-charcoal">Payment</h4>
         <div className="mt-3 grid gap-2">
           <label className={`flex items-center gap-3 p-3 rounded-xl border transition cursor-pointer ${pay === 'card' ? 'bg-accent-100 border-terracotta' : 'bg-white border-lightstone'}`}>
@@ -658,6 +782,8 @@ export default function ServiceDetail() {
   const [openSections, setOpenSections] = useState({ how: false, addons: false, payment: false })
   const [errors, setErrors] = useState({})
   const [submitAttempt, setSubmitAttempt] = useState(0)
+  const [selectedOffer, setSelectedOffer] = useState(() => getStoredOffer())
+  const [offerModalOpen, setOfferModalOpen] = useState(false)
   const [schedule, setSchedule] = useState('instant')
   const [date, setDate] = useState('')
   const [time, setTime] = useState('')
@@ -773,6 +899,8 @@ export default function ServiceDetail() {
   const basePrice = selectedServices.reduce((sum, s) => sum + (s.price || parsePrice(s.pricingFrom)), 0)
   const addOnTotal = addons.reduce((sum, a) => sum + (selectedAddons[a.id] ? Number(a.customer_price) : 0), 0)
   const displayPrice = (schedule === 'recurring' ? Math.round(basePrice * 0.85) : basePrice) + addOnTotal
+  const discountAmount = computeDiscount(selectedOffer, displayPrice, selectedServices.length)
+  const discountedPrice = Math.max(0, displayPrice - discountAmount)
   const serviceDuration = parseDurationMinutes(primary.duration) || 60
 
   const cadence = recurrence.type === 'custom'
@@ -812,7 +940,9 @@ export default function ServiceDetail() {
     const order = {
       bookingId,
       items: selectedServices.map(s => ({ slug: s.slug, name: s.name, img: s.img, priceFrom: s.price || parsePrice(s.pricingFrom), duration: s.duration, qty: 1 })),
-      total: displayPrice,
+      total: discountedPrice,
+      discount: discountAmount,
+      offer: selectedOffer,
       addOns: addons.filter(a => selectedAddons[a.id]).map(a => ({ id: a.id, name: a.name, price: Number(a.customer_price) })),
       schedule,
       scheduledAt,
@@ -1012,6 +1142,9 @@ export default function ServiceDetail() {
                 pincode={pincode} setPincode={setPincode}
                 notes={notes} setNotes={setNotes}
                 pay={pay} setPay={setPay}
+                selectedOffer={selectedOffer}
+                discount={discountAmount}
+                onOpenOfferModal={() => setOfferModalOpen(true)}
                 errors={errors}
               />
             </SectionCard>
@@ -1019,7 +1152,17 @@ export default function ServiceDetail() {
         </div>
       </section>
 
-      <BookingBar price={displayPrice} submitting={submitting} />
+      <BookingBar price={discountedPrice} discount={discountAmount} submitting={submitting} />
+
+      <OfferModal
+        open={offerModalOpen}
+        onClose={() => setOfferModalOpen(false)}
+        subtotal={displayPrice}
+        selectedServicesCount={selectedServices.length}
+        selectedOffer={selectedOffer}
+        onSelect={(offer) => { setSelectedOffer(offer); storeOffer(offer); setOfferModalOpen(false) }}
+        onClear={() => { setSelectedOffer(null); clearStoredOffer(); setOfferModalOpen(false) }}
+      />
     </div>
   )
 }

@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { Plus, Image as ImageIcon, Star, ShieldCheck, FileText, UserCheck } from 'lucide-react'
 import { iconForService } from '../../lib/serviceIcon'
 import { taglineForService } from '../../lib/serviceTagline'
 // import { useCart } from '../../context/CartContext'
+import { OFFERS, storeOffer } from '../../lib/offers'
 import { fetchCatalogServices } from '../../lib/catalogServices'
 
 const ServiceTile = ({ s }) => {
@@ -40,12 +41,6 @@ const ServiceTile = ({ s }) => {
   )
 }
 
-const offers = [
-  { badge: 'S$10 off', title: 'First booking', subtitle: 'On any service', action: 'Apply at checkout' },
-  { badge: 'S$15', title: 'Refer a friend', subtitle: 'For each successful referral', action: 'Copy code' },
-  { badge: '15% off', title: 'Bundle 3+ services', subtitle: 'Book more, save more', action: 'Build a bundle' }
-]
-
 const defaultMoments = [
   { slug: 'new-baby', image: null, label: 'New baby moment', title: 'Getting ready for a new baby', tags: ['Babysitting', 'Cleaning'] },
   { slug: 'elder-care', image: null, label: 'Elder care moment', title: 'Looking after mum & dad', tags: ['Companionship', 'Care'] },
@@ -54,6 +49,7 @@ const defaultMoments = [
 ]
 
 export default function Services() {
+  const navigate = useNavigate()
   const [services, setServices] = useState([])
   const [loading, setLoading] = useState(true)
   const [moments, setMoments] = useState(defaultMoments)
@@ -134,7 +130,7 @@ export default function Services() {
           <h3 className="font-heading text-3xl md:text-4xl font-extrabold text-charcoal">Offers</h3>
 
           <div className="mt-6 flex gap-4 overflow-x-auto no-scrollbar snap-x snap-mandatory scroll-smooth">
-            {offers.map((offer) => (
+            {OFFERS.map((offer) => (
               <div
                 key={offer.title}
                 className="snap-start shrink-0 w-[280px] sm:w-[320px] rounded-[2rem] bg-terracotta p-6 flex flex-col justify-between select-none"
@@ -152,6 +148,10 @@ export default function Services() {
                 </div>
                 <button
                   type="button"
+                  onClick={() => {
+                    storeOffer(offer)
+                    navigate('/services')
+                  }}
                   className="mt-8 w-full rounded-2xl bg-white/15 hover:bg-white/25 text-white font-semibold py-3 text-sm transition"
                 >
                   {offer.action}
