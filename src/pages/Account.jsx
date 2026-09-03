@@ -1,8 +1,9 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
-import { Image, MapPin, CreditCard, Bell, Globe, Shield, Gift, HelpCircle, ChevronRight } from 'lucide-react'
+import { Image, MapPin, CreditCard, Bell, Globe, Shield, Gift, HelpCircle, ChevronRight, X, Check } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useBookings } from '../context/BookingsContext'
+import { useLanguage } from '../context/LanguageContext'
 
 function Row({ icon: Icon, label, value, last, onClick }) {
   const Tag = onClick ? 'button' : 'div'
@@ -24,6 +25,8 @@ export default function Account() {
   const { user, isAuthenticated, logout } = useAuth()
   const { bookings } = useBookings()
   const navigate = useNavigate()
+  const { language, setLanguage, options, label } = useLanguage()
+  const [showLanguage, setShowLanguage] = useState(false)
 
   const savedAddress = useMemo(() => {
     const latest = bookings[0]?.contact?.address
@@ -129,10 +132,10 @@ export default function Account() {
         <div className="mt-8">
           <h2 className="text-xs font-bold text-warmgrey uppercase tracking-wide">Account</h2>
           <div className="mt-3 bg-white rounded-2xl ring-1 ring-lightstone overflow-hidden">
-            <Row icon={Bell} label="Notifications" onClick={() => navigate('/account')} />
-            <Row icon={Globe} label="Language" value="English" onClick={() => navigate('/account')} />
+            {/* <Row icon={Bell} label="Notifications" onClick={() => navigate('/account')} /> */}
+            <Row icon={Globe} label="Language" value={label} onClick={() => setShowLanguage(true)} />
             <Row icon={Shield} label="Trust & Safety" onClick={() => navigate('/tnc')} />
-            <Row icon={Gift} label="Refer a friend" onClick={() => navigate('/account')} />
+            {/* <Row icon={Gift} label="Refer a friend" onClick={() => navigate('/account')} /> */}
             <Row icon={HelpCircle} label="Help & support" onClick={() => navigate('/support')} last />
           </div>
         </div>
@@ -144,6 +147,53 @@ export default function Account() {
           Log out
         </button>
       </div>
+
+      {showLanguage && (
+        <div
+          className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4"
+          onClick={() => setShowLanguage(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl"
+          >
+            <div className="flex items-start justify-between">
+              <div>
+                <h3 className="font-bold text-charcoal">Language</h3>
+                <p className="text-xs text-warmgrey mt-0.5">Choose your preferred language.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowLanguage(false)}
+                className="text-warmgrey/70 hover:text-charcoal"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-2">
+              {options.map((option) => (
+                <button
+                  key={option.code}
+                  type="button"
+                  onClick={() => {
+                    setLanguage(option.code)
+                    setShowLanguage(false)
+                  }}
+                  className={`w-full flex items-center justify-between rounded-2xl border px-4 py-3 transition ${
+                    language === option.code
+                      ? 'bg-accent-50 border-terracotta'
+                      : 'bg-white border-lightstone hover:border-terracotta/50'
+                  }`}
+                >
+                  <span className="text-sm font-semibold text-charcoal">{option.label}</span>
+                  {language === option.code && <Check className="w-4 h-4 text-terracotta" />}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   )
 }

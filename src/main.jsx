@@ -7,6 +7,7 @@ import App from './App.jsx'
 import { AuthProvider } from './context/AuthContext.jsx'
 import { BookingsProvider } from './context/BookingsContext.jsx'
 import { ServicesProvider } from './context/ServicesContext.jsx'
+import { LanguageProvider } from './context/LanguageContext.jsx'
 
 /* Ionic core CSS — required.
    NOTE: structure.css is intentionally NOT imported because it sets
@@ -34,15 +35,17 @@ initNative() // 'md' = Material Design (Android look) | 'ios' for iOS
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <BrowserRouter basename={import.meta.env.BASE_URL.replace(/\/$/, '') || undefined}>
-      <AuthProvider>
-        {/* <CartProvider> */}
-          <BookingsProvider>
-            <ServicesProvider>
-              <App />
-            </ServicesProvider>
-          </BookingsProvider>
-        {/* </CartProvider> */}
-      </AuthProvider>
+      <LanguageProvider>
+        <AuthProvider>
+          {/* <CartProvider> */}
+            <BookingsProvider>
+              <ServicesProvider>
+                <App />
+              </ServicesProvider>
+            </BookingsProvider>
+          {/* </CartProvider> */}
+        </AuthProvider>
+      </LanguageProvider>
     </BrowserRouter>
   </React.StrictMode>
 )
