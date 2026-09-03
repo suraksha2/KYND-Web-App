@@ -281,6 +281,7 @@ CREATE TABLE IF NOT EXISTS booking_occurrences (
   provider_id INT,
   status ENUM('upcoming', 'completed', 'cancelled') DEFAULT 'upcoming',
   notified_at DATETIME,
+  completed_at DATETIME,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY unique_booking_occurrence (booking_id, seq),
@@ -288,6 +289,15 @@ CREATE TABLE IF NOT EXISTS booking_occurrences (
   FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE CASCADE,
   FOREIGN KEY (provider_id) REFERENCES service_providers(id) ON DELETE SET NULL
 );
+
+-- Migration: add completed_at tracking for individual visit completion.
+SET @stmt := IF(
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'booking_occurrences'
+      AND COLUMN_NAME = 'completed_at') = 0,
+  'ALTER TABLE booking_occurrences ADD COLUMN completed_at DATETIME',
+  'DO 0');
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- Reviews table for customer feedback on service providers
 CREATE TABLE IF NOT EXISTS reviews (

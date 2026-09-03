@@ -2,7 +2,7 @@ import { Router } from 'express';
 import pool from '../lib/mysql';
 import { hasAdminAccess } from '../lib/auth';
 import { getSession } from '../http/session';
-import { withOccurrences } from '../lib/occurrences';
+import { withOccurrences, completeNextOccurrence } from '../lib/occurrences';
 
 const router = Router();
 
@@ -61,7 +61,7 @@ router.put('/bookings/:id', async (req, res) => {
 
     // Ensure the booking exists and (for providers) belongs to this provider.
     const [rows]: any = await pool.query(
-      'SELECT id, provider_id, history FROM bookings WHERE id = ?',
+      'SELECT id, provider_id, schedule, history FROM bookings WHERE id = ?',
       [req.params.id]
     );
     if (!rows || rows.length === 0) {
@@ -83,11 +83,36 @@ router.put('/bookings/:id', async (req, res) => {
       history = [];
     }
     const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
-    const cancelledBy = isProvider ? 'provider' : 'admin';
+    const actor = isProvider ? 'provider' : 'admin';
+    const isRecurring = booking.schedule === 'recurring';
+
+    // Recurring bookings are completed one visit at a time; close the next
+    // upcoming occurrence and top the series up so future visits stay visible.
+    if (status === 'completed' && isRecurring) {
+      const completed = await completeNextOccurrence(Number(req.params.id));
+      if (!completed) {
+        return res.status(409).json({ error: 'No upcoming visit to complete.' });
+      }
+
+      history.push({
+        at: now,
+        type: 'completed',
+        by: actor,
+        note: `Marked visit #${completed.seq} completed by ${session.role}`,
+      });
+
+      await pool.query(
+        'UPDATE bookings SET history = ? WHERE id = ?',
+        [JSON.stringify(history), req.params.id]
+      );
+
+      return res.status(200).json({ success: true, status, completedOccurrence: completed });
+    }
+
     history.push({
       at: now,
       type: status === 'cancelled' ? 'cancelled' : 'status',
-      by: cancelledBy,
+      by: actor,
       note: `Marked ${status} by ${session.role}`,
     });
 
@@ -96,7 +121,7 @@ router.put('/bookings/:id', async (req, res) => {
         `UPDATE bookings
             SET status = ?, cancelled_by = ?, cancelled_at = ?, history = ?
           WHERE id = ?`,
-        [status, cancelledBy, now, JSON.stringify(history), req.params.id]
+        [status, actor, now, JSON.stringify(history), req.params.id]
       );
     } else {
       // Re-opening or completing clears any stale cancellation metadata.

@@ -18,6 +18,18 @@ const fmtNext = (d) => {
   return `${weekday} ${day} ${month}, ${fmtTime(date)}`
 }
 
+function nextOccurrenceAt(booking) {
+  if (!Array.isArray(booking.occurrences) || booking.occurrences.length === 0) {
+    return booking.scheduledAt || booking.placedAt
+  }
+  const next = booking.occurrences
+    .filter((o) => o.status === 'upcoming')
+    .map((o) => ({ ...o, ts: new Date(o.scheduledAt).getTime() }))
+    .filter((o) => !Number.isNaN(o.ts))
+    .sort((a, b) => a.ts - b.ts)[0]
+  return next?.scheduledAt || booking.scheduledAt || booking.placedAt
+}
+
 function toLocalInput(iso) {
   if (!iso) return ''
   const d = new Date(iso)
@@ -219,7 +231,7 @@ function UpcomingCard({ booking }) {
   const subtitle = isInstant
     ? `${providerName} · Arriving by ${arrivalTime(booking)} · S$${booking.total}`
     : isRecurring
-      ? `${providerName} · Next: ${fmtNext(booking.scheduledAt || booking.placedAt)} · S$${booking.total}/visit`
+      ? `${providerName} · Next: ${fmtNext(nextOccurrenceAt(booking))} · S$${booking.total}/visit`
       : `${providerName} · ${fmtTime(booking.scheduledAt)} · S$${booking.total}`
 
   const [showReschedule, setShowReschedule] = useState(false)

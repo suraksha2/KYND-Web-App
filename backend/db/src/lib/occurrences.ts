@@ -138,6 +138,59 @@ export async function markNotified(occurrenceId: number): Promise<void> {
   await pool.query('UPDATE booking_occurrences SET notified_at = NOW() WHERE id = ?', [occurrenceId]);
 }
 
+export type CompletedOccurrence = {
+  id: number;
+  seq: number;
+  scheduled_at: string;
+};
+
+/**
+ * Mark the next upcoming visit of a recurring booking as completed and top the
+ * series up so future visits stay visible. Returns the completed occurrence.
+ */
+export async function completeNextOccurrence(bookingDbId: number): Promise<CompletedOccurrence | null> {
+  const [rows]: any = await pool.query(
+    `SELECT id, seq, ${SGT_STRING('scheduled_at', 'scheduled_at')}
+       FROM booking_occurrences
+      WHERE booking_id = ? AND status = 'upcoming'
+      ORDER BY seq ASC
+      LIMIT 1`,
+    [bookingDbId]
+  );
+
+  const next = rows?.[0];
+  if (!next) {
+    // No upcoming visit to complete; top-up in case the series ran dry and retry.
+    await topUpOccurrences(bookingDbId);
+    const [retry]: any = await pool.query(
+      `SELECT id, seq, ${SGT_STRING('scheduled_at', 'scheduled_at')}
+         FROM booking_occurrences
+        WHERE booking_id = ? AND status = 'upcoming'
+        ORDER BY seq ASC
+        LIMIT 1`,
+      [bookingDbId]
+    );
+    if (!retry?.[0]) return null;
+    await pool.query(
+      `UPDATE booking_occurrences
+          SET status = 'completed', completed_at = NOW()
+        WHERE id = ?`,
+      [retry[0].id]
+    );
+    return retry[0] as CompletedOccurrence;
+  }
+
+  await pool.query(
+    `UPDATE booking_occurrences
+        SET status = 'completed', completed_at = NOW()
+      WHERE id = ?`,
+    [next.id]
+  );
+
+  await topUpOccurrences(bookingDbId);
+  return next as CompletedOccurrence;
+}
+
 /**
  * Attach each recurring booking's visits to the rows being returned to a client.
  * One extra query for the whole page rather than one per booking.

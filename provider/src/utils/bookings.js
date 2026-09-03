@@ -37,6 +37,8 @@ export function formatDateTime(value) {
 }
 
 export function bookingDate(booking) {
+  const next = nextVisit(booking)
+  if (next?.at) return next.at
   const raw = booking?.scheduled_at || booking?.placed_at
   const d = parseSgt(raw)
   if (!d || Number.isNaN(d.getTime())) return null

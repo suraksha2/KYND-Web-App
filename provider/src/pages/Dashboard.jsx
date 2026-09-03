@@ -69,7 +69,7 @@ export default function Dashboard() {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Failed to update task.')
-      setBookings((prev) => prev.map((b) => (b.id === id ? { ...b, status } : b)))
+      await loadBookings()
     } catch (err) {
       setError(err.message || 'Failed to update task.')
     } finally {

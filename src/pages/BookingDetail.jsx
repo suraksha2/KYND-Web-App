@@ -16,6 +16,16 @@ function isReschedulable(b) {
   if (!b.scheduledAt) return false
   return new Date(b.scheduledAt).getTime() > Date.now()
 }
+
+function nextOccurrenceAt(booking) {
+  if (!Array.isArray(booking.occurrences) || booking.occurrences.length === 0) return null
+  const next = booking.occurrences
+    .filter((o) => o.status === 'upcoming')
+    .map((o) => ({ ...o, ts: new Date(o.scheduledAt).getTime() }))
+    .filter((o) => !Number.isNaN(o.ts))
+    .sort((a, b) => a.ts - b.ts)[0]
+  return next?.scheduledAt || null
+}
 function isCancellable(b) {
   if (b.status !== 'upcoming') return false
   if (b.schedule === 'scheduled' && b.scheduledAt) {
@@ -98,10 +108,13 @@ export default function BookingDetail() {
   }
 
   const sgt = { timeZone: 'Asia/Singapore' }
+  const nextVisitAt = nextOccurrenceAt(booking)
   const whenText = booking.schedule === 'instant'
     ? `Instant booking · placed ${new Date(booking.placedAt).toLocaleString('en-SG', sgt)}`
     : booking.schedule === 'recurring'
-      ? `Recurring (${booking.cadence}) · started ${new Date(booking.placedAt).toLocaleDateString('en-SG', sgt)}`
+      ? nextVisitAt
+        ? `Recurring (${booking.cadence}) · next ${new Date(nextVisitAt).toLocaleString('en-SG', sgt)}`
+        : `Recurring (${booking.cadence}) · started ${new Date(booking.placedAt).toLocaleDateString('en-SG', sgt)}`
       : booking.scheduledAt ? new Date(booking.scheduledAt).toLocaleString('en-SG', sgt) : '—'
 
   const visits = booking.schedule === 'recurring' ? (booking.occurrences || []) : []

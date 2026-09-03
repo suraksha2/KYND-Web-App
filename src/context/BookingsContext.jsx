@@ -22,6 +22,18 @@ function toSgtIso(v) {
   return v.replace(' ', 'T') + '+08:00'
 }
 
+function nextOccurrenceAt(booking) {
+  if (!Array.isArray(booking.occurrences) || booking.occurrences.length === 0) {
+    return booking.scheduledAt || booking.placedAt
+  }
+  const next = booking.occurrences
+    .filter((o) => o.status === 'upcoming')
+    .map((o) => ({ ...o, ts: new Date(o.scheduledAt).getTime() }))
+    .filter((o) => !Number.isNaN(o.ts))
+    .sort((a, b) => a.ts - b.ts)[0]
+  return next?.scheduledAt || booking.scheduledAt || booking.placedAt
+}
+
 /**
  * Transform a raw MySQL booking row into the camelCase shape the UI expects.
  */
@@ -244,8 +256,8 @@ export function BookingsProvider({ children }) {
       }
     }
     upcoming.sort((a, b) => {
-      const ta = a.scheduledAt ? new Date(a.scheduledAt).getTime() : new Date(a.placedAt).getTime()
-      const tb = b.scheduledAt ? new Date(b.scheduledAt).getTime() : new Date(b.placedAt).getTime()
+      const ta = new Date(nextOccurrenceAt(a)).getTime() || 0
+      const tb = new Date(nextOccurrenceAt(b)).getTime() || 0
       return ta - tb
     })
     past.sort((a, b) => new Date(b.placedAt).getTime() - new Date(a.placedAt).getTime())
