@@ -359,10 +359,28 @@ docker compose --env-file .env.docker down -v    # DESTROYS the database
 Re-running a schema change after the first boot (init scripts no longer apply):
 
 ```bash
-docker compose --env-file .env.docker exec -T mysql \
-  mysql -u root -p"$MYSQL_ROOT_PASSWORD" < backend/db/db.sql
+# Prefer the password from inside the MySQL container
+cat backend/db/db.sql | \
+  docker compose --env-file .env.docker exec -T mysql \
+  bash -c 'mysql -u root -p"$MYSQL_ROOT_PASSWORD" urban_service'
+
+# Production harden (FKs, slug NOT NULL, clear reset tokens, strip localhost URLs)
+cat backend/db/migrations/003-production-harden.sql | \
+  docker compose --env-file .env.docker exec -T mysql \
+  bash -c 'mysql -u root -p"$MYSQL_ROOT_PASSWORD" urban_service'
 ```
 
+Fresh empty database from the production-safe dump at the repo root (no password
+hashes / PII / test bookings):
+
+```bash
+cat db_new.sql | \
+  docker compose --env-file .env.docker exec -T mysql \
+  bash -c 'mysql -u root -p"$MYSQL_ROOT_PASSWORD"'
+```
+
+**Do not** import old phpMyAdmin dumps that contain `password_hash`,
+`reset_token`, or `localhost` image URLs into production.
 ---
 
 ## Notes & gotchas

@@ -181,6 +181,7 @@ CREATE TABLE IF NOT EXISTS service_providers (
   status ENUM('active', 'inactive', 'busy') DEFAULT 'active',
   rating DECIMAL(3,2) DEFAULT 0.00,
   total_jobs INT DEFAULT 0,
+  review_count INT DEFAULT 0,
   avatar VARCHAR(255),
   working_hours JSON,
   joined DATE DEFAULT (CURRENT_DATE),
@@ -217,6 +218,9 @@ CREATE TABLE IF NOT EXISTS bookings (
   history JSON,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  KEY idx_bookings_user (user_id),
+  KEY idx_bookings_provider (provider_id),
+  KEY idx_bookings_status_placed (status, placed_at),
   FOREIGN KEY (provider_id) REFERENCES service_providers(id) ON DELETE SET NULL,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
 );
@@ -310,6 +314,7 @@ CREATE TABLE IF NOT EXISTS reviews (
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY unique_booking_review (booking_id),
+  CONSTRAINT chk_review_rating CHECK (rating BETWEEN 1 AND 5),
   FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE CASCADE,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
   FOREIGN KEY (provider_id) REFERENCES service_providers(id) ON DELETE SET NULL
@@ -379,6 +384,7 @@ CREATE TABLE IF NOT EXISTS service_booking_modes (
   recurrence_discount_pct DECIMAL(5,2),
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY unique_service_mode (service_id, mode),
   FOREIGN KEY (service_id) REFERENCES catalog_services(id) ON DELETE CASCADE
 );
 
@@ -430,6 +436,7 @@ CREATE TABLE IF NOT EXISTS service_subcategory_services (
   subcategory_id INT NOT NULL,
   service_id INT NOT NULL,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY unique_subcategory_catalog_service (subcategory_id, service_id),
   FOREIGN KEY (subcategory_id) REFERENCES service_subcategories(id) ON DELETE CASCADE,
   FOREIGN KEY (service_id) REFERENCES catalog_services(id) ON DELETE CASCADE
 );
@@ -460,3 +467,67 @@ SET @stmt := IF(
   'ALTER TABLE catalog_services ADD COLUMN duration VARCHAR(100) AFTER image',
   'DO 0');
 PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- --- Production hardening (idempotent; safe on existing MySQL 8 volumes) ---
+
+-- bookings.user_id FK (missing from many phpMyAdmin dumps)
+SET @stmt := IF(
+  (SELECT COUNT(*) FROM information_schema.TABLE_CONSTRAINTS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'bookings'
+      AND CONSTRAINT_NAME = 'fk_bookings_user') = 0
+  AND (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'bookings'
+      AND COLUMN_NAME = 'user_id') > 0,
+  'ALTER TABLE bookings ADD CONSTRAINT fk_bookings_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL',
+  'DO 0');
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @stmt := IF(
+  (SELECT COUNT(*) FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'bookings'
+      AND INDEX_NAME = 'idx_bookings_user') = 0,
+  'ALTER TABLE bookings ADD KEY idx_bookings_user (user_id)',
+  'DO 0');
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @stmt := IF(
+  (SELECT COUNT(*) FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'bookings'
+      AND INDEX_NAME = 'idx_bookings_status_placed') = 0,
+  'ALTER TABLE bookings ADD KEY idx_bookings_status_placed (status, placed_at)',
+  'DO 0');
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- service_subcategories.slug must be NOT NULL for /help/:slug routing
+UPDATE service_subcategories
+   SET slug = CONCAT('moment-', id)
+ WHERE slug IS NULL OR slug = '';
+
+SET @stmt := IF(
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'service_subcategories'
+      AND COLUMN_NAME = 'slug' AND IS_NULLABLE = 'YES') > 0,
+  'ALTER TABLE service_subcategories MODIFY COLUMN slug VARCHAR(100) NOT NULL',
+  'DO 0');
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @stmt := IF(
+  (SELECT COUNT(*) FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'service_subcategory_services'
+      AND INDEX_NAME = 'unique_subcategory_catalog_service') = 0,
+  'ALTER TABLE service_subcategory_services ADD UNIQUE KEY unique_subcategory_catalog_service (subcategory_id, service_id)',
+  'DO 0');
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @stmt := IF(
+  (SELECT COUNT(*) FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'service_booking_modes'
+      AND INDEX_NAME = 'unique_service_mode') = 0,
+  'ALTER TABLE service_booking_modes ADD UNIQUE KEY unique_service_mode (service_id, mode)',
+  'DO 0');
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- Clear stale password-reset tokens (security hygiene on schema refresh)
+UPDATE users SET reset_token = NULL, reset_token_expiry = NULL
+ WHERE reset_token IS NOT NULL OR reset_token_expiry IS NOT NULL;
+

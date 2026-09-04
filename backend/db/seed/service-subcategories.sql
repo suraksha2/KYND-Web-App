@@ -1,11 +1,8 @@
--- Help moments (service_subcategories) — production data with URL slugs.
--- Idempotent: safe on fresh Docker boot and on existing DBs (adds slug column via db.sql first).
---
---   mysql -u helpr -p urban_service < backend/db/seed/service-subcategories.sql
+-- Help moments — production seed (catalog service links, not legacy services.id).
+--   mysql … urban_service < backend/db/seed/service-subcategories.sql
 
 USE urban_service;
 
--- Backfill slugs when rows already exist from an older schema (no slug column yet).
 UPDATE service_subcategories SET slug = 'new-baby' WHERE id = 1 AND (slug IS NULL OR slug = '');
 UPDATE service_subcategories SET slug = 'elder-care' WHERE id = 2 AND (slug IS NULL OR slug = '');
 UPDATE service_subcategories SET slug = 'back-to-school' WHERE id = 3 AND (slug IS NULL OR slug = '');
@@ -27,13 +24,26 @@ ON DUPLICATE KEY UPDATE
 
 ALTER TABLE service_subcategories AUTO_INCREMENT = 5;
 
--- Service links (service_id 9, 11, 12 must exist in your services table).
-INSERT IGNORE INTO service_subcategory_services (id, subcategory_id, service_id) VALUES
-  (1, 1, 9),
-  (2, 3, 11),
-  (3, 1, 12),
-  (4, 3, 12),
-  (5, 4, 9),
-  (6, 4, 12);
+INSERT IGNORE INTO service_subcategory_services (subcategory_id, service_id)
+SELECT sc.id, cs.id
+FROM service_subcategories sc
+JOIN catalog_services cs ON cs.name IN ('Home Cleaning', 'Tutor', 'Baby Sitter')
+WHERE sc.slug = 'new-baby';
 
-ALTER TABLE service_subcategory_services AUTO_INCREMENT = 7;
+INSERT IGNORE INTO service_subcategory_services (subcategory_id, service_id)
+SELECT sc.id, cs.id
+FROM service_subcategories sc
+JOIN catalog_services cs ON cs.name IN ('Elderly care')
+WHERE sc.slug = 'elder-care';
+
+INSERT IGNORE INTO service_subcategory_services (subcategory_id, service_id)
+SELECT sc.id, cs.id
+FROM service_subcategories sc
+JOIN catalog_services cs ON cs.name IN ('Tutor')
+WHERE sc.slug = 'back-to-school';
+
+INSERT IGNORE INTO service_subcategory_services (subcategory_id, service_id)
+SELECT sc.id, cs.id
+FROM service_subcategories sc
+JOIN catalog_services cs ON cs.name IN ('Home Cleaning', 'Baby Sitter')
+WHERE sc.slug = 'date-night';
