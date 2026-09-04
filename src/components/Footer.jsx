@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { useServices } from '../context/ServicesContext'
 import { API_BASE } from '../lib/api'
+import { SITE_URL } from '../lib/site'
 import KyndWordmark from './KyndWordmark'
 
 export default function Footer() {
@@ -101,7 +102,10 @@ export default function Footer() {
         </div>
 
         <div className="mt-12 pt-6 border-t border-white/10 text-xs text-warmgrey">
-          Kynd © {new Date().getFullYear()}
+          Kynd © {new Date().getFullYear()} ·{' '}
+          <a className="hover:text-white" href={SITE_URL}>
+            {SITE_URL.replace(/^https?:\/\//, '')}
+          </a>
         </div>
       </div>
     </footer>

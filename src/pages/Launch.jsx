@@ -372,9 +372,14 @@ export default function Launch() {
       </section>
 
       <footer className="bg-oat/50 px-5 sm:px-8 lg:px-12 py-6">
-        <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs text-warmgrey">
+        <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-warmgrey">
           <span>© {new Date().getFullYear()} Kynd. Trusted people for the moments that matter.</span>
-          <span>Singapore</span>
+          <span className="text-left sm:text-right">
+            Reach us: <a className="text-charcoal hover:underline" href="mailto:help@kynd.sg">help@kynd.sg</a>
+            <br className="sm:hidden" />
+            <span className="hidden sm:inline"> · </span>
+            Careers: <a className="text-charcoal hover:underline" href="mailto:careers@kynd.sg">careers@kynd.sg</a>
+          </span>
         </div>
       </footer>
     </div>
