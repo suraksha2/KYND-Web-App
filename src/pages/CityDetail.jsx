@@ -5,6 +5,8 @@ import StoreButtons from '../components/StoreButtons'
 import CitiesGrid from '../components/CitiesGrid'
 import { iconForService } from '../lib/serviceIcon'
 import { API_BASE, serviceImageUrl, staticAssetUrl } from '../lib/api'
+import Seo from '../components/Seo'
+import { breadcrumbSchema } from '../lib/schema'
 // import { DownloadCta } from './Home'
 
 /* ---------- City hero ---------- */
@@ -238,6 +240,16 @@ export default function CityDetail() {
 
   return (
     <div>
+      <Seo
+        title={`Kynd in ${city.name || city.cityName}`}
+        description={`Book verified house help in ${city.name || city.cityName}. See localities and services available with Kynd.`}
+        path={`/cities/${slug}`}
+        jsonLd={breadcrumbSchema([
+          { name: 'Home', path: '/' },
+          { name: 'Cities', path: '/cities' },
+          { name: city.name || city.cityName, path: `/cities/${slug}` },
+        ])}
+      />
       <CityHero city={city} />
       <Localities city={city} />
       <ServicesInCity city={city} />

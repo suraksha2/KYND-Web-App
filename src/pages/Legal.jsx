@@ -1,4 +1,5 @@
 import PageHero from '../components/PageHero'
+import Seo from '../components/Seo'
 
 const Section = ({ title, body }) => (
   <div className="mt-8">
@@ -10,6 +11,7 @@ const Section = ({ title, body }) => (
 export function TnC() {
   return (
     <div>
+      <Seo title="Terms & Conditions" description="Terms of use for the Kynd app and website." path="/tnc" />
       <PageHero title="Terms & Conditions" subtitle="Last updated: today." />
       <section className="py-14">
         <div className="max-w-3xl mx-auto px-6">
@@ -31,6 +33,7 @@ export function TnC() {
 export function PrivacyPolicy() {
   return (
     <div>
+      <Seo title="Privacy Policy" description="How Kynd collects, uses and protects your information." path="/privacy-policy" />
       <PageHero title="Privacy Policy" subtitle="How Kynd collects, uses and protects your information." />
       <section className="py-14">
         <div className="max-w-3xl mx-auto px-6">
@@ -48,6 +51,7 @@ export function PrivacyPolicy() {
 export function CancellationPolicy() {
   return (
     <div>
+      <Seo title="Cancellation Policy" description="How Kynd handles cancellations, reschedules and no-shows." path="/cancellation-policy" />
       <PageHero title="Cancellation Policy" subtitle="Plans change. Here's how Kynd handles it." />
       <section className="py-14">
         <div className="max-w-3xl mx-auto px-6">
@@ -64,6 +68,7 @@ export function CancellationPolicy() {
 export function Credits() {
   return (
     <div>
+      <Seo title="Photo Credits" description="Photography credits for the Kynd website." path="/credits" />
       <PageHero title="Photo Credits" subtitle="With thanks to the photographers and illustrators who made this site beautiful." />
       <section className="py-14">
         <div className="max-w-3xl mx-auto px-6 text-sm text-charcoal">

@@ -13,6 +13,7 @@ import {
   IonRippleEffect,
 } from '@ionic/react'
 import { locationOutline, arrowForwardOutline } from 'ionicons/icons'
+import Seo from '../components/Seo'
 
 export default function Cities() {
   const navigate = useNavigate()
@@ -42,7 +43,7 @@ export default function Cities() {
 
   if (loading) {
     return (
-      <div className="pt-32 pb-20 bg-warmlinen min-h-[60vh]">", "replace_all": true
+      <div className="pt-32 pb-20 bg-warmlinen min-h-[60vh]">
         <div className="max-w-6xl mx-auto px-6 text-center">
           <h1 className="font-heading text-3xl md:text-5xl font-extrabold tracking-tight text-charcoal mt-3">
             Loading cities...
@@ -54,6 +55,11 @@ export default function Cities() {
 
   return (
     <div className="pt-32 pb-20 bg-warmlinen min-h-[60vh]">
+      <Seo
+        title="Cities"
+        description="See where Kynd is live and browse services by city."
+        path="/cities"
+      />
       <div className="max-w-6xl mx-auto px-6 text-center">
         <IonChip color="#7A8D72" outline>
           <IonIcon icon={locationOutline} />

@@ -13,6 +13,7 @@ import {
 import { API_BASE, serviceImageUrl } from '../lib/api'
 import { LAUNCH_AT, launchLabel, msUntilLaunch, splitDuration } from '../lib/launch'
 import KyndWordmark from '../components/KyndWordmark'
+import Seo from '../components/Seo'
 
 const HERO_PHOTO = import.meta.env.BASE_URL + 'images/people/' + encodeURIComponent('women child.png')
 
@@ -281,6 +282,11 @@ export default function Launch() {
 
   return (
     <div className="min-h-full flex flex-col bg-warmlinen">
+      <Seo
+        title="Coming soon"
+        description={`Kynd is launching in Singapore ${launchMonth}. Join the waitlist for early access to verified house help.`}
+        path="/"
+      />
       <header className="px-5 sm:px-8 lg:px-12 pt-[calc(1.25rem_+_var(--safe-top))] pb-2">
         <div className="max-w-6xl mx-auto flex items-center justify-between gap-4">
           <span className="flex items-center" aria-label="Kynd">

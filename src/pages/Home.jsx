@@ -1,7 +1,10 @@
 import { useRef, useState, useEffect } from 'react'
 import Hero from '../components/home/Hero'
-// import Stats from '../components/home/Stats'
 import Services from '../components/home/Services'
+import Seo from '../components/Seo'
+import { organizationSchema } from '../lib/schema'
+import { DEFAULT_DESCRIPTION } from '../lib/site'
+// import Stats from '../components/home/Stats'
 // import Steps from '../components/home/Steps'
 // import ValuePillars from '../components/home/ValuePillars'
 // import Reviews from '../components/home/Reviews'
@@ -192,6 +195,12 @@ function StandardsCarousel() {
 export default function Home() {
   return (
     <>
+      <Seo
+        title={null}
+        description={DEFAULT_DESCRIPTION}
+        path="/"
+        jsonLd={organizationSchema()}
+      />
       <Hero />
       <ScrollReveal><Services /></ScrollReveal>
       {/* <ScrollReveal><Steps /></ScrollReveal> */}

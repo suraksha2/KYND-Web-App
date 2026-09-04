@@ -3,6 +3,7 @@ import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { Eye, EyeOff, Mail, Lock, Loader2 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import KyndWordmark from '../components/KyndWordmark'
+import Seo from '../components/Seo'
 
 export default function Login() {
   const { login } = useAuth()
@@ -35,6 +36,7 @@ export default function Login() {
 
   return (
     <section className="pt-28 md:pt-32 pb-16 min-h-screen">
+      <Seo title="Sign in" description="Sign in to your Kynd account." path="/login" noindex />
       <div className="max-w-md mx-auto px-5 sm:px-6">
         <div className="bg-white rounded-3xl ring-1 ring-lightstone shadow-soft p-6 sm:p-8">
           <div className="text-center">

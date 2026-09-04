@@ -80,6 +80,7 @@ services:
       args:
         APP_BASE: ${APP_BASE:-}
         VITE_API_BASE: ${VITE_API_BASE:-/api}
+        VITE_SITE_URL: ${VITE_SITE_URL:-https://kyndpro.com}
     environment:
       APP_BASE: ${APP_BASE:-}
     restart: unless-stopped
