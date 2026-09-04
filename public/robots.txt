@@ -1,2 +1,21 @@
+# https://kyndpro.com/robots.txt
 User-agent: *
-Disallow: /
+Allow: /
+
+# Private / authenticated areas
+Disallow: /account
+Disallow: /bookings
+Disallow: /login
+Disallow: /signup
+Disallow: /forgot-password
+Disallow: /reset-password
+Disallow: /booking/confirmed
+Disallow: /delete-account
+
+# Other apps on the same origin (when served together)
+Disallow: /admin
+Disallow: /provider
+Disallow: /superadmin
+Disallow: /api/
+
+Sitemap: https://kyndpro.com/sitemap.xml

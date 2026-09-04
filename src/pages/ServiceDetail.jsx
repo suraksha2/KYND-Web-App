@@ -9,6 +9,8 @@ import { localServiceImage, servicePeopleImage } from '../lib/serviceImage'
 import { taglineForService } from '../lib/serviceTagline'
 import { API_BASE, appUrl } from '../lib/api'
 import { OFFERS, getStoredOffer, storeOffer, clearStoredOffer, computeDiscount, offerIsApplicable } from '../lib/offers'
+import Seo from '../components/Seo'
+import { serviceSchema, breadcrumbSchema } from '../lib/schema'
 
 /* ---------- helpers ---------- */
 const parsePrice = (str = '') => {
@@ -1043,6 +1045,26 @@ export default function ServiceDetail() {
 
   return (
     <div className="pb-28">
+      <Seo
+        title={primary.name}
+        description={taglineForService(primary.name) || `Book ${primary.name} with verified Kynd Pros in Singapore.`}
+        path={`/services/${slug}`}
+        image={primary.img || undefined}
+        jsonLd={[
+          serviceSchema({
+            name: primary.name,
+            description: taglineForService(primary.name),
+            path: `/services/${slug}`,
+            price: primary.price || parsePrice(primary.pricingFrom),
+            image: primary.img,
+          }),
+          breadcrumbSchema([
+            { name: 'Home', path: '/' },
+            { name: 'Services', path: '/services' },
+            { name: primary.name, path: `/services/${slug}` },
+          ]),
+        ]}
+      />
       <ServiceHero svc={primary} />
       <Inclusions svc={primary} />
 

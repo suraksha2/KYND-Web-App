@@ -4,6 +4,7 @@ import { Image, MapPin, CreditCard, Bell, Globe, Shield, Gift, HelpCircle, Chevr
 import { useAuth } from '../context/AuthContext'
 import { useBookings } from '../context/BookingsContext'
 import { useLanguage } from '../context/LanguageContext'
+import Seo from '../components/Seo'
 
 function Row({ icon: Icon, label, value, last, onClick }) {
   const Tag = onClick ? 'button' : 'div'
@@ -56,6 +57,7 @@ export default function Account() {
 
   return (
     <section className="pt-28 md:pt-32 pb-24">
+      <Seo title="Account" path="/account" noindex />
       <div className="max-w-md mx-auto px-5">
         <div
           role="button"

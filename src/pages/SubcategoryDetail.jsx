@@ -3,6 +3,8 @@ import { useParams, Link, useNavigate } from 'react-router-dom'
 import { ChevronLeft, ArrowRight, Image as ImageIcon, Check, MessageCircle } from 'lucide-react'
 import { API_BASE, serviceImageUrl } from '../lib/api'
 import { iconForService } from '../lib/serviceIcon'
+import Seo from '../components/Seo'
+import { breadcrumbSchema } from '../lib/schema'
 
 function ServiceCard({ s, selected, onToggle }) {
   const Icon = iconForService(s.name)
@@ -166,6 +168,16 @@ export default function SubcategoryDetail() {
 
   return (
     <section className="bg-warmlinen min-h-screen pb-32 md:pb-20">
+      <Seo
+        title={subcategory.title}
+        description={`${subcategory.label}: ${subcategory.title}. Choose trusted Kynd services for this moment.`}
+        path={`/help/${slug}`}
+        image={subcategory.image ? serviceImageUrl(subcategory.image) : undefined}
+        jsonLd={breadcrumbSchema([
+          { name: 'Home', path: '/' },
+          { name: subcategory.title, path: `/help/${slug}` },
+        ])}
+      />
       <div className="relative w-full aspect-[4/3] sm:aspect-[3/2] max-h-[60vh] overflow-hidden bg-lightstone">
         {subcategory.image ? (
           <img

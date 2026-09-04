@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { ChevronDown } from 'lucide-react'
 import PageHero from '../components/PageHero'
+import Seo from '../components/Seo'
+import { faqPageSchema } from '../lib/schema'
 
 const items = [
   { q: 'What is Kynd?', a: 'Kynd is an on-demand and subscription-based house help platform connecting trained, background-verified Pros with urban homes — for cleaning, laundry, kitchen and bathroom upkeep. Schedule for later or get instant service in 15 minutes.' },
@@ -21,6 +23,12 @@ export default function FAQ() {
   const [open, setOpen] = useState(0)
   return (
     <div>
+      <Seo
+        title="Frequently asked questions"
+        description="Everything you need to know about Kynd — booking, pricing, Pros, and support."
+        path="/frequently-asked-questions"
+        jsonLd={faqPageSchema(items)}
+      />
       <PageHero title="Frequently Asked Questions" subtitle="Everything you need to know about Kynd." />
       <section className="py-14">
         <div className="max-w-3xl mx-auto px-6 space-y-3">

@@ -11,6 +11,7 @@ import {
 } from '@ionic/react'
 import { callOutline, mailOutline, chatbubblesOutline } from 'ionicons/icons'
 import PageHero from '../components/PageHero'
+import Seo from '../components/Seo'
 
 export default function Support() {
   const channels = [
@@ -39,6 +40,11 @@ export default function Support() {
 
   return (
     <div>
+      <Seo
+        title="Support"
+        description="Contact Kynd support by phone or email for booking help and service questions."
+        path="/support"
+      />
       <PageHero
         title="Get in touch with Kynd"
         subtitle="Our support team is available on call and email."

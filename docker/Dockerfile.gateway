@@ -7,16 +7,19 @@
 #     --build-arg APP_BASE= --build-arg VITE_API_BASE=/api .
 ARG APP_BASE=
 ARG VITE_API_BASE=/api
+ARG VITE_SITE_URL=https://kyndpro.com
 
 FROM node:20-alpine AS storefront
 ARG APP_BASE=
 ARG VITE_API_BASE=/api
+ARG VITE_SITE_URL=https://kyndpro.com
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY . .
 ENV VITE_API_BASE=${VITE_API_BASE}
 ENV VITE_BASE=${APP_BASE}/
+ENV VITE_SITE_URL=${VITE_SITE_URL}
 RUN npm run build
 
 FROM node:20-alpine AS admin
