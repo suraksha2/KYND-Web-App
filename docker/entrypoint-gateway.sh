@@ -1,5 +1,5 @@
 #!/bin/sh
-# Generate nginx config for APP_BASE ("" or "/mykynd") then start nginx.
+# Generate nginx config for APP_BASE ("" = domain root, or "/mykynd") then start nginx.
 set -eu
 BASE="${APP_BASE:-}"
 BASE="${BASE%/}"

@@ -10,20 +10,21 @@ Apache + PM2) — pick one, not both.
 |------------|----------------------------------------|-----------|----------|
 | `mysql`    | `mysql:8.0`                            | 3307 (loopback only) | DB `urban_service`, schema from `backend/db/db.sql` on first boot |
 | `backend`  | `backend/db/Dockerfile`                | — (internal 3001) | Express API (`/api/*`) + `/images`, compiled to `dist/` |
-| `web`      | `docker/Dockerfile.gateway`            | 8080      | All four SPAs + nginx under `APP_BASE` (default `/mykynd`): storefront, `/admin`, `/provider`, `/superadmin`; `/api` and `/images` proxied to the backend |
+| `web`      | `docker/Dockerfile.gateway`            | 8080      | All four SPAs + nginx under `APP_BASE` (default empty = domain root): storefront, `/admin`, `/provider`, `/superadmin`; `/api` and `/images` proxied to the backend |
 
-Default production layout (e.g. **https://fayyaz.travel/mykynd**):
+Default production layout (**https://kyndpro.com**):
 
 | Path | App |
 |------|-----|
-| `/mykynd/` | Storefront |
-| `/mykynd/admin/` | Admin |
-| `/mykynd/provider/` | Provider |
-| `/mykynd/superadmin/login` | Superadmin |
-| `/mykynd/api/*` | API (proxied) |
-| `/mykynd/images/*` | Artwork (proxied) |
+| `/` | Storefront |
+| `/admin/` | Admin |
+| `/provider/` | Provider |
+| `/superadmin/login` | Superadmin |
+| `/api/*` | API (proxied) |
+| `/images/*` | Artwork (proxied) |
 
-Set `APP_BASE=` (empty) and `VITE_API_BASE=/api` in `.env.docker` to serve at the domain root instead.
+For a shared host that needs a path prefix, set `APP_BASE=/mykynd` and
+`VITE_API_BASE=/mykynd/api` (one `web` image cannot serve both layouts at once).
 
 One nginx origin reverse-proxies `${APP_BASE}/api` **and** `${APP_BASE}/images` to
 `backend:3001`, so the browser only ever talks to a single host. The API
@@ -137,24 +138,24 @@ before booting.
 ## 4. Verify
 
 ```bash
-curl -I  http://localhost:8080/mykynd/            # storefront → 200
-curl -s  http://localhost:8080/mykynd/api/services              # JSON through the proxy
-curl -I  http://localhost:8080/mykynd/images/Tutor.png          # image proxied from backend
-curl -I  http://localhost:8080/mykynd/admin/     # admin
-curl -I  http://localhost:8080/mykynd/provider/  # provider
-curl -I  http://localhost:8080/mykynd/superadmin/login # superadmin login
+curl -I  http://localhost:8080/            # storefront → 200
+curl -s  http://localhost:8080/api/services              # JSON through the proxy
+curl -I  http://localhost:8080/images/Tutor.png          # image proxied from backend
+curl -I  http://localhost:8080/admin/     # admin
+curl -I  http://localhost:8080/provider/  # provider
+curl -I  http://localhost:8080/superadmin/login # superadmin login
 npm run docker:logs                       # or: docker compose --env-file .env.docker logs -f backend
 ```
 
 Create the first admin (needs `ADMIN_SIGNUP_SECRET` from `.env.docker`):
 
 ```bash
-curl -X POST http://localhost:8080/mykynd/api/auth/signup \
+curl -X POST http://localhost:8080/api/auth/signup \
   -H 'Content-Type: application/json' \
   -d '{"name":"Admin","email":"you@example.com","password":"...","secret":"<ADMIN_SIGNUP_SECRET>"}'
 ```
 
-Then log in at `http://localhost:8080/mykynd/admin/`. Note that `db.sql` creates the **schema
+Then log in at `http://localhost:8080/admin/`. Note that `db.sql` creates the **schema
 only** — no services/cities rows — so a fresh stack starts empty and lists
 render blank until you add data through the admin.
 
@@ -171,7 +172,7 @@ schedules it, so add a host cron entry (hourly is plenty):
 Or, more simply, hit it through the gateway from the host:
 
 ```bash
-curl -fsS -X POST http://localhost:8080/mykynd/api/internal/dispatch-due \
+curl -fsS -X POST http://localhost:8080/api/internal/dispatch-due \
   -H "Authorization: Bearer $INTERNAL_API_TOKEN"
 # {"due":2,"notified":2,"failed":0,"occurrencesAdded":1}
 ```
@@ -180,52 +181,114 @@ It is idempotent — a visit already notified is never re-sent, and a send that
 fails stays queued for the next run. A `401` means `INTERNAL_API_TOKEN` is unset
 or shorter than 16 chars, which keeps the endpoint closed by design.
 
-## 5. Put it on a domain (TLS) — Contabo + https://fayyaz.travel/mykynd
+## 5. Put it on a domain (TLS) — Contabo + https://kyndpro.com/
 
 The containers speak plain HTTP on `8080`. Terminate TLS on the host and proxy
-only the `/mykynd` path so the rest of `fayyaz.travel` is unchanged.
+the **entire** domain to the gateway (domain root — empty `APP_BASE`).
 
-**nginx on Contabo** (Apache works the same idea with `ProxyPass`):
+### 5.1 DNS
+
+Point `kyndpro.com` and `www.kyndpro.com` A/AAAA records at the Contabo VPS IP.
+
+### 5.2 `.env.docker` on the server
+
+```bash
+cd /var/www/KYND-Web-App   # or your checkout path
+# edit .env.docker:
+APP_BASE=
+VITE_API_BASE=/api
+ALLOWED_ORIGINS=https://kyndpro.com,https://www.kyndpro.com
+```
+
+Rebuild so SPA bundles bake the root base (required after changing `APP_BASE` /
+`VITE_API_BASE`):
+
+```bash
+git pull
+docker compose --env-file .env.docker build --no-cache web backend
+docker compose --env-file .env.docker up -d --force-recreate web backend
+```
+
+### 5.3 Apache reverse proxy + Certbot
+
+Enable modules if needed: `sudo a2enmod proxy proxy_http headers ssl rewrite`
+
+Create `/etc/apache2/sites-available/kyndpro.com.conf` (HTTP → HTTPS can be
+added by Certbot):
+
+```apache
+<VirtualHost *:80>
+  ServerName kyndpro.com
+  ServerAlias www.kyndpro.com
+
+  ProxyPreserveHost On
+  RequestHeader set X-Forwarded-Proto "https"
+  ProxyPass        / http://127.0.0.1:8080/
+  ProxyPassReverse / http://127.0.0.1:8080/
+</VirtualHost>
+```
+
+```bash
+sudo a2ensite kyndpro.com.conf
+sudo apache2ctl configtest && sudo systemctl reload apache2
+sudo certbot --apache -d kyndpro.com -d www.kyndpro.com
+```
+
+After Certbot, the SSL vhost should still proxy `/` to `http://127.0.0.1:8080/`
+with:
+
+```apache
+ProxyPreserveHost On
+RequestHeader set X-Forwarded-Proto "https"
+ProxyPass        / http://127.0.0.1:8080/
+ProxyPassReverse / http://127.0.0.1:8080/
+```
+
+**nginx equivalent** (if you prefer nginx over Apache):
 
 ```nginx
-# Inside the existing fayyaz.travel HTTPS server block:
-location = /mykynd {
-    return 301 /mykynd/;
-}
+server {
+    listen 443 ssl http2;
+    server_name kyndpro.com www.kyndpro.com;
+    # ssl_certificate … (certbot)
 
-location /mykynd/ {
-    proxy_pass http://127.0.0.1:8080/mykynd/;
-    proxy_http_version 1.1;
-    proxy_set_header Host              $host;
-    proxy_set_header X-Real-IP         $remote_addr;
-    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-    client_max_body_size 20m;
+    location / {
+        proxy_pass http://127.0.0.1:8080/;
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        client_max_body_size 20m;
+    }
 }
 ```
+
+### 5.4 Live URLs
+
+- https://kyndpro.com/
+- https://kyndpro.com/admin/
+- https://kyndpro.com/provider/
+- https://kyndpro.com/superadmin/login
+- https://kyndpro.com/api/*
 
 ```bash
-sudo nginx -t && sudo systemctl reload nginx
-# If TLS is not set up yet:
-# sudo certbot --nginx -d fayyaz.travel
+curl -I https://kyndpro.com/
+curl -I https://kyndpro.com/admin/
+curl -I https://kyndpro.com/provider/
+curl -I https://kyndpro.com/superadmin/login
+curl -s https://kyndpro.com/api/service-subcategories | head
 ```
 
-`.env.docker` must keep:
+Hard-refresh browsers after switching off `/mykynd` so cached API paths are not
+used.
 
-```bash
-APP_BASE=/mykynd
-VITE_API_BASE=/mykynd/api
-```
+### 5.5 Path-prefix hosts (optional)
 
-Rebuild after changing those (`npm run docker:all`) — they are baked into the SPA
-bundles at build time.
-
-Live URLs:
-
-- https://fayyaz.travel/mykynd/
-- https://fayyaz.travel/mykynd/admin/
-- https://fayyaz.travel/mykynd/provider/
-- https://fayyaz.travel/mykynd/superadmin/login
+If you must share a domain under a subpath (e.g. `https://example.com/mykynd/`),
+set `APP_BASE=/mykynd` and `VITE_API_BASE=/mykynd/api`, rebuild `web`, and proxy
+only `/mykynd/` to `http://127.0.0.1:8080/mykynd/`. That layout cannot share the
+same rebuilt container as the kyndpro.com root deploy.
 
 If you instead serve an app from a *different* origin than its API, add that
 origin to `ALLOWED_ORIGINS` in `.env.docker` and recreate the backend.
@@ -250,7 +313,7 @@ The stack runs correctly out of the box, but these are on you:
       ```
       Artwork needs no migration step: commit it to `backend/db/public/images`
       and it ships with the backend image.
-- [ ] **Create the first admin** via `/mykynd/api/auth/signup` with
+- [ ] **Create the first admin** via `/api/auth/signup` with
       `ADMIN_SIGNUP_SECRET` (Section 4), then consider clearing that variable.
 - [ ] **Schedule database backups.** Nothing here backs up `mysql-data` or
       `backend-data` for you.
@@ -259,7 +322,7 @@ The stack runs correctly out of the box, but these are on you:
 - [ ] **Mobile builds need a different API base.** Capacitor loads the bundle
       from `capacitor://localhost`, where `VITE_API_BASE=/api` resolves to the
       device, not your server. Build the app bundle separately with an absolute
-      base (e.g. `VITE_API_BASE=https://helpr.example.com/api`) and add that
+      base (e.g. `VITE_API_BASE=https://kyndpro.com/api`) and add that
       origin to `ALLOWED_ORIGINS`.
 
 ---

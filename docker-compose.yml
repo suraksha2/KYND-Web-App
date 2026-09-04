@@ -3,9 +3,9 @@
 #   cp docker/env.example .env.docker && edit it
 #   npm run docker:all
 #
-# Host ports: 8080 and 3307 MySQL. Default APP_BASE=/mykynd so the stack lives at
-# https://fayyaz.travel/mykynd (storefront), /mykynd/admin, /mykynd/provider,
-# /mykynd/superadmin, with /mykynd/api proxied to the backend.
+# Host ports: 8080 and 3307 MySQL. Default APP_BASE empty so the stack lives at
+# https://kyndpro.com/ (storefront), /admin, /provider, /superadmin, with /api
+# proxied to the backend. Set APP_BASE=/mykynd for a path-prefix host.
 
 services:
   mysql:
@@ -78,10 +78,10 @@ services:
       context: .
       dockerfile: docker/Dockerfile.gateway
       args:
-        APP_BASE: ${APP_BASE:-/mykynd}
-        VITE_API_BASE: ${VITE_API_BASE:-/mykynd/api}
+        APP_BASE: ${APP_BASE:-}
+        VITE_API_BASE: ${VITE_API_BASE:-/api}
     environment:
-      APP_BASE: ${APP_BASE:-/mykynd}
+      APP_BASE: ${APP_BASE:-}
     restart: unless-stopped
     depends_on:
       - backend

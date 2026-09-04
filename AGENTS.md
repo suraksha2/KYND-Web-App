@@ -9,7 +9,7 @@ lockfile — there is no workspace root. Root scripts orchestrate them:
 npm run install:all   # npm install in every app
 npm run dev:all       # one origin :5173 — / admin /provider /superadmin, API proxied at /api
 npm run build:all     # production build of every app + the API
-npm run docker:all    # same stack on :8080 under APP_BASE=/mykynd (see DEPLOYMENT_DOCKER.md)
+npm run docker:all    # same stack on :8080 at domain root (see DEPLOYMENT_DOCKER.md)
 ```
 
 `npm run dev` still starts only the storefront. `npm run docker:down` stops Compose.

@@ -1,10 +1,10 @@
 # Single nginx origin for all four Vite SPAs. Build context is the repo root.
 #
-# APP_BASE is the URL prefix with no trailing slash (e.g. /mykynd or empty for /).
-# VITE_API_BASE must match (e.g. /mykynd/api or /api).
+# APP_BASE is the URL prefix with no trailing slash (empty for https://kyndpro.com/,
+# or /mykynd for a path-prefix host). VITE_API_BASE must match (/api or /mykynd/api).
 #
 #   docker build -f docker/Dockerfile.gateway \
-#     --build-arg APP_BASE=/mykynd --build-arg VITE_API_BASE=/mykynd/api .
+#     --build-arg APP_BASE= --build-arg VITE_API_BASE=/api .
 ARG APP_BASE=
 ARG VITE_API_BASE=/api
 

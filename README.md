@@ -28,7 +28,7 @@ npm run dev:all
 
 The API still needs `backend/db/.env.local` (copy from `backend/db/.env.example`) with `SESSION_SECRET` set. `npm run build:all` production-builds every app.
 
-Full stack in Docker (default `APP_BASE=/mykynd`, port 8080):
+Full stack in Docker (default domain root, port 8080):
 
 ```bash
 cp docker/env.example .env.docker   # first time — set MySQL passwords and SESSION_SECRET
@@ -37,12 +37,12 @@ npm run docker:all
 
 | App | URL |
 |-----|-----|
-| Storefront | http://localhost:8080/mykynd/ |
-| Admin | http://localhost:8080/mykynd/admin/ |
-| Provider | http://localhost:8080/mykynd/provider/ |
-| Superadmin | http://localhost:8080/mykynd/superadmin/login |
+| Storefront | http://localhost:8080/ |
+| Admin | http://localhost:8080/admin/ |
+| Provider | http://localhost:8080/provider/ |
+| Superadmin | http://localhost:8080/superadmin/login |
 
-Production target: **https://fayyaz.travel/mykynd/** (see `DEPLOYMENT_DOCKER.md` §5 for the Contabo nginx snippet).
+Production target: **https://kyndpro.com/** (see `DEPLOYMENT_DOCKER.md` §5 for Contabo Apache + TLS).
 
 `npm run docker:down` stops the stack (volumes stay). `npm run docker:logs` tails every container.
 
