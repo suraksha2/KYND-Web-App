@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useParams, Link, Navigate, useNavigate, useLocation } from 'react-router-dom'
-import { Check, X, ChevronLeft, Heart, Star, ShieldCheck, ChevronUp, ChevronDown, CreditCard, Wallet, Banknote } from 'lucide-react'
+import { Check, X, ChevronLeft, Heart, Star, ShieldCheck, ChevronUp, ChevronDown, CreditCard, Banknote } from 'lucide-react'
 import { useServices } from '../context/ServicesContext'
 import { useBookings } from '../context/BookingsContext'
 import { useAuth } from '../context/AuthContext'
@@ -14,7 +14,7 @@ import { usePrefillDetails, rememberedPayment } from '../lib/lastBooking'
 import { saveLastOrder } from '../lib/lastOrder'
 
 /** Payment methods this form offers — anything else cannot be prefilled. */
-const PAY_METHODS = ['card', 'wallet', 'cod']
+const PAY_METHODS = ['card', 'cod']
 
 /* ---------- helpers ---------- */
 const parsePrice = (str = '') => {
@@ -822,11 +822,6 @@ const AddressPaymentPanel = ({
             <CreditCard className="w-4 h-4 text-charcoal" />
             <span className="text-sm font-medium text-charcoal">Card</span>
           </label>
-          <label className={`flex items-center gap-3 p-3 rounded-xl border transition cursor-pointer ${pay === 'wallet' ? 'bg-accent-100 border-terracotta' : 'bg-white border-lightstone'}`}>
-            <input type="radio" name="payment" value="wallet" checked={pay === 'wallet'} onChange={() => setPay('wallet')} className="accent-terracotta" />
-            <Wallet className="w-4 h-4 text-charcoal" />
-            <span className="text-sm font-medium text-charcoal">Wallet</span>
-          </label>
           <label className={`flex items-center gap-3 p-3 rounded-xl border transition cursor-pointer ${pay === 'cod' ? 'bg-accent-100 border-terracotta' : 'bg-white border-lightstone'}`}>
             <input type="radio" name="payment" value="cod" checked={pay === 'cod'} onChange={() => setPay('cod')} className="accent-terracotta" />
             <Banknote className="w-4 h-4 text-charcoal" />
@@ -1139,7 +1134,7 @@ export default function ServiceDetail() {
     if (token) headers['Authorization'] = `Bearer ${token}`
 
     if (pay !== 'card') {
-      // Cash or wallet: create the booking directly.
+      // Cash: create the booking directly.
       try {
         const response = await fetch(`${API_BASE}/bookings`, {
           method: 'POST',
@@ -1211,7 +1206,7 @@ export default function ServiceDetail() {
     }
   }
 
-  const paymentSummary = city ? `${city}${area ? ', ' + area : ''} — ${pay === 'card' ? 'Card' : pay === 'wallet' ? 'Wallet' : 'Cash'}` : 'Enter your details'
+  const paymentSummary = city ? `${city}${area ? ', ' + area : ''} — ${pay === 'card' ? 'Card' : 'Cash'}` : 'Enter your details'
 
   const howSummary = schedule === 'instant'
     ? 'Instant'
