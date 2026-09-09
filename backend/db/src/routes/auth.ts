@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import pool from '../lib/mysql';
 import { createSessionToken, SESSION_COOKIE_NAME } from '../lib/auth';
-import { clearSessionCookie, setSessionCookie } from '../http/session';
+import { clearSessionCookie, getSession, setSessionCookie } from '../http/session';
 
 const router = Router();
 
@@ -20,7 +20,7 @@ router.post('/login', async (req, res) => {
 
     // Find user by email
     const [users] = await pool.query(
-      'SELECT id, name, email, password_hash, role, status, created_at FROM users WHERE email = ?',
+      'SELECT id, name, email, password_hash, role, status, created_at, referral_code FROM users WHERE email = ?',
       [normalizedEmail]
     );
 
@@ -42,6 +42,17 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid email or password.' });
     }
 
+    // Ensure every user has a shareable referral code for the "Refer a friend" offer.
+    if (!user.referral_code) {
+      const referralCode = `KYND-${user.id}`;
+      try {
+        await pool.query('UPDATE users SET referral_code = ? WHERE id = ?', [referralCode, user.id]);
+        user.referral_code = referralCode;
+      } catch (e) {
+        console.error('Failed to set referral code on login:', e);
+      }
+    }
+
     // Issue a signed, httpOnly session cookie carrying the user's role.
     // This is what the server (middleware) uses for role-based access control;
     // client-side localStorage state is purely cosmetic.
@@ -60,6 +71,7 @@ router.post('/login', async (req, res) => {
       email: user.email,
       role: user.role,
       createdAt: user.created_at,
+      referralCode: user.referral_code,
       // Token is also returned in the body so cross-origin clients (e.g. the
       // customer app on :5173) can authenticate via an Authorization header,
       // since cross-site cookies are unreliable in browsers.
@@ -131,6 +143,14 @@ router.post('/signup', async (req, res) => {
     );
     const createdAt = (newUsers as any[])[0]?.created_at;
 
+    // Generate and store a shareable referral code for the new account.
+    const referralCode = `KYND-${userId}`;
+    try {
+      await pool.query('UPDATE users SET referral_code = ? WHERE id = ?', [referralCode, userId]);
+    } catch (e) {
+      console.error('Failed to store referral code on signup:', e);
+    }
+
     // Issue session token
     const token = await createSessionToken({
       id: userId,
@@ -146,11 +166,78 @@ router.post('/signup', async (req, res) => {
       email: normalizedEmail,
       role: assignedRole,
       createdAt,
+      referralCode,
       token,
     });
   } catch (error: any) {
     console.error('Signup error:', error);
     return res.status(500).json({ error: 'Unable to create account.', details: error.message });
+  }
+});
+
+router.get('/referral-code', async (req, res) => {
+  try {
+    const session = await getSession(req);
+    if (!session) {
+      return res.status(401).json({ error: 'Authentication required.' });
+    }
+
+    const [users] = await pool.query(
+      'SELECT id, referral_code FROM users WHERE id = ?',
+      [session.id]
+    );
+    const userArray = users as any[];
+    if (!userArray || userArray.length === 0) {
+      return res.status(404).json({ error: 'User not found.' });
+    }
+
+    const user = userArray[0];
+    let referralCode = user.referral_code;
+    if (!referralCode) {
+      referralCode = `KYND-${user.id}`;
+      try {
+        await pool.query('UPDATE users SET referral_code = ? WHERE id = ?', [referralCode, user.id]);
+      } catch (e) {
+        console.error('Failed to generate referral code:', e);
+        return res.status(500).json({ error: 'Unable to generate referral code.' });
+      }
+    }
+
+    return res.json({ referralCode });
+  } catch (error) {
+    console.error('Get referral code error:', error);
+    return res.status(500).json({ error: 'Unable to get referral code.' });
+  }
+});
+
+router.post('/validate-referral', async (req, res) => {
+  try {
+    const { code } = req.body;
+    if (!code || typeof code !== 'string') {
+      return res.status(400).json({ error: 'Referral code is required.' });
+    }
+
+    const normalizedCode = code.trim().toUpperCase();
+    const [users] = await pool.query(
+      'SELECT id, name FROM users WHERE referral_code = ?',
+      [normalizedCode]
+    );
+    const userArray = users as any[];
+    if (!userArray || userArray.length === 0) {
+      return res.status(404).json({ valid: false, error: 'Invalid referral code.' });
+    }
+
+    const referrer = userArray[0];
+    return res.json({
+      valid: true,
+      discount: 15,
+      referrerId: referrer.id,
+      referrerName: referrer.name,
+      code: normalizedCode,
+    });
+  } catch (error) {
+    console.error('Validate referral error:', error);
+    return res.status(500).json({ error: 'Unable to validate referral code.' });
   }
 });
 

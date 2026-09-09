@@ -131,6 +131,9 @@ export async function apiAuthGate(req: Request, res: Response, next: NextFunctio
     // Customers can cancel/reschedule their own booking; the route verifies
     // ownership against session.id before touching the row.
     if (req.method === 'PATCH' && /^\/bookings\/[^/]+$/.test(pathname)) return next();
+    // Customers read and edit their own saved booking defaults; the route scopes
+    // every query to session.id.
+    if (pathname === '/profile' && (req.method === 'GET' || req.method === 'PUT')) return next();
     return res.status(403).json({ error: 'Admin access required.' });
   }
 

@@ -29,9 +29,9 @@ function ServiceCard({ s }) {
   return (
     <Link
       to={`/services/${s.slug}`}
-      className="group flex flex-col rounded-3xl bg-white border border-lightstone overflow-hidden hover:shadow-soft hover:border-terracotta/40 transition"
+      className="group flex flex-col rounded-2xl bg-white border border-lightstone overflow-hidden hover:shadow-soft hover:border-terracotta/40 transition"
     >
-      <div className="relative aspect-[3/2] sm:aspect-[16/10] overflow-hidden bg-warmlinen grid place-items-center">
+      <div className="relative aspect-square overflow-hidden bg-warmlinen grid place-items-center">
         {s.img && !imgFailed ? (
           <img
             src={s.img}
@@ -42,16 +42,15 @@ function ServiceCard({ s }) {
             className="absolute inset-0 w-full h-full object-cover object-center group-hover:scale-[1.08] transition duration-300"
           />
         ) : (
-          <Icon className="w-12 h-12 sm:w-14 sm:h-14 md:w-16 md:h-16 text-terracotta group-hover:scale-[1.08] transition duration-300" strokeWidth={1.5} />
+          <Icon className="w-10 h-10 sm:w-12 sm:h-12 md:w-14 md:h-14 text-terracotta group-hover:scale-[1.08] transition duration-300" strokeWidth={1.5} />
         )}
       </div>
-      <div className="p-5 flex flex-col flex-1">
-        <h2 className="font-heading text-base md:text-lg font-bold text-charcoal">{s.name}</h2>
-        <p className="mt-1.5 text-sm text-warmgrey leading-relaxed flex-1">{taglineForService(s.name)}</p>
-        <div className="mt-4 flex items-center justify-between">
-          <span className="text-sm font-semibold text-charcoal">From {s.pricingFrom}</span>
-          <span className="inline-flex items-center gap-1 text-sm font-semibold text-terracotta group-hover:gap-2 transition-all">
-            Book <ArrowRight className="w-4 h-4" />
+      <div className="p-3 md:p-4 flex-1 flex flex-col">
+        <h2 className="font-heading text-sm md:text-base font-bold text-charcoal line-clamp-2">{s.name}</h2>
+        <div className="mt-auto pt-2 flex items-center justify-between">
+          <span className="text-xs md:text-sm font-semibold text-charcoal">From {s.pricingFrom}</span>
+          <span className="inline-flex items-center gap-1 text-xs md:text-sm font-semibold text-terracotta group-hover:gap-2 transition-all">
+            Book <ArrowRight className="w-3.5 h-3.5" />
           </span>
         </div>
       </div>

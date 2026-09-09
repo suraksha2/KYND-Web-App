@@ -3,15 +3,14 @@ import { CheckCircle2, Loader2, Star, User } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { API_ORIGIN as API_BASE, serviceImageUrl } from '../lib/api'
+import { readLastOrder, saveLastOrder } from '../lib/lastOrder'
 
 export default function BookingConfirmed() {
   const { state } = useLocation()
-  const [order, setOrder] = useState(state || (() => {
-    try { return JSON.parse(localStorage.getItem('kynd.lastOrder') || 'null') } catch { return null }
-  })())
+  const { token, user } = useAuth()
+  const [order, setOrder] = useState(state || (() => readLastOrder(user?.id))())
   const [verifying, setVerifying] = useState(false)
   const [verificationError, setVerificationError] = useState(null)
-  const { token } = useAuth()
 
   useEffect(() => {
     const verifyPayment = async () => {
@@ -59,7 +58,7 @@ export default function BookingConfirmed() {
         }
 
         localStorage.removeItem('kynd.pendingOrder')
-        try { localStorage.setItem('kynd.lastOrder', JSON.stringify(confirmedOrder)) } catch {}
+        saveLastOrder(user?.id, confirmedOrder)
         setOrder(confirmedOrder)
       } catch (error) {
         console.error('Payment verification error:', error)
@@ -72,7 +71,7 @@ export default function BookingConfirmed() {
     if (!state) {
       verifyPayment()
     }
-  }, [state])
+  }, [state, token, user?.id])
 
 
 

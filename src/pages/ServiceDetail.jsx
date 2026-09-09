@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { useParams, Link, Navigate, useNavigate, useLocation } from 'react-router-dom'
 import { Check, X, ChevronLeft, Heart, Star, ShieldCheck, ChevronUp, ChevronDown, CreditCard, Wallet, Banknote } from 'lucide-react'
 import { useServices } from '../context/ServicesContext'
@@ -8,7 +9,12 @@ import { iconForService } from '../lib/serviceIcon'
 import { localServiceImage, servicePeopleImage } from '../lib/serviceImage'
 import { taglineForService } from '../lib/serviceTagline'
 import { API_BASE, appUrl } from '../lib/api'
-import { OFFERS, getStoredOffer, storeOffer, clearStoredOffer, computeDiscount, offerIsApplicable } from '../lib/offers'
+import { OFFERS, getStoredOffer, storeOffer, clearStoredOffer, computeDiscount, offerIsApplicable, validateReferralCode } from '../lib/offers'
+import { usePrefillDetails, rememberedPayment } from '../lib/lastBooking'
+import { saveLastOrder } from '../lib/lastOrder'
+
+/** Payment methods this form offers — anything else cannot be prefilled. */
+const PAY_METHODS = ['card', 'wallet', 'cod']
 
 /* ---------- helpers ---------- */
 const parsePrice = (str = '') => {
@@ -95,7 +101,7 @@ const AddonToggle = ({ checked, onChange }) => (
 )
 
 /* ---------- Offer selector modal ---------- */
-const OfferModal = ({ open, onClose, subtotal, selectedServicesCount, selectedOffer, onSelect, onClear }) => {
+const OfferModal = ({ open, onClose, subtotal, selectedServicesCount, hasBooked, selectedOffer, onSelect, onClear }) => {
   if (!open) return null
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={onClose}>
@@ -111,8 +117,8 @@ const OfferModal = ({ open, onClose, subtotal, selectedServicesCount, selectedOf
         </div>
 
         <div className="mt-4 space-y-3">
-          {OFFERS.map((offer) => {
-            const applicable = offerIsApplicable(offer, selectedServicesCount)
+          {OFFERS.filter((offer) => offer.id !== 'refer' && (offer.id !== 'first' || !hasBooked)).map((offer) => {
+            const applicable = offerIsApplicable(offer, selectedServicesCount, hasBooked)
             const discount = applicable ? computeDiscount(offer, subtotal, selectedServicesCount) : 0
             const selected = selectedOffer?.id === offer.id
             return (
@@ -335,7 +341,7 @@ const Inclusions = ({ svc }) => {
 }
 
 /* ---------- How soon? ---------- */
-const HowSoonPanel = ({ open, setOpen, summary, schedule, setSchedule, date, setDate, time, setTime, recurrence, setRecurrence, customTimes, setCustomTimes, customUnit, setCustomUnit, arrivalTime, errors, submitAttempt, serviceName, city, duration }) => {
+const HowSoonPanel = ({ open, setOpen, summary, goToAddons, schedule, setSchedule, date, setDate, time, setTime, recurrence, setRecurrence, customTimes, setCustomTimes, customUnit, setCustomUnit, arrivalTime, errors, submitAttempt, serviceName, city, duration }) => {
   const [showModal, setShowModal] = useState(false)
   const [pickDate, setPickDate] = useState('')
   const [selectedSlot, setSelectedSlot] = useState('')
@@ -347,6 +353,13 @@ const HowSoonPanel = ({ open, setOpen, summary, schedule, setSchedule, date, set
   useEffect(() => {
     if (datetimeError) setShowModal(true)
   }, [submitAttempt])
+
+  useEffect(() => {
+    if (!showModal) return
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = prev }
+  }, [showModal])
 
   useEffect(() => {
     if (!showModal || !pickDate || !serviceName || !city || !duration) return
@@ -395,6 +408,7 @@ const HowSoonPanel = ({ open, setOpen, summary, schedule, setSchedule, date, set
     setDate(pickDate)
     setTime(selectedSlot)
     setShowModal(false)
+    goToAddons()
   }
 
   const onDateChange = (d) => {
@@ -422,7 +436,7 @@ const HowSoonPanel = ({ open, setOpen, summary, schedule, setSchedule, date, set
       <div className="grid grid-cols-3 gap-3">
         <Pill
           selected={schedule === 'instant'}
-          onClick={() => { setSchedule('instant'); setDate(''); setTime('') }}
+          onClick={() => { setSchedule('instant'); setDate(''); setTime(''); goToAddons() }}
           title="Instant"
           subtitle={`arrives by ${arrivalTime}`}
         />
@@ -450,10 +464,10 @@ const HowSoonPanel = ({ open, setOpen, summary, schedule, setSchedule, date, set
         </div>
       )}
 
-      {showModal && (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={closeModal}>
-          <div onClick={(e) => e.stopPropagation()} className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl">
-            <div className="flex items-start justify-between">
+      {showModal && createPortal(
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-3 sm:p-4 overflow-y-auto overscroll-contain" onClick={closeModal}>
+          <div onClick={(e) => e.stopPropagation()} className="w-full max-w-sm max-h-[calc(100dvh-1.5rem)] my-auto rounded-2xl bg-white shadow-xl flex flex-col overflow-hidden">
+            <div className="flex items-start justify-between shrink-0 px-4 sm:px-5 pt-4 sm:pt-5">
               <div>
                 <h3 className="font-bold text-charcoal">Schedule booking</h3>
                 <p className="text-xs text-warmgrey mt-0.5">Pick a date &amp; time.</p>
@@ -462,6 +476,7 @@ const HowSoonPanel = ({ open, setOpen, summary, schedule, setSchedule, date, set
                 <X className="w-4 h-4" />
               </button>
             </div>
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 sm:px-5 pb-1">
             <label className="block mt-4">
               <span className="block text-xs font-semibold text-charcoal mb-1.5">Date</span>
               <input
@@ -511,7 +526,7 @@ const HowSoonPanel = ({ open, setOpen, summary, schedule, setSchedule, date, set
               <>
                 <p className="text-xs font-bold text-warmgrey uppercase tracking-wide mt-4 mb-2">Cadence</p>
                 <div className="flex flex-wrap gap-2">
-                  {['Daily', 'Weekly', 'Bi-weekly', 'Monthly'].map((c) => {
+                  {['Daily', 'Weekly', 'Monthly'].map((c) => {
                     const key = c.toLowerCase().replace('-', '')
                     return (
                       <button
@@ -573,12 +588,14 @@ const HowSoonPanel = ({ open, setOpen, summary, schedule, setSchedule, date, set
                 )}
               </>
             )}
-            <div className="mt-5 flex gap-2">
+            </div>
+            <div className="shrink-0 flex gap-2 px-4 sm:px-5 py-4 border-t border-lightstone bg-white">
               <button type="button" onClick={closeModal} className="flex-1 rounded-full bg-warmlinen hover:bg-lightstone text-charcoal font-semibold py-2.5 text-sm">Back</button>
               <button type="button" onClick={confirmSlot} disabled={!selectedSlot} className="flex-1 rounded-full bg-terracotta hover:bg-charcoal disabled:opacity-50 text-white font-semibold py-2.5 text-sm">Confirm</button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </SectionCard>
   )
@@ -592,8 +609,18 @@ const AddressPaymentPanel = ({
   area, setArea, pincode, setPincode,
   notes, setNotes,
   pay, setPay,
+  autofilled,
+  onClearAddress,
   selectedOffer,
   discount,
+  promoCodeInput,
+  setPromoCodeInput,
+  applyPromoCode,
+  removePromoCode,
+  appliedReferralCode,
+  promoDiscount,
+  promoError,
+  promoLoading,
   onOpenOfferModal,
   errors
 }) => {
@@ -625,6 +652,14 @@ const AddressPaymentPanel = ({
 
       <div className="rounded-2xl bg-white ring-1 ring-lightstone p-4">
         <h4 className="font-heading font-bold text-charcoal">Service address</h4>
+        {autofilled && (
+          <p className="mt-1 text-xs text-warmgrey">
+            Filled in from your {autofilled === 'saved' ? 'saved details' : 'last booking'}.{' '}
+            <button type="button" onClick={onClearAddress} className="font-semibold text-terracotta hover:underline">
+              Use a different address
+            </button>
+          </p>
+        )}
         <div className="mt-3 grid gap-4">
           <Field label="Address" error={errors?.address}>
             <textarea
@@ -712,18 +747,15 @@ const AddressPaymentPanel = ({
       <div className="rounded-2xl bg-white ring-1 ring-lightstone p-4">
         <div className="flex items-center justify-between">
           <h4 className="font-heading font-bold text-charcoal">Promo / discount</h4>
-          {selectedOffer && discount > 0 && (
+          {discount > 0 && (
             <span className="text-xs font-semibold text-terracotta">- {formatPrice(discount)}</span>
           )}
         </div>
-        <div className="mt-3">
+        <div className="mt-3 space-y-2">
           {selectedOffer ? (
             <div className="flex items-center justify-between gap-3 rounded-xl bg-accent-50 p-3">
               <div className="min-w-0">
-                <div className="text-sm font-semibold text-charcoal">
-                  {selectedOffer.title}
-                  {discount === 0 && <span className="ml-1.5 text-xs text-warmgrey">(not applicable)</span>}
-                </div>
+                <div className="text-sm font-semibold text-charcoal">{selectedOffer.title}</div>
                 <div className="text-xs text-warmgrey">{selectedOffer.subtitle}</div>
               </div>
               <button
@@ -743,6 +775,42 @@ const AddressPaymentPanel = ({
               Apply a discount
             </button>
           )}
+
+          {appliedReferralCode ? (
+            <div className="flex items-center justify-between gap-3 rounded-xl bg-accent-50 p-3">
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-charcoal">Referral code {appliedReferralCode}</div>
+                <div className="text-xs text-warmgrey">You save {formatPrice(promoDiscount)}</div>
+              </div>
+              <button
+                type="button"
+                onClick={removePromoCode}
+                className="shrink-0 text-xs font-semibold text-terracotta hover:text-charcoal transition"
+              >
+                Remove
+              </button>
+            </div>
+          ) : (
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={promoCodeInput}
+                onChange={(e) => setPromoCodeInput(e.target.value.toUpperCase())}
+                onKeyDown={(e) => { if (e.key === 'Enter') applyPromoCode() }}
+                placeholder="Enter referral code"
+                className="flex-1 rounded-xl border border-lightstone bg-white px-3 py-2.5 text-sm text-charcoal placeholder-warmgrey/60 focus:outline-none focus:border-terracotta focus:ring-2 focus:ring-terracotta/20 transition"
+              />
+              <button
+                type="button"
+                onClick={applyPromoCode}
+                disabled={promoLoading || !promoCodeInput.trim()}
+                className="shrink-0 rounded-xl bg-terracotta hover:bg-charcoal disabled:opacity-60 text-white text-sm font-semibold px-4 py-2 transition"
+              >
+                {promoLoading ? '...' : 'Apply'}
+              </button>
+            </div>
+          )}
+          {promoError && <p className="text-xs text-red-600">{promoError}</p>}
         </div>
       </div>
 
@@ -773,17 +841,45 @@ const AddressPaymentPanel = ({
 export default function ServiceDetail() {
   const { slug } = useParams()
   const { services, loading } = useServices()
-  const { addBooking } = useBookings()
-  const { token } = useAuth()
+  const { bookings, addBooking, loaded: bookingsLoaded } = useBookings()
+  const { token, user } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const [availableCities, setAvailableCities] = useState([])
 
-  const [openSections, setOpenSections] = useState({ how: false, addons: false, payment: false })
+  const [openSections, setOpenSections] = useState({ how: true, addons: false, payment: false })
+  const goToAddons = () => {
+    if (addonsLoading || addons.length > 0) {
+      setOpenSections({ how: false, addons: true, payment: false })
+    } else {
+      setOpenSections({ how: false, addons: false, payment: true })
+    }
+  }
+  const goToPayment = () => setOpenSections({ how: false, addons: false, payment: true })
   const [errors, setErrors] = useState({})
   const [submitAttempt, setSubmitAttempt] = useState(0)
   const [selectedOffer, setSelectedOffer] = useState(() => getStoredOffer())
+  const hasBooked = user && bookingsLoaded && bookings.length > 0
+  useEffect(() => {
+    if (selectedOffer?.id === 'refer') {
+      setSelectedOffer(null)
+      clearStoredOffer()
+    }
+  }, [selectedOffer])
+  // The first-booking discount is one-time only; clear it if the customer is
+  // no longer a first-timer and remove it from the stored selection.
+  useEffect(() => {
+    if (selectedOffer?.id === 'first' && hasBooked) {
+      setSelectedOffer(null)
+      clearStoredOffer()
+    }
+  }, [selectedOffer, hasBooked])
   const [offerModalOpen, setOfferModalOpen] = useState(false)
+  const [promoCodeInput, setPromoCodeInput] = useState('')
+  const [promoDiscount, setPromoDiscount] = useState(0)
+  const [appliedReferralCode, setAppliedReferralCode] = useState(null)
+  const [promoError, setPromoError] = useState('')
+  const [promoLoading, setPromoLoading] = useState(false)
   const [schedule, setSchedule] = useState('instant')
   const [date, setDate] = useState('')
   const [time, setTime] = useState('')
@@ -802,6 +898,58 @@ export default function ServiceDetail() {
   const [addonsLoading, setAddonsLoading] = useState(false)
   const [selectedAddons, setSelectedAddons] = useState({})
   const [submitting, setSubmitting] = useState(false)
+  useEffect(() => {
+    if (openSections.addons && !addonsLoading && addons.length === 0) {
+      setOpenSections({ how: false, addons: false, payment: true })
+    }
+  }, [openSections.addons, addonsLoading, addons.length])
+
+  // A returning customer's contact details, address and payment method.
+  // Saved profile takes precedence; the latest booking is the fallback.
+  const prefill = usePrefillDetails()
+
+  const [autofilled, setAutofilled] = useState(null)
+  const prefilled = useRef(false)
+  useEffect(() => {
+    if (!prefill || prefilled.current) return
+    // Latch once both sources have reported in. Every write below is a no-op
+    // unless the field still holds its untouched default, so this is safe to
+    // re-run until then.
+    prefilled.current = true
+    setName(prev => prev || prefill.name || '')
+    setPhone(prev => (prev === '+65' ? normalizePhone(prefill.phone || '') : prev))
+    setAddress(prev => prev || prefill.address || '')
+    setPincode(prev => prev || prefill.pincode || '')
+    const remembered = rememberedPayment(prefill.payment, PAY_METHODS)
+    if (remembered) setPay(prev => (prev === 'card' ? remembered : prev))
+    if (prefill.source && prefill.address) setAutofilled(prefill.source)
+  }, [prefill])
+
+  // Booking for somewhere else: drop the remembered address, keep the account
+  // name and phone.
+  const clearAddress = () => {
+    setAddress('')
+    setArea('')
+    setPincode('')
+    setAutofilled(null)
+  }
+
+  // City and area can only be restored against the list this service is actually
+  // offered in, which arrives separately. Prefilling an area that is not in the
+  // dropdown would leave the select blank while the state still held a value.
+  const addressPrefilled = useRef(false)
+  useEffect(() => {
+    if (!prefill?.city || addressPrefilled.current || availableCities.length === 0) return
+    const match = availableCities.find(
+      c => c.name.toLowerCase() === prefill.city.toLowerCase()
+    )
+    if (!match) return
+    addressPrefilled.current = true
+    setCity(prev => (prev === 'Singapore' || !prev ? match.name : prev))
+    if (prefill.area && (match.areas || []).includes(prefill.area)) {
+      setArea(prev => prev || prefill.area)
+    }
+  }, [prefill, availableCities])
 
   const stateSlugs = location.state?.selectedSlugs || []
   const selectedServices = useMemo(() => {
@@ -840,21 +988,27 @@ export default function ServiceDetail() {
         const matchedCategory = categories.find(
           c => (c.name || '').toLowerCase() === (primary.short || '').toLowerCase()
         )
-        if (!matchedCategory) {
-          setAvailableCities([])
-          return
-        }
-        const categoryId = String(matchedCategory.id)
 
-        const matchingCities = allCities
-          .filter(city => parseCategoryIds(city.serviceCategoryId).includes(categoryId))
-          .map(city => ({
-            id: city.id,
-            slug: city.cityName.toLowerCase().replace(/\s+/g, '-'),
-            name: city.cityName,
-            areas: city.areas || [],
-          }))
-        setAvailableCities(matchingCities)
+        const categoryIds = new Set()
+        if (matchedCategory) categoryIds.add(String(matchedCategory.id))
+        if (primary.categoryId) categoryIds.add(String(primary.categoryId))
+
+        let matchingCities = allCities.filter(city => {
+          const ids = parseCategoryIds(city.serviceCategoryId)
+          return ids.some(id => categoryIds.has(id))
+        })
+
+        // If the data has no match, let the customer pick from all cities instead of showing an empty dropdown.
+        if (matchingCities.length === 0) {
+          matchingCities = allCities
+        }
+
+        setAvailableCities(matchingCities.map(city => ({
+          id: city.id,
+          slug: city.cityName.toLowerCase().replace(/\s+/g, '-'),
+          name: city.cityName,
+          areas: city.areas || [],
+        })))
       } catch (error) {
         console.error('Failed to fetch cities for service:', error)
       }
@@ -899,9 +1053,35 @@ export default function ServiceDetail() {
   const basePrice = selectedServices.reduce((sum, s) => sum + (s.price || parsePrice(s.pricingFrom)), 0)
   const addOnTotal = addons.reduce((sum, a) => sum + (selectedAddons[a.id] ? Number(a.customer_price) : 0), 0)
   const displayPrice = (schedule === 'recurring' ? Math.round(basePrice * 0.85) : basePrice) + addOnTotal
-  const discountAmount = computeDiscount(selectedOffer, displayPrice, selectedServices.length)
-  const discountedPrice = Math.max(0, displayPrice - discountAmount)
+  const offerDiscount = computeDiscount(selectedOffer, displayPrice, selectedServices.length)
+  const totalDiscount = Math.min(displayPrice, offerDiscount + promoDiscount)
+  const discountedPrice = Math.max(0, displayPrice - totalDiscount)
   const serviceDuration = parseDurationMinutes(primary.duration) || 60
+
+  const applyPromoCode = async () => {
+    if (!promoCodeInput.trim()) return
+    setPromoLoading(true)
+    setPromoError('')
+    try {
+      const data = await validateReferralCode(promoCodeInput.trim())
+      setPromoDiscount(data.discount || 15)
+      setAppliedReferralCode(data.code)
+      setPromoCodeInput('')
+    } catch (err) {
+      setPromoDiscount(0)
+      setAppliedReferralCode(null)
+      setPromoError(err.message || 'Invalid referral code.')
+    } finally {
+      setPromoLoading(false)
+    }
+  }
+
+  const removePromoCode = () => {
+    setPromoDiscount(0)
+    setAppliedReferralCode(null)
+    setPromoError('')
+    setPromoCodeInput('')
+  }
 
   const cadence = recurrence.type === 'custom'
     ? `${recurrence.times} time${recurrence.times > 1 ? 's' : ''}/${recurrence.unit}`
@@ -941,8 +1121,9 @@ export default function ServiceDetail() {
       bookingId,
       items: selectedServices.map(s => ({ slug: s.slug, name: s.name, img: s.img, priceFrom: s.price || parsePrice(s.pricingFrom), duration: s.duration, qty: 1 })),
       total: discountedPrice,
-      discount: discountAmount,
+      discount: totalDiscount,
       offer: selectedOffer,
+      referralCode: appliedReferralCode,
       addOns: addons.filter(a => selectedAddons[a.id]).map(a => ({ id: a.id, name: a.name, price: Number(a.customer_price) })),
       schedule,
       scheduledAt,
@@ -975,7 +1156,7 @@ export default function ServiceDetail() {
           cadence: data.cadence || order.cadence,
           recurrence: data.recurrence || order.recurrence,
         }
-        try { localStorage.setItem('kynd.lastOrder', JSON.stringify(orderWithId)) } catch { }
+        saveLastOrder(user?.id, orderWithId)
         addBooking(orderWithId)
         navigate('/booking/confirmed', { state: orderWithId, replace: true })
       } catch (error) {
@@ -1071,6 +1252,7 @@ export default function ServiceDetail() {
               open={openSections.how}
               setOpen={() => setOpenSections(prev => ({ ...prev, how: !prev.how, addons: false, payment: false }))}
               summary={howSummary}
+              goToAddons={goToAddons}
               schedule={schedule}
               setSchedule={setSchedule}
               date={date}
@@ -1091,40 +1273,37 @@ export default function ServiceDetail() {
               duration={serviceDuration}
             />
 
-            <SectionCard
-              title="Add-ons"
-              summary={addonSummary}
-              open={openSections.addons}
-              setOpen={() => setOpenSections(prev => ({ ...prev, how: false, addons: !prev.addons, payment: false }))}
-            >
-              <div className="space-y-1">
-                {addonsLoading ? (
-                  <p className="text-sm text-warmgrey py-2">Loading add-ons…</p>
-                ) : addons.length === 0 ? (
-                  <p className="text-sm text-warmgrey py-2">No add-ons available.</p>
-                ) : (
-                  addons.map(a => (
-                    <label key={a.id} className="flex items-center justify-between gap-3 p-3 -mx-1 rounded-2xl hover:bg-warmlinen transition cursor-pointer">
-                      <span className="text-sm sm:text-base text-charcoal font-medium">{a.name} <span className="text-warmgrey font-normal">+S${Math.round(Number(a.customer_price))}</span></span>
-                      <AddonToggle
-                        checked={!!selectedAddons[a.id]}
-                        onChange={(checked) => setSelectedAddons(prev => ({ ...prev, [a.id]: checked }))}
-                      />
-                    </label>
-                  ))
-                )}
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedAddons({})
-                  setOpenSections(prev => ({ ...prev, how: false, addons: false, payment: true }))
-                }}
-                className="mt-4 w-full rounded-full bg-warmlinen hover:bg-lightstone text-charcoal font-semibold py-2.5 text-sm transition"
+            {(addons.length > 0 || addonsLoading) && (
+              <SectionCard
+                title="Add-ons"
+                summary={addonSummary}
+                open={openSections.addons}
+                setOpen={() => setOpenSections(prev => ({ ...prev, how: false, addons: !prev.addons, payment: false }))}
               >
-                Skip add-ons
-              </button>
-            </SectionCard>
+                <div className="space-y-1">
+                  {addonsLoading ? (
+                    <p className="text-sm text-warmgrey py-2">Loading add-ons…</p>
+                  ) : (
+                    addons.map(a => (
+                      <label key={a.id} className="flex items-center justify-between gap-3 p-3 -mx-1 rounded-2xl hover:bg-warmlinen transition cursor-pointer">
+                        <span className="text-sm sm:text-base text-charcoal font-medium">{a.name} <span className="text-warmgrey font-normal">+S${Math.round(Number(a.customer_price))}</span></span>
+                        <AddonToggle
+                          checked={!!selectedAddons[a.id]}
+                          onChange={(checked) => setSelectedAddons(prev => ({ ...prev, [a.id]: checked }))}
+                        />
+                      </label>
+                    ))
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={goToPayment}
+                  className="mt-4 w-full rounded-full bg-warmlinen hover:bg-lightstone text-charcoal font-semibold py-2.5 text-sm transition"
+                >
+                  Continue to payment
+                </button>
+              </SectionCard>
+            )}
 
             <SectionCard
               title="Address & payment"
@@ -1143,22 +1322,33 @@ export default function ServiceDetail() {
                 notes={notes} setNotes={setNotes}
                 pay={pay} setPay={setPay}
                 selectedOffer={selectedOffer}
-                discount={discountAmount}
+                discount={totalDiscount}
+                promoCodeInput={promoCodeInput}
+                setPromoCodeInput={setPromoCodeInput}
+                applyPromoCode={applyPromoCode}
+                removePromoCode={removePromoCode}
+                appliedReferralCode={appliedReferralCode}
+                promoDiscount={promoDiscount}
+                promoError={promoError}
+                promoLoading={promoLoading}
                 onOpenOfferModal={() => setOfferModalOpen(true)}
                 errors={errors}
+                autofilled={autofilled}
+                onClearAddress={clearAddress}
               />
             </SectionCard>
           </form>
         </div>
       </section>
 
-      <BookingBar price={discountedPrice} discount={discountAmount} submitting={submitting} />
+      <BookingBar price={discountedPrice} discount={totalDiscount} submitting={submitting} />
 
       <OfferModal
         open={offerModalOpen}
         onClose={() => setOfferModalOpen(false)}
         subtotal={displayPrice}
         selectedServicesCount={selectedServices.length}
+        hasBooked={hasBooked}
         selectedOffer={selectedOffer}
         onSelect={(offer) => { setSelectedOffer(offer); storeOffer(offer); setOfferModalOpen(false) }}
         onClear={() => { setSelectedOffer(null); clearStoredOffer(); setOfferModalOpen(false) }}

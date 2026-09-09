@@ -1,10 +1,18 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { CreditCard, Wallet, Banknote, ShieldCheck } from 'lucide-react'
 import { useCart } from '../context/CartContext'
 import { useBookings } from '../context/BookingsContext'
 import { useAuth } from '../context/AuthContext'
 import { API_ORIGIN as API_BASE, appUrl } from '../lib/api'
+import { useLastBookingDetails, rememberedPayment } from '../lib/lastBooking'
+import { saveLastOrder } from '../lib/lastOrder'
+
+const PAY_METHODS = [
+  { id: 'upi', label: 'UPI', icon: Wallet },
+  { id: 'card', label: 'Card', icon: CreditCard },
+  { id: 'cod', label: 'Cash after service', icon: Banknote }
+]
 
 const Field = ({ label, children }) => (
   <label className="block">
@@ -20,7 +28,7 @@ const NOTES_MAX = 500
 export default function Checkout() {
   const { items, subtotal, clear } = useCart()
   const { addBooking } = useBookings()
-  const { token } = useAuth()
+  const { token, user } = useAuth()
   const { state, pathname } = useLocation()
   const navigate = useNavigate()
   const [name, setName] = useState('')
@@ -36,6 +44,49 @@ export default function Checkout() {
   const [payError, setPayError] = useState(null)
   const [loadingCities, setLoadingCities] = useState(true)
   const [citiesError, setCitiesError] = useState(null)
+
+  // A returning customer's details, from their most recent booking.
+  const lastContact = useLastBookingDetails()
+  const [autofilled, setAutofilled] = useState(false)
+  const prefilled = useRef(false)
+  const cityTouched = useRef(false)
+
+  useEffect(() => {
+    if (!lastContact || prefilled.current) return
+    // Only latch once there was a real booking to copy from, so a list that
+    // arrives late still gets its chance. Every write below is a no-op unless
+    // the field is untouched, which keeps this safe to re-run.
+    if (lastContact.isReturning) prefilled.current = true
+    setName(prev => prev || lastContact.name || '')
+    setPhone(prev => prev || lastContact.phone || '')
+    setAddress(prev => prev || lastContact.address || '')
+    setPincode(prev => prev || lastContact.pincode || '')
+    const remembered = rememberedPayment(lastContact.payment, PAY_METHODS.map(p => p.id))
+    if (remembered) setPay(prev => (prev === 'card' ? remembered : prev))
+    if (lastContact.isReturning && lastContact.address) setAutofilled(true)
+  }, [lastContact])
+
+  // City and area wait for the city list: restoring an area that is not in the
+  // dropdown would leave the select blank while the state still held a value.
+  const addressPrefilled = useRef(false)
+  useEffect(() => {
+    if (!lastContact?.city || addressPrefilled.current || cities.length === 0) return
+    const match = cities.find(c => c.name.toLowerCase() === lastContact.city.toLowerCase())
+    if (!match) return
+    addressPrefilled.current = true
+    if (!cityTouched.current) setCity(match.name)
+    if (lastContact.area && (match.areas || []).includes(lastContact.area)) {
+      setSelectedArea(prev => prev || lastContact.area)
+    }
+  }, [lastContact, cities])
+
+  // Booking for somewhere else: drop the remembered address, keep name and phone.
+  const clearAddress = () => {
+    setAddress('')
+    setSelectedArea('')
+    setPincode('')
+    setAutofilled(false)
+  }
 
   // Fetch cities from API
   useEffect(() => {
@@ -57,9 +108,10 @@ export default function Checkout() {
           areas: city.areas || []
         }))
         setCities(transformedCities)
-        // Set first city as default if available
+        // Default to the first city, unless a returning customer's own city was
+        // already restored.
         if (transformedCities.length > 0) {
-          setCity(transformedCities[0].name)
+          setCity(prev => prev || transformedCities[0].name)
         }
       } catch (error) {
         setCitiesError(error.message)
@@ -82,6 +134,7 @@ export default function Checkout() {
   }
 
   const handleCityChange = (e) => {
+    cityTouched.current = true
     setCity(e.target.value)
     setSelectedArea('')
     setPincode('')
@@ -131,7 +184,7 @@ export default function Checkout() {
       cadence: data.cadence || order.cadence,
       recurrence: data.recurrence || order.recurrence,
     }
-    try { localStorage.setItem('kynd.lastOrder', JSON.stringify(orderWithId)) } catch {}
+    saveLastOrder(user?.id, orderWithId)
     addBooking(orderWithId)
     clear()
     navigate('/booking/confirmed', { state: orderWithId, replace: true })
@@ -256,6 +309,14 @@ export default function Checkout() {
 
             <div className="rounded-2xl bg-white ring-1 ring-lightstone p-5">
               <h2 className="font-heading font-bold text-charcoal">Service address</h2>
+              {autofilled && (
+                <p className="mt-1 text-xs text-warmgrey">
+                  Filled in from your last booking.{' '}
+                  <button type="button" onClick={clearAddress} className="font-semibold text-terracotta hover:underline">
+                    Use a different address
+                  </button>
+                </p>
+              )}
               <div className="mt-4 grid gap-4">
                 <Field label="Address"><textarea rows={2} className={inputCls} value={address} onChange={e => setAddress(e.target.value)} required /></Field>
                 <div className="grid sm:grid-cols-2 gap-4">
@@ -321,11 +382,7 @@ export default function Checkout() {
             <div className="rounded-2xl bg-white ring-1 ring-lightstone p-5">
               <h2 className="font-heading font-bold text-charcoal">Payment method</h2>
               <div className="mt-4 grid sm:grid-cols-3 gap-3">
-                {[
-                  { id: 'upi', label: 'UPI', icon: Wallet },
-                  { id: 'card', label: 'Card', icon: CreditCard },
-                  { id: 'cod', label: 'Cash after service', icon: Banknote }
-                ].map(p => {
+                {PAY_METHODS.map(p => {
                   const active = pay === p.id
                   const Icon = p.icon
                   return (

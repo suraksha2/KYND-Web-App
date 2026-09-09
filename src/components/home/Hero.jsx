@@ -196,12 +196,12 @@ export default function Hero() {
 
         <div className="relative z-10 px-6 pt-[calc(76px_+_var(--safe-top))]">
           <h1 className="font-heading font-extrabold tracking-tight text-charcoal leading-[0.98] text-[clamp(38px,12.2vw,52px)]">
-            Trusted<br />help for<br />
-            <span className="text-terracotta">life’s<br />moments.</span>
+            Trusted help for<br />
+            <span className="text-terracotta">life’s moments.</span>
           </h1>
-          <p className="mt-3.5 font-semibold text-charcoal leading-snug text-[clamp(14px,4.6vw,18px)]">
+          {/* <p className="mt-3.5 font-semibold text-charcoal leading-snug text-[clamp(14px,4.6vw,18px)]">
             Professional. Background-checked.<br />Human.
-          </p>
+          </p> */}
         </div>
 
         <div className="relative z-10 mt-auto px-5 pt-12 pb-5 space-y-3">

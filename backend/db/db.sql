@@ -146,11 +146,53 @@ CREATE TABLE IF NOT EXISTS users (
   status VARCHAR(50) DEFAULT 'active',
   joined DATE DEFAULT (CURRENT_DATE),
   avatar VARCHAR(10),
+  referral_code VARCHAR(20) NULL,
+  -- Saved booking defaults ("Saved details" in the customer account). Prefills
+  -- the booking form, including for a customer who has not booked yet.
+  default_phone VARCHAR(40) NULL,
+  default_address TEXT NULL,
+  default_city VARCHAR(255) NULL,
+  default_area VARCHAR(255) NULL,
+  default_pincode VARCHAR(10) NULL,
+  default_payment VARCHAR(20) NULL,
   reset_token VARCHAR(255),
   reset_token_expiry DATETIME,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
+
+-- Migration: add referral_code to pre-existing users tables.
+SET @stmt := IF(
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users'
+      AND COLUMN_NAME = 'referral_code') = 0,
+  'ALTER TABLE users ADD COLUMN referral_code VARCHAR(20) NULL AFTER avatar',
+  'DO 0');
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @stmt := IF(
+  (SELECT COUNT(*) FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users'
+      AND INDEX_NAME = 'unique_referral_code') = 0,
+  'ALTER TABLE users ADD UNIQUE KEY unique_referral_code (referral_code)',
+  'DO 0');
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- Migration: saved booking defaults for pre-existing users tables. All six
+-- columns are added together, so guarding on the first one is enough.
+SET @stmt := IF(
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users'
+      AND COLUMN_NAME = 'default_address') = 0,
+  'ALTER TABLE users
+     ADD COLUMN default_phone VARCHAR(40) NULL AFTER referral_code,
+     ADD COLUMN default_address TEXT NULL AFTER default_phone,
+     ADD COLUMN default_city VARCHAR(255) NULL AFTER default_address,
+     ADD COLUMN default_area VARCHAR(255) NULL AFTER default_city,
+     ADD COLUMN default_pincode VARCHAR(10) NULL AFTER default_area,
+     ADD COLUMN default_payment VARCHAR(20) NULL AFTER default_pincode',
+  'DO 0');
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- Settings table (optional)
 CREATE TABLE IF NOT EXISTS settings (
@@ -206,6 +248,7 @@ CREATE TABLE IF NOT EXISTS bookings (
   contact_area VARCHAR(100),
   notes TEXT,
   payment VARCHAR(50) NOT NULL,
+  referral_code VARCHAR(20),
   placed_at DATETIME NOT NULL,
   status ENUM('upcoming', 'completed', 'cancelled') DEFAULT 'upcoming',
   cancelled_by ENUM('customer', 'admin', 'provider'),
@@ -266,6 +309,15 @@ SET @stmt := IF(
     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'bookings'
       AND COLUMN_NAME = 'recurrence') = 0,
   'ALTER TABLE bookings ADD COLUMN recurrence JSON AFTER cadence',
+  'DO 0');
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- Migration: track referral code used at checkout.
+SET @stmt := IF(
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'bookings'
+      AND COLUMN_NAME = 'referral_code') = 0,
+  'ALTER TABLE bookings ADD COLUMN referral_code VARCHAR(20) AFTER payment',
   'DO 0');
 PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 

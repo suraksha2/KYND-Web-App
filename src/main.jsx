@@ -6,6 +6,7 @@ import App from './App.jsx'
 // import { CartProvider } from './context/CartContext.jsx'
 import { AuthProvider } from './context/AuthContext.jsx'
 import { BookingsProvider } from './context/BookingsContext.jsx'
+import { ProfileProvider } from './context/ProfileContext.jsx'
 import { ServicesProvider } from './context/ServicesContext.jsx'
 import { LanguageProvider } from './context/LanguageContext.jsx'
 
@@ -39,9 +40,11 @@ ReactDOM.createRoot(document.getElementById('root')).render(
         <AuthProvider>
           {/* <CartProvider> */}
             <BookingsProvider>
-              <ServicesProvider>
-                <App />
-              </ServicesProvider>
+              <ProfileProvider>
+                <ServicesProvider>
+                  <App />
+                </ServicesProvider>
+              </ProfileProvider>
             </BookingsProvider>
           {/* </CartProvider> */}
         </AuthProvider>

@@ -7,7 +7,7 @@ export default function Signup() {
   const { adminSignup } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
-  const redirectTo = location.state?.from || '/'
+  const redirectTo = location.state?.from || '/dashboard'
 
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
@@ -23,7 +23,7 @@ export default function Signup() {
     setLoading(true)
     try {
       await adminSignup({ name, email, password, secret })
-      navigate(redirectTo === '/secret-signup' ? '/' : redirectTo, { replace: true })
+      navigate(redirectTo === '/secret-signup' ? '/dashboard' : redirectTo, { replace: true })
     } catch (err) {
       setError(err.message || 'Unable to sign up.')
     } finally {
