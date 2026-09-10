@@ -14,7 +14,7 @@ const SECTION_COPY = {
   dashboard: { title: 'Dashboard', subtitle: 'Your work at a glance.' },
   bookings: { title: 'Bookings', subtitle: 'Jobs assigned to you by the Kynd team.' },
   earnings: { title: 'Earnings', subtitle: 'Payouts from the jobs you have completed.' },
-  schedule: { title: 'Schedule', subtitle: 'Everything still on your calendar.' },
+  // schedule: { title: 'Schedule', subtitle: 'Everything still on your calendar.' },
   profile: { title: 'Profile', subtitle: 'Your provider account details.' },
 }
 

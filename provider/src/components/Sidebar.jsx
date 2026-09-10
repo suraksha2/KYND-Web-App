@@ -4,7 +4,7 @@ export const NAV_ITEMS = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'bookings', label: 'Bookings', icon: ClipboardList },
   { id: 'earnings', label: 'Earnings', icon: Wallet },
-  { id: 'schedule', label: 'Schedule', icon: CalendarDays },
+  // { id: 'schedule', label: 'Schedule', icon: CalendarDays },
   { id: 'profile', label: 'Profile', icon: User },
 ]
 
@@ -97,7 +97,7 @@ export function MobileDrawer({ open, onClose, section, onSelect, user, onLogout 
 
 export function MobileTabBar({ section, onSelect }) {
   return (
-    <nav className="lg:hidden fixed bottom-0 inset-x-0 z-30 border-t border-lightstone bg-white/95 backdrop-blur">
+    <nav className="lg:hidden fixed bottom-0 inset-x-0 z-30 border-t border-lightstone bg-white/95 backdrop-blur tabbar-safe">
       <div className="grid grid-cols-5">
         {NAV_ITEMS.map((item) => {
           const Icon = item.icon
