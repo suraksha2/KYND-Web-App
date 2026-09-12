@@ -97,7 +97,7 @@ export function MobileDrawer({ open, onClose, section, onSelect, user, onLogout 
 
 export function MobileTabBar({ section, onSelect }) {
   return (
-    <nav className="lg:hidden fixed bottom-0 inset-x-0 z-30 border-t border-lightstone bg-white/95 backdrop-blur tabbar-safe">
+    <nav className="lg:hidden fixed bottom-0 inset-x-0 z-30 border-t border-lightstone bg-white/95 backdrop-blur">
       <div className="grid grid-cols-5">
         {NAV_ITEMS.map((item) => {
           const Icon = item.icon

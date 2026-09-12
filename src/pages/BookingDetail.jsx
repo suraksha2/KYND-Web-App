@@ -5,7 +5,9 @@ import {
   CheckCircle2, XCircle, Repeat, Zap, AlertTriangle, RotateCcw, X, StickyNote
 } from 'lucide-react'
 import { useBookings } from '../context/BookingsContext'
+import { useAuth } from '../context/AuthContext'
 import { iconForService } from '../lib/serviceIcon'
+import BookingMessaging from '../components/BookingMessaging'
 
 const paymentLabel = (p) => p === 'cod' ? 'Cash after service' : p === 'upi' ? 'UPI' : p === 'card' ? 'Card' : (p || '').toUpperCase()
 const paymentIcon = (p) => p === 'cod' ? Banknote : p === 'card' ? CreditCard : Wallet
@@ -67,6 +69,7 @@ export default function BookingDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
   const { getBooking, cancelBooking, rescheduleBooking } = useBookings()
+  const { user } = useAuth()
   const booking = getBooking(id)
 
   const [showReschedule, setShowReschedule] = useState(false)
@@ -278,6 +281,17 @@ export default function BookingDetail() {
                 <AlertTriangle className="w-3 h-3" /> Reschedule unavailable for past or in-progress bookings.
               </p>
             )}
+          </div>
+        )}
+
+        {/* Messaging section - available for upcoming and completed bookings */}
+        {(booking.status === 'upcoming' || booking.status === 'completed') && booking.providerId && (
+          <div className="mt-5">
+            <BookingMessaging 
+              bookingId={id} 
+              bookingDbId={booking.id}
+              isProvider={false}
+            />
           </div>
         )}
       </div>

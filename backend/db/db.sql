@@ -512,3 +512,18 @@ SET @stmt := IF(
   'ALTER TABLE catalog_services ADD COLUMN duration VARCHAR(100) AFTER image',
   'DO 0');
 PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- Messages table for temporary in-app messaging between customers and providers
+-- Messages are scoped to a booking and available around the time of service
+CREATE TABLE IF NOT EXISTS messages (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  booking_id INT NOT NULL,
+  sender_type ENUM('customer', 'provider') NOT NULL,
+  sender_id INT NOT NULL,
+  content TEXT NOT NULL,
+  read_at DATETIME,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_booking_messages (booking_id, created_at),
+  KEY idx_sender (sender_type, sender_id),
+  FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE CASCADE
+);

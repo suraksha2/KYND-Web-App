@@ -2,6 +2,7 @@ import {
   Loader2, Calendar, Clock, MapPin, Phone, User, IndianRupee, CheckCircle2, XCircle, StickyNote,
 } from 'lucide-react'
 import { STATUS_META, parseItems, formatDateTime, nextVisit } from '../utils/bookings'
+import BookingMessaging from './BookingMessaging'
 
 export default function BookingCard({ booking, updating, onUpdate }) {
   const items = parseItems(booking.items)
@@ -95,6 +96,13 @@ export default function BookingCard({ booking, updating, onUpdate }) {
             <XCircle className="w-4 h-4" />
             Cancel
           </button>
+        </div>
+      )}
+
+      {/* Messaging section - available for upcoming and completed bookings */}
+      {(booking.status === 'upcoming' || booking.status === 'completed') && (
+        <div className="border-t border-lightstone p-4 sm:p-5 bg-white">
+          <BookingMessaging bookingId={booking.id} />
         </div>
       )}
     </div>
