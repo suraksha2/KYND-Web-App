@@ -6,6 +6,131 @@ import { sgtDateTime } from '../lib/sgt';
 
 const router = Router();
 
+// GET /api/messages - Get all conversations for the current user
+router.get('/', async (req, res) => {
+  try {
+    const session = await getSession(req);
+    if (!session) {
+      return res.status(401).json({ error: 'Authentication required.' });
+    }
+
+    let conversations;
+    
+    if (session.role === 'user') {
+      // Get all bookings for this customer that have messages
+      const [rows]: any = await pool.query(
+        `SELECT DISTINCT 
+          b.id as booking_id,
+          b.scheduled_at,
+          b.status,
+          b.items,
+          sp.id as provider_id,
+          sp.name as provider_name,
+          sp.avatar as provider_image,
+          (SELECT COUNT(*) FROM messages m 
+           WHERE m.booking_id = b.id 
+           AND m.sender_type = 'provider' 
+           AND m.read_at IS NULL) as unread_count,
+          (SELECT m.content FROM messages m 
+           WHERE m.booking_id = b.id 
+           ORDER BY m.created_at DESC 
+           LIMIT 1) as last_message,
+          (SELECT m.created_at FROM messages m 
+           WHERE m.booking_id = b.id 
+           ORDER BY m.created_at DESC 
+           LIMIT 1) as last_message_at
+         FROM bookings b
+         INNER JOIN service_providers sp ON b.provider_id = sp.id
+         INNER JOIN messages m ON b.id = m.booking_id
+         WHERE b.user_id = ?
+         ORDER BY last_message_at DESC`,
+        [session.id]
+      );
+      conversations = rows;
+    } else if (session.role === 'provider') {
+      // Get all bookings for this provider that have messages
+      const [rows]: any = await pool.query(
+        `SELECT DISTINCT 
+          b.id as booking_id,
+          b.scheduled_at,
+          b.status,
+          b.items,
+          u.id as customer_id,
+          u.name as customer_name,
+          (SELECT COUNT(*) FROM messages m 
+           WHERE m.booking_id = b.id 
+           AND m.sender_type = 'customer' 
+           AND m.read_at IS NULL) as unread_count,
+          (SELECT m.content FROM messages m 
+           WHERE m.booking_id = b.id 
+           ORDER BY m.created_at DESC 
+           LIMIT 1) as last_message,
+          (SELECT m.created_at FROM messages m 
+           WHERE m.booking_id = b.id 
+           ORDER BY m.created_at DESC 
+           LIMIT 1) as last_message_at
+         FROM bookings b
+         INNER JOIN users u ON b.user_id = u.id
+         INNER JOIN messages m ON b.id = m.booking_id
+         WHERE b.provider_id = ?
+         ORDER BY last_message_at DESC`,
+        [session.id]
+      );
+      conversations = rows;
+    } else {
+      return res.status(403).json({ error: 'Only customers and providers can access conversations.' });
+    }
+
+    return res.status(200).json({ data: conversations });
+  } catch (error) {
+    console.error('[GET /api/messages]', error);
+    return res.status(500).json({ error: 'Failed to fetch conversations' });
+  }
+});
+
+// GET /api/messages/unread-count - Get total unread message count for notification
+router.get('/unread-count', async (req, res) => {
+  try {
+    const session = await getSession(req);
+    if (!session) {
+      return res.status(401).json({ error: 'Authentication required.' });
+    }
+
+    let count;
+    
+    if (session.role === 'user') {
+      const [rows]: any = await pool.query(
+        `SELECT COUNT(*) as count
+         FROM messages m
+         INNER JOIN bookings b ON m.booking_id = b.id
+         WHERE b.user_id = ?
+         AND m.sender_type = 'provider'
+         AND m.read_at IS NULL`,
+        [session.id]
+      );
+      count = rows[0].count;
+    } else if (session.role === 'provider') {
+      const [rows]: any = await pool.query(
+        `SELECT COUNT(*) as count
+         FROM messages m
+         INNER JOIN bookings b ON m.booking_id = b.id
+         WHERE b.provider_id = ?
+         AND m.sender_type = 'customer'
+         AND m.read_at IS NULL`,
+        [session.id]
+      );
+      count = rows[0].count;
+    } else {
+      return res.status(403).json({ error: 'Only customers and providers can access unread count.' });
+    }
+
+    return res.status(200).json({ count });
+  } catch (error) {
+    console.error('[GET /api/messages/unread-count]', error);
+    return res.status(500).json({ error: 'Failed to fetch unread count' });
+  }
+});
+
 // GET /api/messages/:bookingId - List messages for a booking
 router.get('/:bookingId', async (req, res) => {
   try {

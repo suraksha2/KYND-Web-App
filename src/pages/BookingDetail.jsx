@@ -2,12 +2,11 @@ import React, { useMemo, useState } from 'react'
 import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import {
   ArrowLeft, Calendar, Clock, MapPin, Phone, User, CreditCard, Wallet, Banknote,
-  CheckCircle2, XCircle, Repeat, Zap, AlertTriangle, RotateCcw, X, StickyNote
+  CheckCircle2, XCircle, Repeat, Zap, AlertTriangle, RotateCcw, X, StickyNote, MessageCircle
 } from 'lucide-react'
 import { useBookings } from '../context/BookingsContext'
 import { useAuth } from '../context/AuthContext'
 import { iconForService } from '../lib/serviceIcon'
-import BookingMessaging from '../components/BookingMessaging'
 
 const paymentLabel = (p) => p === 'cod' ? 'Cash after service' : p === 'upi' ? 'UPI' : p === 'card' ? 'Card' : (p || '').toUpperCase()
 const paymentIcon = (p) => p === 'cod' ? Banknote : p === 'card' ? CreditCard : Wallet
@@ -287,11 +286,13 @@ export default function BookingDetail() {
         {/* Messaging section - available for upcoming and completed bookings */}
         {(booking.status === 'upcoming' || booking.status === 'completed') && booking.providerId && (
           <div className="mt-5">
-            <BookingMessaging 
-              bookingId={id} 
-              bookingDbId={booking.id}
-              isProvider={false}
-            />
+            <button
+              onClick={() => navigate(`/chat/${booking.id}`)}
+              className="inline-flex items-center gap-2 rounded-full bg-terracotta hover:bg-accent-600 text-white font-semibold py-3 px-5 text-sm transition-colors"
+            >
+              <MessageCircle className="w-4 h-4" />
+              Message your partner
+            </button>
           </div>
         )}
       </div>
