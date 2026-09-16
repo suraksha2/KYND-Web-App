@@ -12,6 +12,8 @@ import Cities from './pages/Cities'
 import CityDetail from './pages/CityDetail'
 import FAQ from './pages/FAQ'
 import Support from './pages/Support'
+import Messages from './pages/Messages'
+import Chat from './pages/Chat'
 import DeleteAccount from './pages/DeleteAccount'
 import { TnC, PrivacyPolicy, CancellationPolicy, Credits } from './pages/Legal'
 // import Cart from './pages/Cart'
@@ -68,7 +70,8 @@ export default function App() {
         <Route path="/cities" element={<Cities />} />
         <Route path="/cities/:slug" element={<CityDetail />} />
         <Route path="/frequently-asked-questions" element={<FAQ />} />
-        <Route path="/support" element={<Support />} />
+        <Route path="/support" element={<Messages />} />
+        <Route path="/chat/:bookingId" element={<Chat />} />
         <Route path="/delete-account" element={<DeleteAccount />} />
         {/* <Route path="/cart" element={<Cart />} /> */}
         {/* <Route path="/checkout" element={<Checkout />} /> */}

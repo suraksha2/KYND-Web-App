@@ -217,6 +217,7 @@ function RecurringCta({ serviceName, count }) {
 
 function UpcomingCard({ booking }) {
   const { cancelBooking, rescheduleBooking } = useBookings()
+  const navigate = useNavigate()
   const firstItem = booking.items?.[0]
   const providerName = booking.provider?.name || 'A Pro'
   const isInstant = booking.schedule === 'instant'
@@ -302,8 +303,9 @@ function UpcomingCard({ booking }) {
         ) : (
           <>
             <button
-              onClick={() => alert('Messaging will be available soon.')}
-              className="flex-1 min-w-[80px] inline-flex items-center justify-center gap-1.5 rounded-full bg-white ring-1 ring-lightstone hover:ring-terracotta text-charcoal font-semibold px-4 py-2 text-sm transition"
+              onClick={() => navigate(`/chat/${booking.id}`)}
+              disabled={!booking.providerId}
+              className="flex-1 min-w-[80px] inline-flex items-center justify-center gap-1.5 rounded-full bg-white ring-1 ring-lightstone hover:ring-terracotta disabled:opacity-50 disabled:cursor-not-allowed text-charcoal font-semibold px-4 py-2 text-sm transition"
             >
               <MessageCircle className="w-3.5 h-3.5" /> Message
             </button>

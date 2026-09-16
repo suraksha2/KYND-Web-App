@@ -4,7 +4,7 @@ export const NAV_ITEMS = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'bookings', label: 'Bookings', icon: ClipboardList },
   { id: 'earnings', label: 'Earnings', icon: Wallet },
-  { id: 'schedule', label: 'Schedule', icon: CalendarDays },
+  // { id: 'schedule', label: 'Schedule', icon: CalendarDays },
   { id: 'profile', label: 'Profile', icon: User },
 ]
 

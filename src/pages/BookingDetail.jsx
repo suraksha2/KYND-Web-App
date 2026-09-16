@@ -2,9 +2,10 @@ import React, { useMemo, useState } from 'react'
 import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import {
   ArrowLeft, Calendar, Clock, MapPin, Phone, User, CreditCard, Wallet, Banknote,
-  CheckCircle2, XCircle, Repeat, Zap, AlertTriangle, RotateCcw, X, StickyNote
+  CheckCircle2, XCircle, Repeat, Zap, AlertTriangle, RotateCcw, X, StickyNote, MessageCircle
 } from 'lucide-react'
 import { useBookings } from '../context/BookingsContext'
+import { useAuth } from '../context/AuthContext'
 import { iconForService } from '../lib/serviceIcon'
 
 const paymentLabel = (p) => p === 'cod' ? 'Cash after service' : p === 'upi' ? 'UPI' : p === 'card' ? 'Card' : (p || '').toUpperCase()
@@ -67,6 +68,7 @@ export default function BookingDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
   const { getBooking, cancelBooking, rescheduleBooking } = useBookings()
+  const { user } = useAuth()
   const booking = getBooking(id)
 
   const [showReschedule, setShowReschedule] = useState(false)
@@ -278,6 +280,19 @@ export default function BookingDetail() {
                 <AlertTriangle className="w-3 h-3" /> Reschedule unavailable for past or in-progress bookings.
               </p>
             )}
+          </div>
+        )}
+
+        {/* Messaging section - available for upcoming and completed bookings */}
+        {(booking.status === 'upcoming' || booking.status === 'completed') && booking.providerId && (
+          <div className="mt-5">
+            <button
+              onClick={() => navigate(`/chat/${booking.id}`)}
+              className="inline-flex items-center gap-2 rounded-full bg-terracotta hover:bg-accent-600 text-white font-semibold py-3 px-5 text-sm transition-colors"
+            >
+              <MessageCircle className="w-4 h-4" />
+              Message your partner
+            </button>
           </div>
         )}
       </div>

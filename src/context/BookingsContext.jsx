@@ -95,6 +95,10 @@ export function BookingsProvider({ children }) {
   const { user, token, expireSession } = useAuth()
   // Logged-in users start empty; the API will populate. Unauth users fall back to localStorage.
   const [bookings, setBookings] = useState(() => (user?.id ? [] : readStore()))
+  // False while a signed-in user's history is still in flight. Consumers that
+  // read the list to make a decision (e.g. prefilling a form from the last
+  // booking) must not treat the initial empty array as "no bookings".
+  const [loaded, setLoaded] = useState(() => !user?.id)
 
   useEffect(() => {
     if (user?.id) return
@@ -103,7 +107,11 @@ export function BookingsProvider({ children }) {
 
   // Load real data from the API when a user is authenticated
   useEffect(() => {
-    if (!user?.id || !token) return
+    if (!user?.id || !token) {
+      setLoaded(true)
+      return
+    }
+    setLoaded(false)
     const fetchBookings = async () => {
       try {
         const response = await fetch(`${API_BASE}/bookings`, {
@@ -125,6 +133,8 @@ export function BookingsProvider({ children }) {
         }
       } catch (error) {
         console.error('Error fetching bookings:', error)
+      } finally {
+        setLoaded(true)
       }
     }
     fetchBookings()
@@ -271,7 +281,7 @@ export function BookingsProvider({ children }) {
     [bookings]
   )
 
-  const value = { bookings, upcoming, past, activeCount, addBooking, cancelBooking, rescheduleBooking, getBooking }
+  const value = { bookings, loaded, upcoming, past, activeCount, addBooking, cancelBooking, rescheduleBooking, getBooking }
   return <BookingsContext.Provider value={value}>{children}</BookingsContext.Provider>
 }
 

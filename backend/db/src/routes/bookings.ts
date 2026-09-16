@@ -136,6 +136,7 @@ router.post('/', async (req, res) => {
       contact,
       notes,
       payment,
+      referralCode,
       placedAt,
       status = 'upcoming'
     } = body;
@@ -178,8 +179,8 @@ router.post('/', async (req, res) => {
       `INSERT INTO bookings (
         booking_id, items, total, schedule, scheduled_at, cadence, recurrence,
         contact_name, contact_phone, contact_address, contact_city, contact_pincode, contact_area,
-        notes, payment, placed_at, status, history, user_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        notes, payment, referral_code, placed_at, status, history, user_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         bookingId,
         JSON.stringify(items),
@@ -196,6 +197,7 @@ router.post('/', async (req, res) => {
         contact.area || null,
         trimmedNotes || null,
         payment,
+        referralCode || null,
         sgtDateTime(placedAt),
         status,
         JSON.stringify([{ at: sgtDateTime(placedAt), type: 'created', note: 'Booking placed' }]),
