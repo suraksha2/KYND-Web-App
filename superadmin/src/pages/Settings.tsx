@@ -86,7 +86,7 @@ export default function SettingsPage() {
     if (!user) return;
     setPasswordError(""); setPasswordSuccess("");
     if (password.new !== password.confirm) { setPasswordError("New passwords do not match"); return; }
-    if (password.new.length < 6) { setPasswordError("Password must be at least 6 characters"); return; }
+    if (password.new.length < 8) { setPasswordError("Password must be at least 8 characters"); return; }
     setPasswordLoading(true);
     try {
       const res = await apiFetch("/api/auth/change-password", {

@@ -84,7 +84,7 @@ export function AuthProvider({ children }) {
   const signup = async ({ name, email, password }) => {
     const normalizedEmail = String(email).trim().toLowerCase()
     if (!name || !normalizedEmail || !password) throw new Error('All fields are required.')
-    if (password.length < 6) throw new Error('Password must be at least 6 characters.')
+    if (password.length < 8) throw new Error('Password must be at least 8 characters.')
 
     const response = await fetch(`${API_BASE}/auth/signup`, {
       method: 'POST',
@@ -144,7 +144,7 @@ export function AuthProvider({ children }) {
 
   const resetPassword = async ({ token, password }) => {
     if (!token || !password) throw new Error('Token and password are required.')
-    if (password.length < 6) throw new Error('Password must be at least 6 characters.')
+    if (password.length < 8) throw new Error('Password must be at least 8 characters.')
 
     const response = await fetch(`${API_BASE}/auth/reset-password`, {
       method: 'POST',

@@ -5,8 +5,9 @@ import path from 'path';
 import multer from 'multer';
 import type { Request, Response } from 'express';
 
-const IMAGE_EXTENSIONS = ['.webp', '.png', '.jpg', '.jpeg', '.svg', '.gif', '.avif'];
-const IMAGE_MIMETYPES = ['image/webp', 'image/png', 'image/jpeg', 'image/jpg', 'image/svg+xml', 'image/gif', 'image/avif'];
+// SVG omitted: uploaded SVGs can carry script and become stored XSS when served.
+const IMAGE_EXTENSIONS = ['.webp', '.png', '.jpg', '.jpeg', '.gif', '.avif'];
+const IMAGE_MIMETYPES = ['image/webp', 'image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/avif'];
 
 const projectRoot = path.join(__dirname, '..', '..');
 const imageDir = path.join(projectRoot, 'public', 'images');

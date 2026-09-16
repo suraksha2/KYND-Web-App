@@ -17,19 +17,41 @@ import cookieParser from 'cookie-parser';
 import { corsMiddleware } from './http/cors';
 import { apiAuthGate } from './http/session';
 import apiRouter from './routes';
+import pool from './lib/mysql';
 
 const app = express();
 
+// Behind Docker/nginx the client IP is in X-Forwarded-For; needed for auth rate limits.
+if (process.env.NODE_ENV === 'production' || process.env.TRUST_PROXY === '1') {
+  app.set('trust proxy', 1);
+}
+
 app.disable('x-powered-by');
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  if (process.env.NODE_ENV === 'production') {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  }
+  next();
+});
 app.use(corsMiddleware);
 app.use(cookieParser());
-app.use(express.json({ limit: '5mb' }));
+app.use(express.json({ limit: '1mb' }));
 
 // Service artwork. Next.js served `public/` automatically; the SPAs resolve
 // image URLs against this origin with `/api` stripped.
 app.use(express.static(path.join(projectRoot, 'public'), { fallthrough: true }));
 
 app.get('/health', (_req, res) => res.json({ ok: true }));
+
+// Clear any leftover password-reset tokens from the previous incomplete
+// email-reset flow so they cannot be redeemed if the endpoint is re-enabled
+// without also shipping mail delivery.
+pool.query('UPDATE users SET reset_token = NULL, reset_token_expiry = NULL WHERE reset_token IS NOT NULL')
+  .catch((err) => console.warn('[boot] could not clear reset tokens:', err?.message || err));
 
 app.use('/api', apiAuthGate, apiRouter);
 

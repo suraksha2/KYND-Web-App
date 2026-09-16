@@ -8,6 +8,7 @@ import { iconForService } from '../lib/serviceIcon'
 import { localServiceImage, servicePeopleImage } from '../lib/serviceImage'
 import { taglineForService } from '../lib/serviceTagline'
 import { API_BASE, appUrl } from '../lib/api'
+import { toSgtIsoFromParts } from '../lib/sgt'
 import { OFFERS, getStoredOffer, storeOffer, clearStoredOffer, computeDiscount, offerIsApplicable } from '../lib/offers'
 import Seo from '../components/Seo'
 import { serviceSchema, breadcrumbSchema } from '../lib/schema'
@@ -937,11 +938,19 @@ export default function ServiceDetail() {
 
     const bookingId = Math.random().toString(36).slice(2, 8).toUpperCase()
     const scheduledAt = schedule !== 'instant' && date && time
-      ? new Date(`${date}T${time}`).toISOString()
+      ? toSgtIsoFromParts(date, time)
       : ''
     const order = {
       bookingId,
-      items: selectedServices.map(s => ({ slug: s.slug, name: s.name, img: s.img, priceFrom: s.price || parsePrice(s.pricingFrom), duration: s.duration, qty: 1 })),
+      items: selectedServices.map(s => ({
+        slug: s.slug,
+        name: s.name,
+        img: s.img,
+        priceFrom: s.price || parsePrice(s.pricingFrom),
+        duration: s.duration,
+        catalogId: s.catalogId || s.id || null,
+        qty: 1,
+      })),
       total: discountedPrice,
       discount: discountAmount,
       offer: selectedOffer,
@@ -973,6 +982,10 @@ export default function ServiceDetail() {
         const orderWithId = {
           ...order,
           id: data.id,
+          total: data.total ?? order.total,
+          items: data.items || order.items,
+          addOns: data.addOns || order.addOns,
+          discount: data.discount ?? order.discount,
           provider: data.provider,
           cadence: data.cadence || order.cadence,
           recurrence: data.recurrence || order.recurrence,
@@ -993,9 +1006,14 @@ export default function ServiceDetail() {
     try {
       const res = await fetch(`${API_BASE}/payments/create-intent`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
+        credentials: 'include',
         body: JSON.stringify({
-          amount: order.total,
+          items: order.items,
+          addOns: order.addOns || [],
+          schedule: order.schedule,
+          scheduledAt: order.scheduledAt || null,
+          offer: order.offer || null,
           merchantOrderId: order.bookingId,
           metadata: { bookingId: order.bookingId, customer: name, phone },
           returnUrl: appUrl('/booking/confirmed'),

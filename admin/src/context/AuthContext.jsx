@@ -61,7 +61,7 @@ export function AuthProvider({ children }) {
   const adminSignup = async ({ name, email, password, secret }) => {
     const normalizedEmail = String(email).trim().toLowerCase()
     if (!name || !normalizedEmail || !password || !secret) throw new Error('All fields are required.')
-    if (password.length < 6) throw new Error('Password must be at least 6 characters.')
+    if (password.length < 8) throw new Error('Password must be at least 8 characters.')
 
     const response = await fetch(`${API_BASE}/auth/signup`, {
       method: 'POST',

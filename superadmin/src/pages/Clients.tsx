@@ -1,6 +1,4 @@
 import React, { useState, useEffect } from "react";
-import * as XLSX from "xlsx";
-import { saveAs } from "file-saver";
 import {
   Search, UserPlus, X, Trash2, Download,
   Users, ShoppingCart, DollarSign, MapPin, Phone, Mail, Calendar,
@@ -149,11 +147,24 @@ export default function CustomersPage() {
 
   function handleExport() {
     const exportData = filtered.map(({ avatar, id, ...rest }) => rest);
-    const ws  = XLSX.utils.json_to_sheet(exportData);
-    const wb  = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Clients");
-    const out = XLSX.write(wb, { bookType: "xlsx", type: "array" });
-    saveAs(new Blob([out], { type: "application/octet-stream" }), "clients.xlsx");
+    const keys = exportData.length
+      ? Object.keys(exportData[0])
+      : ["name", "email", "mobile", "city", "totalOrders", "totalSpend", "status", "joined"];
+    const escape = (v: unknown) => {
+      const s = v == null ? "" : String(v);
+      return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const csv = [
+      keys.join(","),
+      ...exportData.map((row) => keys.map((k) => escape((row as any)[k])).join(",")),
+    ].join("\r\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "clients.csv";
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   function openAssign(client: Customer) {

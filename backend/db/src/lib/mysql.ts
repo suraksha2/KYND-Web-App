@@ -12,11 +12,22 @@ type MysqlCache = {
 const globalForMysql = globalThis as unknown as { __mysql?: MysqlCache };
 if (!globalForMysql.__mysql) globalForMysql.__mysql = {};
 
+function resolveMysqlPassword(): string {
+  const fromEnv = process.env.MYSQL_PASSWORD;
+  if (fromEnv) return fromEnv;
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('MYSQL_PASSWORD environment variable is required in production.');
+  }
+  // Dev-only fallback so local `npm run dev` still works without a .env.
+  console.warn('[mysql] MYSQL_PASSWORD unset; using insecure local default. Do not use in production.');
+  return 'root123';
+}
+
 const poolConfig = {
   host: process.env.MYSQL_HOST || 'localhost',
   port: Number(process.env.MYSQL_PORT) || 3306,
   user: process.env.MYSQL_USER || 'root',
-  password: process.env.MYSQL_PASSWORD || 'root123',
+  password: resolveMysqlPassword(),
   database: process.env.MYSQL_DATABASE || 'urban_service',
   waitForConnections: true,
   connectionLimit: 10,

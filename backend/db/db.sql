@@ -207,6 +207,7 @@ CREATE TABLE IF NOT EXISTS bookings (
   contact_area VARCHAR(100),
   notes TEXT,
   payment VARCHAR(50) NOT NULL,
+  payment_intent_id VARCHAR(128) NULL,
   placed_at DATETIME NOT NULL,
   status ENUM('upcoming', 'completed', 'cancelled') DEFAULT 'upcoming',
   cancelled_by ENUM('customer', 'admin', 'provider'),
@@ -221,6 +222,7 @@ CREATE TABLE IF NOT EXISTS bookings (
   KEY idx_bookings_user (user_id),
   KEY idx_bookings_provider (provider_id),
   KEY idx_bookings_status_placed (status, placed_at),
+  UNIQUE KEY idx_bookings_payment_intent (payment_intent_id),
   FOREIGN KEY (provider_id) REFERENCES service_providers(id) ON DELETE SET NULL,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
 );

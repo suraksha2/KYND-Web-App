@@ -6,8 +6,52 @@ import { getSession } from '../http/session';
 import { normalizeRecurrence } from '../lib/recurrence';
 import { createOccurrences, withOccurrences } from '../lib/occurrences';
 import { sgtDateTime, parseSgt } from '../lib/sgt';
+import { priceOrder, PricingError } from '../lib/pricing';
+import { verifyCardPaymentForBooking, PaymentVerificationError } from '../lib/paymentVerification';
 
 const router = Router();
+
+async function notifyProviderAssignment(bookingDbId: number, providerId: number) {
+  const [bookingRows]: any = await pool.query(
+    `SELECT b.booking_id, b.items, b.total, b.schedule, b.scheduled_at, b.cadence,
+            b.contact_name, b.contact_phone, b.contact_address,
+            b.contact_area, b.contact_city, b.contact_pincode, b.notes, b.payment
+     FROM bookings b WHERE b.id = ?`,
+    [bookingDbId]
+  );
+  const [providerRows]: any = await pool.query(
+    'SELECT name, mobile FROM service_providers WHERE id = ?',
+    [providerId]
+  );
+  if (!bookingRows?.length || !providerRows?.length) return;
+
+  const booking = bookingRows[0];
+  const provider = providerRows[0];
+  let serviceName = 'Service';
+  try {
+    const items = typeof booking.items === 'string' ? JSON.parse(booking.items) : booking.items;
+    if (Array.isArray(items) && items.length > 0) {
+      serviceName = items.map((item: any) => item.name || item.serviceName || 'Service').join(', ');
+    }
+  } catch { /* empty */ }
+
+  await sendProviderAssignmentWhatsApp(provider.mobile, provider.name, {
+    bookingId: booking.booking_id,
+    serviceName,
+    scheduledAt: booking.scheduled_at,
+    schedule: booking.schedule,
+    cadence: booking.cadence,
+    contactName: booking.contact_name,
+    contactPhone: booking.contact_phone,
+    contactAddress: booking.contact_address,
+    contactArea: booking.contact_area,
+    contactCity: booking.contact_city,
+    contactPincode: booking.contact_pincode,
+    notes: booking.notes,
+    total: booking.total,
+    payment: booking.payment,
+  });
+}
 
 const DEFAULT_WORKING_HOURS = {
   mon: { start: '09:00', end: '18:00' },
@@ -128,7 +172,6 @@ router.post('/', async (req, res) => {
     const {
       bookingId,
       items,
-      total,
       schedule,
       scheduledAt,
       cadence,
@@ -137,11 +180,23 @@ router.post('/', async (req, res) => {
       notes,
       payment,
       placedAt,
-      status = 'upcoming'
+      addOns,
+      offer,
+      paymentIntentId,
     } = body;
+    // Never trust client-supplied booking status — new bookings always start upcoming.
+    const status = 'upcoming';
 
-    if (!bookingId || !items || !total || !contact || !payment) {
+    if (!bookingId || !items || !contact || !payment) {
       return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    if (typeof payment !== 'string' || payment.length > 64) {
+      return res.status(400).json({ error: 'Invalid payment method.' });
+    }
+    const allowedPayments = new Set(['cod', 'card', 'wallet', 'paynow']);
+    if (!allowedPayments.has(payment)) {
+      return res.status(400).json({ error: 'Unsupported payment method.' });
     }
 
     // Validate Singapore address: full name, phone, street, city, area and a 6-digit
@@ -160,6 +215,27 @@ router.post('/', async (req, res) => {
     if (!session) return res.status(401).json({ error: 'Authentication required.' });
     const userId = session.id;
 
+    const [existingRef]: any = await pool.query(
+      'SELECT id FROM bookings WHERE booking_id = ? LIMIT 1',
+      [bookingId]
+    );
+    if (existingRef?.length) {
+      return res.status(409).json({ error: 'This booking reference already exists.' });
+    }
+
+    // Server-side pricing — ignore client total / item prices.
+    const priced = await priceOrder({
+      items,
+      addOns,
+      schedule,
+      offer,
+      userId,
+      scheduledAt: scheduledAt || null,
+    });
+    const total = priced.total;
+    const pricedItems = priced.items;
+    const pricedAddOns = priced.addOns;
+
     // Optional free-text instructions the customer leaves for the assigned partner.
     const trimmedNotes = typeof notes === 'string' ? notes.trim().slice(0, 500) : '';
 
@@ -174,15 +250,38 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ error: 'A recurring booking needs a valid cadence.' });
     }
 
+    let storedPaymentIntentId: string | null = null;
+    if (payment === 'card') {
+      const intentId = typeof paymentIntentId === 'string' ? paymentIntentId.trim() : '';
+      await verifyCardPaymentForBooking({
+        userId,
+        paymentIntentId: intentId,
+        merchantOrderId: bookingId,
+        expectedTotal: total,
+      });
+      storedPaymentIntentId = intentId.trim();
+    } else if (paymentIntentId) {
+      return res.status(400).json({ error: 'Payment intent is only valid for card bookings.' });
+    }
+
     const [result] = await pool.query(
       `INSERT INTO bookings (
         booking_id, items, total, schedule, scheduled_at, cadence, recurrence,
         contact_name, contact_phone, contact_address, contact_city, contact_pincode, contact_area,
-        notes, payment, placed_at, status, history, user_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        notes, payment, payment_intent_id, placed_at, status, history, user_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         bookingId,
-        JSON.stringify(items),
+        JSON.stringify([
+          ...pricedItems,
+          ...pricedAddOns.map((a) => ({
+            slug: `addon-${a.id}`,
+            name: a.name,
+            priceFrom: a.price,
+            qty: 1,
+            addonId: a.id,
+          })),
+        ]),
         total,
         schedule,
         sgtDateTime(scheduledAt),
@@ -196,6 +295,7 @@ router.post('/', async (req, res) => {
         contact.area || null,
         trimmedNotes || null,
         payment,
+        storedPaymentIntentId,
         sgtDateTime(placedAt),
         status,
         JSON.stringify([{ at: sgtDateTime(placedAt), type: 'created', note: 'Booking placed' }]),
@@ -206,8 +306,8 @@ router.post('/', async (req, res) => {
     const bookingDbId = (result as any).insertId;
 
     // Auto-assign a free provider in the same city for the booked service.
-    const itemList = Array.isArray(items) ? items : JSON.parse(items || '[]');
-    const firstItemName = itemList[0]?.name || itemList[0]?.serviceName || 'Service';
+    const itemList = pricedItems;
+    const firstItemName = itemList[0]?.name || 'Service';
 
     let [candidates]: any = await pool.query(
       `SELECT id, name, rating, total_jobs, avatar, working_hours
@@ -232,20 +332,28 @@ router.post('/', async (req, res) => {
     }
 
     let provider = candidates[0] || null;
+    const durationMin = parseDurationMinutes(itemList[0]?.duration);
 
-    if (provider && schedule !== 'instant' && scheduledAt) {
-      // Recurring bookings are matched against every planned visit, so the
-      // assigned partner can keep the whole cadence rather than just visit one.
-      const visits = (plan?.occurrences.length ? plan.occurrences : [scheduledAt])
-        .map((iso) => new Date(iso))
-        .filter((d) => !Number.isNaN(d.getTime()));
-      const sgtDates = Array.from(new Set(
-        visits.map((d) => (sgtDateTime(d) || '').split(' ')[0]).filter(Boolean)
-      ));
-      const durationMin = parseDurationMinutes(itemList[0]?.duration);
-      provider = sgtDates.length
-        ? await findAvailableProvider(candidates, visits, durationMin, sgtDates)
-        : candidates[0];
+    if (candidates.length) {
+      let visits: Date[] = [];
+      if (schedule === 'instant') {
+        visits = [new Date()];
+      } else if (scheduledAt) {
+        visits = (plan?.occurrences?.length ? plan.occurrences : [scheduledAt])
+          .map((iso) => new Date(iso))
+          .filter((d) => !Number.isNaN(d.getTime()));
+      }
+      if (visits.length) {
+        const sgtDates = Array.from(new Set(
+          visits.map((d) => (sgtDateTime(d) || '').split(' ')[0]).filter(Boolean)
+        ));
+        const picked = await findAvailableProvider(candidates, visits, durationMin, sgtDates);
+        if (picked) {
+          provider = picked;
+        } else if (schedule !== 'instant') {
+          provider = null;
+        }
+      }
     }
 
     if (provider) {
@@ -258,6 +366,7 @@ router.post('/', async (req, res) => {
         'UPDATE service_providers SET total_jobs = total_jobs + 1 WHERE id = ?',
         [provider.id]
       );
+      await notifyProviderAssignment(bookingDbId, provider.id);
     }
 
     // Materialize the individual visits so each one can be tracked, notified and
@@ -271,10 +380,20 @@ router.post('/', async (req, res) => {
       bookingId,
       id: bookingDbId,
       provider,
+      total,
+      items: pricedItems,
+      addOns: pricedAddOns,
+      discount: priced.discount,
       cadence: plan?.cadence || null,
       recurrence: plan
     });
   } catch (error) {
+    if (error instanceof PricingError) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    if (error instanceof PaymentVerificationError) {
+      return res.status(error.status).json({ error: error.message });
+    }
     console.error('[POST /api/bookings]', error);
     return res.status(500).json({ error: 'Failed to create booking' });
   }
@@ -477,71 +596,33 @@ router.put('/:id', async (req, res) => {
       return res.status(400).json({ error: 'Provider ID is required' });
     }
 
-    // Format datetime for MySQL
-    const assignedAt = new Date().toISOString().slice(0, 19).replace('T', ' ');
+    const [existingRows]: any = await pool.query(
+      'SELECT provider_id FROM bookings WHERE id = ?',
+      [bookingId]
+    );
+    if (!existingRows?.length) {
+      return res.status(404).json({ error: 'Booking not found.' });
+    }
+    const previousProviderId = existingRows[0].provider_id;
+    if (Number(previousProviderId) === Number(provider_id)) {
+      return res.status(200).json({ success: true, unchanged: true });
+    }
 
-    // Update booking with provider assignment
-    const [result] = await pool.query(
-      `UPDATE bookings 
-       SET provider_id = ?, assigned_at = ?
-       WHERE id = ?`,
+    const assignedAt = sgtDateTime(new Date());
+
+    await pool.query(
+      `UPDATE bookings SET provider_id = ?, assigned_at = ? WHERE id = ?`,
       [provider_id, assignedAt, bookingId]
     );
 
-    // Update provider's total_jobs count
-    await pool.query(
-      `UPDATE service_providers 
-       SET total_jobs = total_jobs + 1 
-       WHERE id = ?`,
-      [provider_id]
-    );
-
-    // Fetch booking details
-    const [bookingRows]: any = await pool.query(
-      `SELECT b.booking_id, b.items, b.total, b.schedule, b.scheduled_at, b.cadence,
-              b.contact_name, b.contact_phone, b.contact_address,
-              b.contact_area, b.contact_city, b.contact_pincode, b.notes, b.payment
-       FROM bookings b
-       WHERE b.id = ?`,
-      [bookingId]
-    );
-
-    // Fetch provider details
-    const [providerRows]: any = await pool.query(
-      `SELECT name, mobile FROM service_providers WHERE id = ?`,
-      [provider_id]
-    );
-
-    if (bookingRows.length > 0 && providerRows.length > 0) {
-      const booking = bookingRows[0];
-      const provider = providerRows[0];
-
-      // Derive a human-readable service name from the items JSON
-      let serviceName = 'Service';
-      try {
-        const items = typeof booking.items === 'string' ? JSON.parse(booking.items) : booking.items;
-        if (Array.isArray(items) && items.length > 0) {
-          serviceName = items.map((item: any) => item.name || item.serviceName || item.title || 'Service').join(', ');
-        }
-      } catch (_) {}
-
-      await sendProviderAssignmentWhatsApp(provider.mobile, provider.name, {
-        bookingId: booking.booking_id,
-        serviceName,
-        scheduledAt: booking.scheduled_at,
-        schedule: booking.schedule,
-        cadence: booking.cadence,
-        contactName: booking.contact_name,
-        contactPhone: booking.contact_phone,
-        contactAddress: booking.contact_address,
-        contactArea: booking.contact_area,
-        contactCity: booking.contact_city,
-        contactPincode: booking.contact_pincode,
-        notes: booking.notes,
-        total: booking.total,
-        payment: booking.payment,
-      });
+    if (!previousProviderId) {
+      await pool.query(
+        'UPDATE service_providers SET total_jobs = total_jobs + 1 WHERE id = ?',
+        [provider_id]
+      );
     }
+
+    await notifyProviderAssignment(Number(bookingId), Number(provider_id));
 
     return res.status(200).json({ success: true });
   } catch (error) {

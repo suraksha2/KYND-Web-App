@@ -40,12 +40,19 @@ function nextOccurrenceAt(booking) {
 function transformBooking(row) {
   const parseJson = (v) => {
     if (!v) return []
-    try { return typeof v === 'string' ? JSON.parse(v) : v } catch { return [] }
+    try {
+      const parsed = typeof v === 'string' ? JSON.parse(v) : v
+      return Array.isArray(parsed) ? parsed : []
+    } catch { return [] }
   }
-  const rawHistory = parseJson(row.history)
-  const history = Array.isArray(rawHistory)
-    ? rawHistory.map((h) => (typeof h === 'object' && h ? { ...h, at: toSgtIso(h.at) } : h))
-    : []
+  const rawHistory = (() => {
+    if (!row.history) return []
+    try {
+      const parsed = typeof row.history === 'string' ? JSON.parse(row.history) : row.history
+      return Array.isArray(parsed) ? parsed : []
+    } catch { return [] }
+  })()
+  const history = rawHistory.map((h) => (typeof h === 'object' && h ? { ...h, at: toSgtIso(h.at) } : h))
   return {
     id: row.id,
     bookingId: row.booking_id,
@@ -54,7 +61,12 @@ function transformBooking(row) {
     schedule: row.schedule,
     scheduledAt: toSgtIso(row.scheduled_at),
     cadence: row.cadence,
-    recurrence: parseJson(row.recurrence),
+    recurrence: (() => {
+      if (!row.recurrence) return null
+      try {
+        return typeof row.recurrence === 'string' ? JSON.parse(row.recurrence) : row.recurrence
+      } catch { return null }
+    })(),
     // Individual visits of a recurring booking, oldest first.
     occurrences: (parseJson(row.occurrences) || []).map((o) => ({
       id: o.id,

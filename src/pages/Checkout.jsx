@@ -127,6 +127,10 @@ export default function Checkout() {
     const orderWithId = {
       ...order,
       id: data.id,
+      total: data.total ?? order.total,
+      items: data.items || order.items,
+      addOns: data.addOns || order.addOns,
+      discount: data.discount ?? order.discount,
       provider: data.provider,
       cadence: data.cadence || order.cadence,
       recurrence: data.recurrence || order.recurrence,
@@ -184,9 +188,17 @@ export default function Checkout() {
     try {
       const res = await fetch(`${API_BASE}/api/payments/create-intent`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        credentials: 'include',
         body: JSON.stringify({
-          amount: order.total,
+          items: order.items,
+          addOns: order.addOns || [],
+          schedule: order.schedule,
+          scheduledAt: order.scheduledAt || null,
+          offer: order.offer || null,
           merchantOrderId: order.bookingId,
           metadata: { bookingId: order.bookingId, customer: name, phone },
           returnUrl: appUrl('/booking/confirmed'),

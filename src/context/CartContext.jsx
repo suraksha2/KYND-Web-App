@@ -53,6 +53,7 @@ export function CartProvider({ children }) {
         img: svc.img,
         priceFrom: svc.price || parsePrice(svc.pricingFrom),
         duration: svc.duration,
+        catalogId: svc.catalogId || svc.id || null,
         qty
       }]
     })

@@ -1,11 +1,34 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
-import crypto from 'crypto';
 import pool from '../lib/mysql';
-import { createSessionToken, SESSION_COOKIE_NAME } from '../lib/auth';
-import { clearSessionCookie, setSessionCookie } from '../http/session';
+import { createSessionToken } from '../lib/auth';
+import { clearSessionCookie, getSession, setSessionCookie } from '../http/session';
 
 const router = Router();
+
+// Simple per-IP sliding window for auth endpoints (login/signup/reset).
+// In-memory is enough for a single API process; multi-instance deploys
+// should front this with a reverse-proxy limit as well.
+const AUTH_WINDOW_MS = 15 * 60 * 1000;
+const AUTH_MAX_ATTEMPTS = 30;
+const authAttempts = new Map<string, { count: number; resetAt: number }>();
+
+function authRateLimit(req: any, res: any, next: any) {
+  const ip = String(req.ip || req.socket?.remoteAddress || 'unknown');
+  const now = Date.now();
+  const entry = authAttempts.get(ip);
+  if (!entry || entry.resetAt <= now) {
+    authAttempts.set(ip, { count: 1, resetAt: now + AUTH_WINDOW_MS });
+    return next();
+  }
+  entry.count += 1;
+  if (entry.count > AUTH_MAX_ATTEMPTS) {
+    return res.status(429).json({ error: 'Too many attempts. Please try again later.' });
+  }
+  return next();
+}
+
+router.use(authRateLimit);
 
 router.post('/login', async (req, res) => {
   try {
@@ -53,7 +76,6 @@ router.post('/login', async (req, res) => {
 
     setSessionCookie(res, token);
 
-    console.log('Login: Set cookie', SESSION_COOKIE_NAME, 'for user', user.email, 'role', user.role)
     return res.json({
       id: user.id,
       name: user.name,
@@ -87,16 +109,18 @@ router.post('/signup', async (req, res) => {
       return res.status(400).json({ error: 'All fields are required.' });
     }
 
-    if (password.length < 6) {
-      return res.status(400).json({ error: 'Password must be at least 6 characters.' });
+    if (password.length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters.' });
     }
 
     const normalizedEmail = email.trim().toLowerCase();
 
-    // Check admin secret if provided
+    // Check admin secret if provided. Require a configured, non-empty secret —
+    // never elevate when ADMIN_SIGNUP_SECRET is unset.
     let assignedRole = 'user';
     if (secret) {
-      if (secret === process.env.ADMIN_SIGNUP_SECRET) {
+      const adminSecret = process.env.ADMIN_SIGNUP_SECRET;
+      if (adminSecret && adminSecret.length >= 16 && secret === adminSecret) {
         assignedRole = 'super_admin';
       } else {
         return res.status(403).json({ error: 'Invalid admin signup secret.' });
@@ -150,7 +174,7 @@ router.post('/signup', async (req, res) => {
     });
   } catch (error: any) {
     console.error('Signup error:', error);
-    return res.status(500).json({ error: 'Unable to create account.', details: error.message });
+    return res.status(500).json({ error: 'Unable to create account.' });
   }
 });
 
@@ -217,114 +241,40 @@ router.post('/provider-login', async (req, res) => {
   }
 });
 
-router.post('/forgot-password', async (req, res) => {
-  try {
-    const body = req.body;
-    const { email } = body;
-
-    if (!email) {
-      return res.status(400).json({ error: 'Email is required.' });
-    }
-
-    const normalizedEmail = email.trim().toLowerCase();
-
-    // Find user by email
-    const [users] = await pool.query(
-      'SELECT id, name, email FROM users WHERE email = ?',
-      [normalizedEmail]
-    );
-
-    const userArray = users as any[];
-    if (!userArray || userArray.length === 0) {
-      // Don't reveal that user doesn't exist for security
-      return res.json({
-        message: 'If an account exists with this email, you will receive a password reset link.'
-      });
-    }
-
-    const user = userArray[0];
-
-    // Generate reset token
-    const resetToken = crypto.randomBytes(32).toString('hex');
-    const resetTokenExpiry = new Date(Date.now() + 3600000); // 1 hour from now
-
-    // Store reset token in database
-    await pool.query(
-      'UPDATE users SET reset_token = ?, reset_token_expiry = ? WHERE id = ?',
-      [resetToken, resetTokenExpiry, user.id]
-    );
-
-    // In a real application, you would send an email here with the reset link
-    // TODO: Implement email sending service (e.g., SendGrid, AWS SES, etc.)
-    // const resetUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:5173'}/reset-password?token=${resetToken}`;
-    // await sendResetEmail(user.email, resetUrl);
-
-    return res.json({
-      message: 'If an account exists with this email, you will receive a password reset link.'
-    });
-  } catch (error) {
-    console.error('Forgot password error:', error);
-    return res.status(500).json({ error: 'Unable to process request.' });
-  }
+router.post('/forgot-password', async (_req, res) => {
+  // Email delivery is not configured. Refuse rather than minting unused reset
+  // tokens that accumulate in the database.
+  return res.status(503).json({
+    error: 'Password reset by email is not available yet. Please contact support.',
+  });
 });
 
-router.post('/reset-password', async (req, res) => {
-  try {
-    const body = req.body;
-    const { token, password } = body;
-
-    if (!token || !password) {
-      return res.status(400).json({ error: 'Token and password are required.' });
-    }
-
-    if (password.length < 6) {
-      return res.status(400).json({ error: 'Password must be at least 6 characters.' });
-    }
-
-    // Find user with valid reset token
-    const [users] = await pool.query(
-      'SELECT id FROM users WHERE reset_token = ? AND reset_token_expiry > NOW()',
-      [token]
-    );
-
-    const userArray = users as any[];
-    if (!userArray || userArray.length === 0) {
-      return res.status(400).json({ error: 'Invalid or expired reset token.' });
-    }
-
-    const user = userArray[0];
-
-    // Hash new password
-    const passwordHash = await bcrypt.hash(password, 10);
-
-    // Update password and clear reset token
-    await pool.query(
-      'UPDATE users SET password_hash = ?, reset_token = NULL, reset_token_expiry = NULL WHERE id = ?',
-      [passwordHash, user.id]
-    );
-
-    return res.json({
-      message: 'Password has been reset successfully.'
-    });
-  } catch (error) {
-    console.error('Reset password error:', error);
-    return res.status(500).json({ error: 'Unable to reset password.' });
-  }
+router.post('/reset-password', async (_req, res) => {
+  return res.status(503).json({
+    error: 'Password reset by email is not available yet. Please contact support.',
+  });
 });
 
 router.post('/change-password', async (req, res) => {
   try {
-    const body = req.body;
-    const { userId, currentPassword, newPassword } = body;
-
-    if (!userId || !currentPassword || !newPassword) {
-      return res
-        .status(400)
-        .json({ error: 'User ID, current password, and new password are required.' });
+    const session = await getSession(req);
+    if (!session) {
+      return res.status(401).json({ error: 'Authentication required.' });
     }
 
-    if (newPassword.length < 6) {
-      return res.status(400).json({ error: 'New password must be at least 6 characters.' });
+    const body = req.body;
+    const { currentPassword, newPassword } = body;
+    // Always bind to the authenticated session — ignore any client-supplied userId.
+    const userId = session.id;
+
+    if (!currentPassword || !newPassword) {
+      return res
+        .status(400)
+        .json({ error: 'Current password and new password are required.' });
+    }
+
+    if (newPassword.length < 8) {
+      return res.status(400).json({ error: 'New password must be at least 8 characters.' });
     }
 
     // Get user's current password hash
@@ -366,11 +316,18 @@ router.post('/change-password', async (req, res) => {
 
 router.put('/update-profile', async (req, res) => {
   try {
-    const body = req.body;
-    const { userId, name, email } = body;
+    const session = await getSession(req);
+    if (!session) {
+      return res.status(401).json({ error: 'Authentication required.' });
+    }
 
-    if (!userId || !name || !email) {
-      return res.status(400).json({ error: 'User ID, name, and email are required.' });
+    const body = req.body;
+    const { name, email } = body;
+    // Always bind to the authenticated session — ignore any client-supplied userId.
+    const userId = session.id;
+
+    if (!name || !email) {
+      return res.status(400).json({ error: 'Name and email are required.' });
     }
 
     const normalizedEmail = email.trim().toLowerCase();

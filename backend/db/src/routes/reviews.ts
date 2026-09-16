@@ -29,14 +29,8 @@ router.post('/', async (req, res) => {
 
     const booking = bookings[0];
 
-    if (booking.user_id != null && Number(booking.user_id) !== Number(session.id)) {
-      console.warn('[POST /api/reviews] Forbidden:', { bookingId, bookingUserId: booking.user_id, sessionId: session.id });
-      return res.status(403).json({ error: `You can only review your own bookings. (booking user_id=${booking.user_id}, session id=${session.id})` });
-    }
-
-    // Claim an unlinked booking for the currently logged-in customer.
-    if (booking.user_id == null) {
-      await pool.query('UPDATE bookings SET user_id = ? WHERE id = ?', [session.id, bookingId]);
+    if (booking.user_id == null || Number(booking.user_id) !== Number(session.id)) {
+      return res.status(403).json({ error: 'You can only review your own bookings.' });
     }
 
     await pool.query(

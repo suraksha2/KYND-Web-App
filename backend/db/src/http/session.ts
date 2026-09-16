@@ -93,15 +93,7 @@ function isPublicApi(pathname: string, method: string): boolean {
     if (/^\/catalog\/services\/[^/]+\/quote$/.test(pathname)) return true;
     if (/^\/catalog\/services\/[^/]+\/addons$/.test(pathname)) return true;
     if (/^\/availability(\/.+)?$/.test(pathname)) return true;
-    // Customers verify their own payment status (client_secret already on client).
-    if (/^\/payments\/[^/]+$/.test(pathname)) return true;
   }
-
-  // Customers create payment intents during checkout without an admin session.
-  if (method === 'POST' && pathname === '/payments/create-intent') return true;
-
-  // Customers can submit a review for their completed bookings.
-  if (method === 'POST' && pathname === '/reviews') return true;
 
   // Pre-launch landing page joins the waitlist anonymously (reading the list
   // stays admin-only).
@@ -131,6 +123,11 @@ export async function apiAuthGate(req: Request, res: Response, next: NextFunctio
     // Customers can cancel/reschedule their own booking; the route verifies
     // ownership against session.id before touching the row.
     if (req.method === 'PATCH' && /^\/bookings\/[^/]+$/.test(pathname)) return next();
+    // Checkout: create/verify payment intents (handlers also check session).
+    if (pathname === '/payments/create-intent' && req.method === 'POST') return next();
+    if (req.method === 'GET' && /^\/payments\/[^/]+$/.test(pathname)) return next();
+    // Customers submit reviews for their own bookings.
+    if (pathname === '/reviews' && req.method === 'POST') return next();
     return res.status(403).json({ error: 'Admin access required.' });
   }
 
