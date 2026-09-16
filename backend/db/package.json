@@ -7,7 +7,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "seed:admins": "tsx scripts/seed-production-admins.ts"
+    "seed:admins": "node scripts/seed-production-admins.mjs"
   },
   "dependencies": {
     "@types/multer": "^2.2.0",

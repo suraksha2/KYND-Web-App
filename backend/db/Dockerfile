@@ -28,6 +28,8 @@ ENV HOSTNAME=0.0.0.0
 COPY --from=prod-deps --chown=node:node /app/node_modules ./node_modules
 COPY --chown=node:node backend/db/package.json ./package.json
 COPY --from=builder --chown=node:node /app/dist ./dist
+# One-shot ops scripts (seed admins, create-admin, etc.) — run with `node scripts/...`
+COPY --chown=node:node backend/db/scripts ./scripts
 # Service artwork, served statically at /images and listed by GET /api/images.
 COPY --chown=node:node backend/db/public ./public
 # Hero / lifestyle photos referenced at /images/people/* (storefront public/).

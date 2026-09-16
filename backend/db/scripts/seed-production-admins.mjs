@@ -1,40 +1,50 @@
 /**
  * Production seed: default admin / superadmin login.
  *
- * Creates (or updates) a single `super_admin` user. Both the admin and
- * superadmin consoles accept `super_admin`, and the users.email column is
- * UNIQUE, so one row is enough.
+ * Creates (or updates) a single `super_admin` user.
  *
- * DB credentials come from the repo-root `.env` (Docker Compose env file).
- * From the host that means 127.0.0.1 + MYSQL_HOST_PORT. Inside the backend
- * container, compose already sets MYSQL_HOST=mysql.
+ * DB credentials:
+ *   - Inside Docker: compose already sets MYSQL_* (MYSQL_HOST=mysql).
+ *   - On the host: loads repo-root `.env`, connects to 127.0.0.1:MYSQL_HOST_PORT.
  *
- *   cd backend/db
- *   npm run seed:admins
+ * Host:
+ *   cd backend/db && npm run seed:admins
  *
- * Or against a running stack:
- *   docker compose --env-file .env exec backend npx tsx scripts/seed-production-admins.ts
- *
- * Idempotent — safe to re-run; resets password and role on conflict.
+ * Docker (after rebuild so scripts/ is in the image):
+ *   docker compose --env-file .env exec backend node scripts/seed-production-admins.mjs
  */
-import path from 'path';
-import fs from 'fs';
-import dotenv from 'dotenv';
-import bcrypt from 'bcryptjs';
 import mysql from 'mysql2/promise';
+import bcrypt from 'bcryptjs';
+import { readFileSync, existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 
-const dbRoot = path.join(__dirname, '..');
-const repoRoot = path.join(dbRoot, '..', '..');
-const envPath = path.join(repoRoot, '.env');
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const repoEnvPath = join(__dirname, '..', '..', '..', '.env');
 
-if (!fs.existsSync(envPath)) {
-  console.error(`[seed:admins] Missing ${envPath}`);
-  console.error('[seed:admins] Create a root .env with MYSQL_USER / MYSQL_PASSWORD first.');
-  process.exit(1);
+function loadEnvFile(envPath) {
+  if (!existsSync(envPath)) return false;
+  const raw = readFileSync(envPath, 'utf8');
+  for (const line of raw.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eq = trimmed.indexOf('=');
+    if (eq === -1) continue;
+    const key = trimmed.slice(0, eq).trim();
+    let value = trimmed.slice(eq + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    if (!(key in process.env)) process.env[key] = value;
+  }
+  return true;
 }
 
-// Do not override vars already set (e.g. compose env inside the backend container).
-dotenv.config({ path: envPath });
+// Host runs: fill from repo-root .env. Container runs: compose env already set.
+loadEnvFile(repoEnvPath);
 
 const EMAIL = 'manish.inncelerator@gmail.com';
 const PASSWORD = 'Manish11@';
@@ -47,10 +57,11 @@ async function main() {
   const database = process.env.MYSQL_DATABASE || 'urban_service';
 
   if (!user || !password) {
-    throw new Error('MYSQL_USER and MYSQL_PASSWORD are required in .env');
+    throw new Error(
+      'MYSQL_USER and MYSQL_PASSWORD required (set in root .env or compose env)'
+    );
   }
 
-  // Host runs talk to the published MySQL port; in-compose runs use MYSQL_HOST=mysql.
   const host = process.env.MYSQL_HOST || '127.0.0.1';
   const port = Number(process.env.MYSQL_PORT || process.env.MYSQL_HOST_PORT || 3307);
 
@@ -78,7 +89,7 @@ async function main() {
       [NAME, EMAIL, passwordHash, ROLE]
     );
 
-    const info = result as mysql.ResultSetHeader;
+    const info = result;
     const action = info.affectedRows === 1 ? 'created' : 'updated';
 
     console.log(`[seed:admins] connected ${user}@${host}:${port}/${database}`);
