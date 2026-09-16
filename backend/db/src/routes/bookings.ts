@@ -291,7 +291,7 @@ router.get('/', async (req, res) => {
 
     let query = `
       SELECT b.*,
-             sp.id AS provider_id,
+             COALESCE(sp.id, b.provider_id) AS provider_id,
              sp.name AS provider_name,
              sp.rating AS provider_rating,
              sp.avatar AS provider_avatar,
@@ -306,7 +306,7 @@ router.get('/', async (req, res) => {
       // Customer: show only their own bookings.
       query = `
         SELECT b.*,
-               sp.id AS provider_id,
+               COALESCE(sp.id, b.provider_id) AS provider_id,
                sp.name AS provider_name,
                sp.rating AS provider_rating,
                sp.avatar AS provider_avatar,

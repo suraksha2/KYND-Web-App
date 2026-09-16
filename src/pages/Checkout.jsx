@@ -92,7 +92,7 @@ export default function Checkout() {
   useEffect(() => {
     const fetchCities = async () => {
       try {
-        const response = await fetch(`${API_BASE}/api/cities`)
+        const response = await fetch(`${API_BASE}/cities`)
         if (!response.ok) {
           throw new Error('Failed to fetch cities')
         }
@@ -165,7 +165,7 @@ export default function Checkout() {
   const finalizeBooking = async (order) => {
     const headers = { 'Content-Type': 'application/json' }
     if (token) headers['Authorization'] = `Bearer ${token}`
-    const response = await fetch(`${API_BASE}/api/bookings`, {
+    const response = await fetch(`${API_BASE}/bookings`, {
       method: 'POST',
       headers,
       credentials: 'include',
@@ -235,7 +235,7 @@ export default function Checkout() {
 
     // Online payment via Airwallex Hosted Payment Page: create a PaymentIntent and redirect.
     try {
-      const res = await fetch(`${API_BASE}/api/payments/create-intent`, {
+      const res = await fetch(`${API_BASE}/payments/create-intent`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

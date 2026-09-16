@@ -149,11 +149,9 @@ export default function Messages() {
                         {getServiceName(conv.items)}
                       </p>
                       
-                      {conv.last_message && (
-                        <p className="text-sm text-charcoal/70 truncate">
-                          {conv.last_message}
-                        </p>
-                      )}
+                      <p className="text-sm text-charcoal/70 truncate">
+                        {conv.last_message || 'No messages yet — tap to start chatting'}
+                      </p>
                     </div>
 
                     {/* Unread badge and chevron */}

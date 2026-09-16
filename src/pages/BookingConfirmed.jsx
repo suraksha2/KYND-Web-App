@@ -24,7 +24,7 @@ export default function BookingConfirmed() {
         setVerifying(true)
         setVerificationError(null)
 
-        const verifyRes = await fetch(`${API_BASE}/api/payments/${pendingOrder.intentId}`)
+        const verifyRes = await fetch(`${API_BASE}/payments/${pendingOrder.intentId}`)
         const verify = await verifyRes.json()
         const ok = verifyRes.ok && ['SUCCEEDED', 'REQUIRES_CAPTURE'].includes(verify.status)
 
@@ -38,7 +38,7 @@ export default function BookingConfirmed() {
           paymentStatus: verify.status
         }
 
-        const response = await fetch(`${API_BASE}/api/bookings`, {
+        const response = await fetch(`${API_BASE}/bookings`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
           credentials: 'include',

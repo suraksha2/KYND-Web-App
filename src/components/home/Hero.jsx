@@ -118,7 +118,7 @@ export default function Hero() {
   useEffect(() => {
     const fetchCities = async () => {
       try {
-        const response = await fetch(`${API_BASE}/api/cities`)
+        const response = await fetch(`${API_BASE}/cities`)
         const json = await response.json()
         if (json.data) setDbCities(json.data)
       } catch (err) {

@@ -794,20 +794,20 @@ const AddressPaymentPanel = ({
               </button>
             </div>
           ) : (
-            <div className="flex gap-2">
+            <div className="flex items-center gap-2">
               <input
                 type="text"
                 value={promoCodeInput}
                 onChange={(e) => setPromoCodeInput(e.target.value.toUpperCase())}
                 onKeyDown={(e) => { if (e.key === 'Enter') applyPromoCode() }}
                 placeholder="Enter referral code"
-                className="flex-1 rounded-xl border border-lightstone bg-white px-3 py-2.5 text-sm text-charcoal placeholder-warmgrey/60 focus:outline-none focus:border-terracotta focus:ring-2 focus:ring-terracotta/20 transition"
+                className="min-w-0 flex-1 h-11 rounded-xl border border-lightstone bg-white px-3 text-sm text-charcoal placeholder-warmgrey/60 focus:outline-none focus:border-terracotta focus:ring-2 focus:ring-terracotta/20 transition"
               />
               <button
                 type="button"
                 onClick={applyPromoCode}
                 disabled={promoLoading || !promoCodeInput.trim()}
-                className="shrink-0 rounded-xl bg-terracotta hover:bg-charcoal disabled:opacity-60 text-white text-sm font-semibold px-4 py-2 transition"
+                className="shrink-0 h-11 rounded-xl bg-terracotta hover:bg-charcoal disabled:opacity-60 text-white text-sm font-semibold px-4 transition"
               >
                 {promoLoading ? '...' : 'Apply'}
               </button>

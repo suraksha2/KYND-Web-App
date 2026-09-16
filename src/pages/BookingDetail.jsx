@@ -283,7 +283,7 @@ export default function BookingDetail() {
           </div>
         )}
 
-        {/* Messaging section - available for upcoming and completed bookings */}
+        {/* Messaging section - available for upcoming and completed bookings with an assigned partner */}
         {(booking.status === 'upcoming' || booking.status === 'completed') && booking.providerId && (
           <div className="mt-5">
             <button

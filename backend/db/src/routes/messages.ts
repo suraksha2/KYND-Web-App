@@ -17,63 +17,72 @@ router.get('/', async (req, res) => {
     let conversations;
     
     if (session.role === 'user') {
-      // Get all bookings for this customer that have messages
+      // Upcoming/completed bookings the customer can message (even before first message)
       const [rows]: any = await pool.query(
-        `SELECT DISTINCT 
+        `SELECT
           b.id as booking_id,
           b.scheduled_at,
           b.status,
           b.items,
           sp.id as provider_id,
-          sp.name as provider_name,
+          COALESCE(sp.name, 'Service partner') as provider_name,
           sp.avatar as provider_image,
-          (SELECT COUNT(*) FROM messages m 
-           WHERE m.booking_id = b.id 
-           AND m.sender_type = 'provider' 
+          (SELECT COUNT(*) FROM messages m
+           WHERE m.booking_id = b.id
+           AND m.sender_type = 'provider'
            AND m.read_at IS NULL) as unread_count,
-          (SELECT m.content FROM messages m 
-           WHERE m.booking_id = b.id 
-           ORDER BY m.created_at DESC 
+          (SELECT m.content FROM messages m
+           WHERE m.booking_id = b.id
+           ORDER BY m.created_at DESC
            LIMIT 1) as last_message,
-          (SELECT m.created_at FROM messages m 
-           WHERE m.booking_id = b.id 
-           ORDER BY m.created_at DESC 
+          (SELECT m.created_at FROM messages m
+           WHERE m.booking_id = b.id
+           ORDER BY m.created_at DESC
            LIMIT 1) as last_message_at
          FROM bookings b
-         INNER JOIN service_providers sp ON b.provider_id = sp.id
-         INNER JOIN messages m ON b.id = m.booking_id
+         LEFT JOIN service_providers sp ON b.provider_id = sp.id
          WHERE b.user_id = ?
-         ORDER BY last_message_at DESC`,
+           AND b.provider_id IS NOT NULL
+           AND b.status IN ('upcoming', 'completed')
+         ORDER BY COALESCE(
+           (SELECT m.created_at FROM messages m WHERE m.booking_id = b.id ORDER BY m.created_at DESC LIMIT 1),
+           b.scheduled_at,
+           b.placed_at
+         ) DESC`,
         [session.id]
       );
       conversations = rows;
     } else if (session.role === 'provider') {
-      // Get all bookings for this provider that have messages
+      // Assigned bookings the provider can message (even before first message)
       const [rows]: any = await pool.query(
-        `SELECT DISTINCT 
+        `SELECT
           b.id as booking_id,
           b.scheduled_at,
           b.status,
           b.items,
           u.id as customer_id,
-          u.name as customer_name,
-          (SELECT COUNT(*) FROM messages m 
-           WHERE m.booking_id = b.id 
-           AND m.sender_type = 'customer' 
+          COALESCE(u.name, 'Customer') as customer_name,
+          (SELECT COUNT(*) FROM messages m
+           WHERE m.booking_id = b.id
+           AND m.sender_type = 'customer'
            AND m.read_at IS NULL) as unread_count,
-          (SELECT m.content FROM messages m 
-           WHERE m.booking_id = b.id 
-           ORDER BY m.created_at DESC 
+          (SELECT m.content FROM messages m
+           WHERE m.booking_id = b.id
+           ORDER BY m.created_at DESC
            LIMIT 1) as last_message,
-          (SELECT m.created_at FROM messages m 
-           WHERE m.booking_id = b.id 
-           ORDER BY m.created_at DESC 
+          (SELECT m.created_at FROM messages m
+           WHERE m.booking_id = b.id
+           ORDER BY m.created_at DESC
            LIMIT 1) as last_message_at
          FROM bookings b
-         INNER JOIN users u ON b.user_id = u.id
-         INNER JOIN messages m ON b.id = m.booking_id
+         LEFT JOIN users u ON b.user_id = u.id
          WHERE b.provider_id = ?
-         ORDER BY last_message_at DESC`,
+           AND b.status IN ('upcoming', 'completed')
+         ORDER BY COALESCE(
+           (SELECT m.created_at FROM messages m WHERE m.booking_id = b.id ORDER BY m.created_at DESC LIMIT 1),
+           b.scheduled_at,
+           b.placed_at
+         ) DESC`,
         [session.id]
       );
       conversations = rows;
