@@ -62,8 +62,13 @@ async function main() {
     );
   }
 
+  // Compose sets MYSQL_HOST=mysql → container port 3306.
+  // Host runs use loopback + published MYSQL_HOST_PORT (default 3307).
   const host = process.env.MYSQL_HOST || '127.0.0.1';
-  const port = Number(process.env.MYSQL_PORT || process.env.MYSQL_HOST_PORT || 3307);
+  const port = Number(
+    process.env.MYSQL_PORT ||
+      (host === 'mysql' ? 3306 : process.env.MYSQL_HOST_PORT || 3307)
+  );
 
   const pool = mysql.createPool({
     host,
