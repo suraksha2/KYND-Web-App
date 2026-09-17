@@ -1,10 +1,10 @@
-import { LayoutDashboard, ClipboardList, Wallet, CalendarDays, User, LogOut, X } from 'lucide-react'
+import { LayoutDashboard, CalendarDays, Wallet, MessageSquare, User, LogOut, X } from 'lucide-react'
 
 export const NAV_ITEMS = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { id: 'bookings', label: 'Bookings', icon: ClipboardList },
+  { id: 'bookings', label: 'Bookings', icon: CalendarDays },
   { id: 'earnings', label: 'Earnings', icon: Wallet },
-  // { id: 'schedule', label: 'Schedule', icon: CalendarDays },
+  { id: 'messages', label: 'Messages', icon: MessageSquare },
   { id: 'profile', label: 'Profile', icon: User },
 ]
 

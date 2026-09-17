@@ -1,15 +1,17 @@
 import {
   Loader2, Calendar, Clock, MapPin, Phone, User, IndianRupee, CheckCircle2, XCircle, StickyNote,
 } from 'lucide-react'
-import { STATUS_META, parseItems, formatDateTime, nextVisit } from '../utils/bookings'
+import { STATUS_META, parseItems, formatDateTime, nextVisit, getEffectiveStatus, hasUpcomingOccurrences } from '../utils/bookings'
 import BookingMessaging from './BookingMessaging'
 
 export default function BookingCard({ booking, updating, onUpdate }) {
   const items = parseItems(booking.items)
-  const meta = STATUS_META[booking.status] || STATUS_META.upcoming
+  const effectiveStatus = getEffectiveStatus(booking)
+  const meta = STATUS_META[effectiveStatus] || STATUS_META.upcoming
   const StatusIcon = meta.icon
   const when = formatDateTime(booking.scheduled_at) || formatDateTime(booking.placed_at)
   const upcomingVisit = nextVisit(booking)
+  const hasUpcoming = hasUpcomingOccurrences(booking)
 
   return (
     <div className="bg-white rounded-2xl border border-lightstone shadow-soft overflow-hidden">
@@ -78,7 +80,7 @@ export default function BookingCard({ booking, updating, onUpdate }) {
         )}
       </div>
 
-      {booking.status === 'upcoming' && !booking.cancelled_at && (
+      {hasUpcoming && !booking.cancelled_at && (
         <div className="border-t border-lightstone p-4 sm:p-5 bg-warmlinen flex flex-col sm:flex-row gap-3">
           <button
             disabled={updating}
@@ -99,8 +101,8 @@ export default function BookingCard({ booking, updating, onUpdate }) {
         </div>
       )}
 
-      {/* Messaging section - available for upcoming and completed bookings */}
-      {(booking.status === 'upcoming' || booking.status === 'completed') && (
+      {/* Messaging section - available for bookings with upcoming or completed occurrences */}
+      {hasUpcoming && (
         <div className="border-t border-lightstone p-4 sm:p-5 bg-white">
           <BookingMessaging bookingId={booking.id} />
         </div>

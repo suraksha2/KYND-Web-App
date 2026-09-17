@@ -61,6 +61,30 @@ export function nextVisit(booking) {
     .sort((a, b) => a.at - b.at)[0] || null
 }
 
+// Check if a booking has any upcoming occurrences
+export function hasUpcomingOccurrences(booking) {
+  if (!booking?.occurrences || booking.occurrences.length === 0) {
+    return booking.status === 'upcoming'
+  }
+  return booking.occurrences.some(o => o.status === 'upcoming')
+}
+
+// Get the effective status for a booking based on occurrences
+export function getEffectiveStatus(booking) {
+  if (!booking?.occurrences || booking.occurrences.length === 0) {
+    return booking.status
+  }
+  
+  const hasUpcoming = booking.occurrences.some(o => o.status === 'upcoming')
+  const hasCompleted = booking.occurrences.some(o => o.status === 'completed')
+  const hasCancelled = booking.occurrences.some(o => o.status === 'cancelled')
+  
+  if (hasCancelled) return 'cancelled'
+  if (hasUpcoming) return 'upcoming'
+  if (hasCompleted) return 'completed'
+  return booking.status
+}
+
 export function bookingTotal(booking) {
   const n = Number(booking?.total)
   return Number.isFinite(n) ? n : 0
