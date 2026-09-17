@@ -1,20 +1,21 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
-  Menu, RefreshCw, Loader2, CircleDot, AlertCircle, CalendarCheck,
+  RefreshCw, Loader2, CircleDot, AlertCircle, CalendarCheck,
   CheckCircle2, Wallet, TrendingUp, Mail, User, LogOut,
 } from 'lucide-react'
 import { useAuth, API_BASE } from '../context/AuthContext'
-import { Sidebar, MobileDrawer, MobileTabBar } from '../components/Sidebar'
+import { Sidebar, MobileTabBar } from '../components/Sidebar'
 import MetricCard from '../components/MetricCard'
 import TrendChart from '../components/TrendChart'
 import BookingCard from '../components/BookingCard'
+import Messages from './Messages'
 import { bookingDate, bookingTotal, formatSgd, isSameDay, lastSevenDays } from '../utils/bookings'
 
 const SECTION_COPY = {
   dashboard: { title: 'Dashboard', subtitle: 'Your work at a glance.' },
   bookings: { title: 'Bookings', subtitle: 'Jobs assigned to you by the Kynd team.' },
   earnings: { title: 'Earnings', subtitle: 'Payouts from the jobs you have completed.' },
-  // schedule: { title: 'Schedule', subtitle: 'Everything still on your calendar.' },
+  messages: { title: 'Messages', subtitle: 'Chat with customers about their bookings.' },
   profile: { title: 'Profile', subtitle: 'Your provider account details.' },
 }
 
@@ -27,7 +28,7 @@ export default function Dashboard() {
   const [filter, setFilter] = useState('all')
   const [updatingId, setUpdatingId] = useState(null)
   const [section, setSection] = useState('dashboard')
-  const [drawerOpen, setDrawerOpen] = useState(false)
+
 
   const authFetch = (url, options = {}) =>
     fetch(url, {
@@ -208,26 +209,11 @@ export default function Dashboard() {
   return (
     <div className="min-h-screen bg-warmlinen">
       <Sidebar section={section} onSelect={setSection} user={user} onLogout={logout} />
-      <MobileDrawer
-        open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
-        section={section}
-        onSelect={setSection}
-        user={user}
-        onLogout={logout}
-      />
 
       <div className="lg:pl-64">
         <header className="sticky top-0 z-20 bg-warmlinen/95 backdrop-blur border-b border-lightstone">
           <div className="px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between gap-4">
             <div className="flex items-center gap-3 min-w-0">
-              <button
-                onClick={() => setDrawerOpen(true)}
-                aria-label="Open menu"
-                className="lg:hidden p-2 -ml-2 rounded-lg text-charcoal hover:bg-white focus:outline-none focus:ring-2 focus:ring-terracotta/40"
-              >
-                <Menu className="w-5 h-5" />
-              </button>
               <div className="min-w-0">
                 <h1 className="font-heading text-xl sm:text-2xl font-bold text-charcoal truncate">{copy.title}</h1>
                 <p className="text-sm text-warmgrey truncate">{copy.subtitle}</p>
@@ -255,7 +241,9 @@ export default function Dashboard() {
           {section === 'dashboard' && (
             <>
               {metricCards}
-              <TrendChart days={days} />
+              <div className="hidden lg:block">
+                <TrendChart days={days} />
+              </div>
               <section className="space-y-4">
                 <div className="flex items-center justify-between gap-4">
                   <h2 className="font-heading text-lg font-bold text-charcoal">Recent bookings</h2>
@@ -298,11 +286,10 @@ export default function Dashboard() {
             </>
           )}
 
-          {section === 'schedule' && (
-            <>
-              {metricCards}
-              {renderBookingList(upcomingSorted, 'Nothing scheduled right now.')}
-            </>
+          {section === 'messages' && (
+            <div className="max-w-2xl">
+              <Messages />
+            </div>
           )}
 
           {section === 'profile' && (

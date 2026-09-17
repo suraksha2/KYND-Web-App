@@ -23,6 +23,12 @@ type Provider = {
 type Service = { id: number; name: string };
 type City = { id: number; cityName: string };
 
+const normalizePhone = (value: string) => {
+  const digits = value.replace(/\D/g, '');
+  const after65 = digits.startsWith('65') ? digits.slice(2) : digits;
+  return '+65' + after65.slice(0, 8);
+};
+
 const statusCfg: Record<string, { cls: string; dot: string }> = {
   active: { cls: "bg-sage/10 text-sage ring-1 ring-sage/20", dot: "bg-sage" },
   busy: { cls: "bg-accent-100 text-accent-700 ring-1 ring-terracotta/20", dot: "bg-terracotta" },
@@ -32,7 +38,7 @@ const statusCfg: Record<string, { cls: string; dot: string }> = {
 const defaultForm = {
   name: "",
   email: "",
-  mobile: "",
+  mobile: "+65",
   password: "",
   services: [] as string[],
   city: "",
@@ -353,10 +359,12 @@ export default function ProPage() {
                 <div>
                   <label className="block text-xs font-semibold text-warmgrey mb-1.5">Mobile *</label>
                   <input
-                    type="text"
-                    placeholder="e.g. +6581234567"
+                    type="tel"
+                    placeholder="e.g. 81234567"
                     value={form.mobile}
-                    onChange={(e) => setForm({ ...form, mobile: e.target.value })}
+                    onChange={(e) => setForm({ ...form, mobile: normalizePhone(e.target.value) })}
+                    pattern="[+]65[89][0-9]{7}"
+                    title="Enter a valid Singapore number: +65 followed by 8 digits starting with 8 or 9"
                     className={inputCls}
                   />
                 </div>

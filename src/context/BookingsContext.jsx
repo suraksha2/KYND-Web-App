@@ -255,14 +255,38 @@ export function BookingsProvider({ children }) {
   // Bucket bookings: finished ones (completed or cancelled) go to Past, which is
   // what the Past tab's own copy promises. Leaving cancelled bookings in Upcoming
   // made them render as live cards with a Cancel button that appeared to do nothing.
+  // For recurring bookings, check if there are any upcoming occurrences.
   const { upcoming, past } = useMemo(() => {
     const upcoming = []
     const past = []
     for (const b of bookings) {
-      if (b.status === 'completed' || b.status === 'cancelled') {
-        past.push(b)
+      // For recurring bookings, check occurrences status
+      if (b.schedule === 'recurring' && Array.isArray(b.occurrences) && b.occurrences.length > 0) {
+        const hasUpcoming = b.occurrences.some(o => o.status === 'upcoming')
+        const hasCompleted = b.occurrences.some(o => o.status === 'completed')
+        const hasCancelled = b.occurrences.some(o => o.status === 'cancelled')
+        
+        if (hasCancelled) {
+          past.push(b)
+        } else if (hasUpcoming) {
+          upcoming.push(b)
+        } else if (hasCompleted) {
+          past.push(b)
+        } else {
+          // Fallback to main booking status
+          if (b.status === 'completed' || b.status === 'cancelled') {
+            past.push(b)
+          } else {
+            upcoming.push(b)
+          }
+        }
       } else {
-        upcoming.push(b)
+        // For non-recurring bookings, use main status
+        if (b.status === 'completed' || b.status === 'cancelled') {
+          past.push(b)
+        } else {
+          upcoming.push(b)
+        }
       }
     }
     upcoming.sort((a, b) => {

@@ -223,6 +223,12 @@ function UpcomingCard({ booking }) {
   const isInstant = booking.schedule === 'instant'
   const isRecurring = booking.schedule === 'recurring'
 
+  // For recurring bookings, check if there are upcoming occurrences
+  const hasUpcomingOccurrences = isRecurring && Array.isArray(booking.occurrences) && booking.occurrences.some(o => o.status === 'upcoming')
+  const shouldShow = isRecurring ? hasUpcomingOccurrences : booking.status === 'upcoming'
+  
+  if (!shouldShow) return null
+
   const topRight = isInstant
     ? 'TODAY'
     : isRecurring
@@ -388,7 +394,15 @@ function PastCard({ booking }) {
   const navigate = useNavigate()
   const firstItem = booking.items?.[0]
   const providerName = booking.provider?.name || 'A Pro'
-  const isCancelled = booking.status === 'cancelled'
+  const isRecurring = booking.schedule === 'recurring'
+  
+  // For recurring bookings, check if there are any upcoming occurrences
+  const hasUpcomingOccurrences = isRecurring && Array.isArray(booking.occurrences) && booking.occurrences.some(o => o.status === 'upcoming')
+  
+  // Don't show recurring bookings that still have upcoming occurrences in the past section
+  if (hasUpcomingOccurrences) return null
+  
+  const isCancelled = booking.status === 'cancelled' || (isRecurring && Array.isArray(booking.occurrences) && booking.occurrences.some(o => o.status === 'cancelled'))
   const date = isCancelled && booking.cancelledAt
     ? fmtShortDay(booking.cancelledAt)
     : fmtShortDay(booking.placedAt)
