@@ -94,6 +94,7 @@ function isPublicApi(pathname: string, method: string): boolean {
     if (/^\/service-subcategories(\/[^/]+)?$/.test(pathname)) return true;
     if (/^\/images$/.test(pathname)) return true;
     if (/^\/catalog\/categories(\/[^/]+)?$/.test(pathname)) return true;
+    if (/^\/catalog\/subcategories(\/[^/]+)?$/.test(pathname)) return true;
     if (/^\/catalog\/services(\/[^/]+)?$/.test(pathname)) return true;
     if (/^\/catalog\/services\/[^/]+\/quote$/.test(pathname)) return true;
     if (/^\/catalog\/services\/[^/]+\/addons$/.test(pathname)) return true;

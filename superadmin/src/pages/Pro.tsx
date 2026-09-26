@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Plus, Search, Star, X, Wrench } from "lucide-react";
+import { Plus, Search, Star, X, Wrench, Pencil } from "lucide-react";
 import clsx from "clsx";
 import ModalPortal from "@/components/ModalPortal";
 import { apiFetch } from "@/lib/api";
@@ -17,6 +17,7 @@ type Provider = {
   rating: number;
   total_jobs: number;
   avatar: string | null;
+  working_hours?: unknown;
   joined?: string;
 };
 
@@ -60,6 +61,7 @@ export default function ProPage() {
   const [form, setForm] = useState(defaultForm);
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [editing, setEditing] = useState<Provider | null>(null);
 
   useEffect(() => {
     fetchProviders();
@@ -145,11 +147,17 @@ export default function ProPage() {
 
     setSaving(true);
     setFormError(null);
+    const fallbackError = editing ? "Failed to update provider." : "Failed to add provider.";
     try {
       const res = await apiFetch("/api/service-providers", {
-        method: "POST",
+        method: editing ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          ...(editing && {
+            id: editing.id,
+            avatar: editing.avatar,
+            working_hours: editing.working_hours ?? null,
+          }),
           name: form.name.trim(),
           email: form.email.trim(),
           mobile: form.mobile.trim(),
@@ -162,21 +170,36 @@ export default function ProPage() {
 
       const json = await res.json();
       if (!res.ok) {
-        throw new Error(json.error || "Failed to add provider.");
+        throw new Error(json.error || fallbackError);
       }
 
       await fetchProviders();
-      setShowModal(false);
-      setForm(defaultForm);
+      handleClose();
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "Failed to add provider.");
+      setFormError(err instanceof Error ? err.message : fallbackError);
     } finally {
       setSaving(false);
     }
   }
 
+  function openEdit(provider: Provider) {
+    setEditing(provider);
+    setForm({
+      name: provider.name || "",
+      email: provider.email || "",
+      mobile: provider.mobile || "+65",
+      password: "",
+      services: Array.isArray(provider.services) ? provider.services : [],
+      city: provider.city || "",
+      status: provider.status || "active",
+    });
+    setFormError(null);
+    setShowModal(true);
+  }
+
   function handleClose() {
     setShowModal(false);
+    setEditing(null);
     setForm(defaultForm);
     setFormError(null);
   }
@@ -301,11 +324,21 @@ export default function ProPage() {
                         </span>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap text-right">
-                        <span className="text-warmgrey text-[11px]">
-                          {Array.isArray(provider.services) && provider.services.length > 0
-                            ? `${provider.services.length} service${provider.services.length > 1 ? "s" : ""}`
-                            : "—"}
-                        </span>
+                        <div className="flex items-center justify-end gap-3">
+                          <span className="text-warmgrey text-[11px]">
+                            {Array.isArray(provider.services) && provider.services.length > 0
+                              ? `${provider.services.length} service${provider.services.length > 1 ? "s" : ""}`
+                              : "—"}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => openEdit(provider)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-terracotta bg-terracotta/10 hover:bg-terracotta/20 rounded-lg transition"
+                            aria-label={`Edit ${provider.name}`}
+                          >
+                            <Pencil size={12} /> Edit
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -324,18 +357,21 @@ export default function ProPage() {
 
       {showModal && (
         <ModalPortal>
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-charcoal/20">
-            <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 border border-lightstone overflow-hidden">
-              <div className="flex items-center justify-between px-6 py-4 border-b border-lightstone">
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-charcoal/20 p-0 sm:p-4">
+            <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-xl w-full sm:max-w-md border border-lightstone overflow-hidden flex flex-col max-h-[92dvh] sm:max-h-[calc(100dvh-2rem)]">
+              <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-lightstone shrink-0">
                 <div>
-                  <h2 className="text-base font-bold text-charcoal">Add Partner</h2>
-                  <p className="text-xs text-warmgrey mt-0.5">Fill in the details below</p>
+                  <h2 className="text-base font-bold text-charcoal">{editing ? "Edit Partner" : "Add Partner"}</h2>
+                  <p className="text-xs text-warmgrey mt-0.5">
+                    {editing ? "Update the partner's details and services" : "Fill in the details below"}
+                  </p>
                 </div>
                 <button onClick={handleClose} className="p-1.5 hover:bg-accent-50 rounded-lg transition">
                   <X size={16} className="text-warmgrey" />
                 </button>
               </div>
-              <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4">
+              <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
+                <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 sm:px-6 py-5 space-y-4">
                 <div>
                   <label className="block text-xs font-semibold text-warmgrey mb-1.5">Full Name *</label>
                   <input
@@ -363,7 +399,7 @@ export default function ProPage() {
                     placeholder="e.g. 81234567"
                     value={form.mobile}
                     onChange={(e) => setForm({ ...form, mobile: normalizePhone(e.target.value) })}
-                    pattern="[+]65[89][0-9]{7}"
+                    pattern={editing && form.mobile === editing.mobile ? undefined : "[+]65[89][0-9]{7}"}
                     title="Enter a valid Singapore number: +65 followed by 8 digits starting with 8 or 9"
                     className={inputCls}
                   />
@@ -372,7 +408,8 @@ export default function ProPage() {
                   <label className="block text-xs font-semibold text-warmgrey mb-1.5">Password</label>
                   <input
                     type="password"
-                    placeholder="Optional password for provider login"
+                    autoComplete="new-password"
+                    placeholder={editing ? "Leave blank to keep current password" : "Optional password for provider login"}
                     value={form.password}
                     onChange={(e) => setForm({ ...form, password: e.target.value })}
                     className={inputCls}
@@ -452,7 +489,8 @@ export default function ProPage() {
                   </select>
                 </div>
                 {formError && <p className="text-xs text-rosewood">{formError}</p>}
-                <div className="flex gap-3 pt-2">
+                </div>
+                <div className="flex gap-3 px-4 sm:px-6 py-4 border-t border-lightstone bg-white shrink-0">
                   <button
                     type="button"
                     onClick={handleClose}
@@ -465,7 +503,7 @@ export default function ProPage() {
                     disabled={saving}
                     className="flex-1 px-4 py-2.5 text-sm font-semibold bg-terracotta hover:bg-accent-700 text-white rounded-xl transition disabled:opacity-60"
                   >
-                    {saving ? "Adding..." : "Add Partner"}
+                    {editing ? (saving ? "Saving..." : "Save Changes") : saving ? "Adding..." : "Add Partner"}
                   </button>
                 </div>
               </form>

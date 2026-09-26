@@ -1,13 +1,63 @@
-import { useState, useEffect } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
-import { Plus, Image as ImageIcon, Star, ShieldCheck, FileText, UserCheck } from 'lucide-react'
+import { useState, useEffect, useMemo } from 'react'
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
+import { Image as ImageIcon, Star, ShieldCheck, FileText, UserCheck, ChevronLeft } from 'lucide-react'
 import { iconForService } from '../../lib/serviceIcon'
 // import { useCart } from '../../context/CartContext'
 import { useAuth } from '../../context/AuthContext'
 import { API_BASE, serviceImageUrl } from '../../lib/api'
 import { OFFERS, storeOffer, copyReferralCode } from '../../lib/offers'
+import { fetchCatalogCategories, fetchCatalogSubcategories } from '../../lib/catalogCategories'
 import { fetchCatalogServices } from '../../lib/catalogServices'
 
+// One tile shape for both taxonomy levels. `onClick` makes it a button
+// (categories drill down in place), `subtitle` carries the count line.
+const TaxonomyTile = ({ item, subtitle, onClick }) => {
+  const [imgFailed, setImgFailed] = useState(false)
+  const Icon = iconForService(item.name)
+  const showImage = item.img && !imgFailed
+  const interactive = typeof onClick === 'function'
+
+  const inner = (
+    <>
+      <div className="relative w-10 h-10 sm:w-12 sm:h-12 md:w-14 md:h-14 shrink-0 rounded-xl bg-warmlinen group-hover:bg-accent-50 grid place-items-center overflow-hidden transition">
+        {showImage ? (
+          <img
+            src={item.img}
+            alt={item.name}
+            loading="lazy"
+            decoding="async"
+            onError={() => setImgFailed(true)}
+            className="absolute inset-0 w-full h-full object-cover object-center group-hover:scale-[1.08] transition duration-300"
+          />
+        ) : (
+          <Icon className="w-5 h-5 sm:w-6 sm:h-6 md:w-7 md:h-7 text-terracotta group-hover:scale-[1.08] transition duration-300" strokeWidth={1.75} />
+        )}
+      </div>
+      <div className="mt-2 flex-1 flex flex-col text-left">
+        <div className="text-sm font-semibold text-charcoal leading-snug line-clamp-2">
+          {item.name}
+        </div>
+        {subtitle && (
+          <div className="mt-auto pt-2 text-xs text-warmgrey">{subtitle}</div>
+        )}
+      </div>
+    </>
+  )
+
+  const className = `group relative flex flex-col rounded-2xl bg-white border border-lightstone p-3 md:p-4 transition ${
+    interactive ? 'hover:shadow-soft hover:border-terracotta/40' : ''
+  }`
+
+  if (!interactive) return <div className={className}>{inner}</div>
+
+  return (
+    <button type="button" onClick={onClick} className={className}>
+      {inner}
+    </button>
+  )
+}
+
+// Leaf of the taxonomy: a bookable service linking to its booking page.
 const ServiceTile = ({ s }) => {
   const [imgFailed, setImgFailed] = useState(false)
   const Icon = iconForService(s.name)
@@ -36,7 +86,9 @@ const ServiceTile = ({ s }) => {
           {s.name}
         </div>
         <div className="mt-auto pt-2 flex items-center gap-2">
-          <span className="text-xs font-semibold text-charcoal">from {s.pricingFrom}</span>
+          <span className="text-xs font-semibold text-charcoal">
+            {s.price === null ? 'Custom quote' : `from S$${s.price}`}
+          </span>
         </div>
       </div>
     </Link>
@@ -52,26 +104,115 @@ const defaultMoments = [
 
 export default function Services() {
   const navigate = useNavigate()
+  const location = useLocation()
   const { user, isAuthenticated, token } = useAuth()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [categories, setCategories] = useState([])
+  const [subcategories, setSubcategories] = useState([])
   const [services, setServices] = useState([])
   const [loading, setLoading] = useState(true)
   const [moments, setMoments] = useState(defaultMoments)
   const [copiedOffer, setCopiedOffer] = useState(null)
 
+  // The open category/subcategory live in the URL, so back/refresh/share work.
+  const activeSlug = searchParams.get('category')
+  const activeSubSlug = searchParams.get('subcategory')
+
+  const activeCategory = useMemo(
+    () => categories.find(c => c.slug === activeSlug) || null,
+    [categories, activeSlug]
+  )
+  // Add-on groups are skipped: those services are only sold from the Add-ons
+  // panel of another booking. A subcategory can be listed under more than one
+  // category (sortIn has an entry for each), ordered by its position in this one.
+  const activeSubcategories = useMemo(() => {
+    if (!activeCategory) return []
+    const id = activeCategory.id
+    return subcategories
+      .filter(s => id in s.sortIn && !s.isAddon)
+      .sort((a, b) => a.sortIn[id] - b.sortIn[id] || a.name.localeCompare(b.name))
+  }, [subcategories, activeCategory])
+  const activeSubcategory = useMemo(
+    () => activeSubcategories.find(s => s.slug === activeSubSlug) || null,
+    [activeSubcategories, activeSubSlug]
+  )
+  const activeServices = useMemo(
+    () => (activeSubcategory ? services.filter(s => s.subcategoryId === activeSubcategory.id) : []),
+    [services, activeSubcategory]
+  )
+
+  // A category holding a single subcategory has no drill-down level worth
+  // showing — jump straight to the booking page for it.
+  const openCategory = (cat) => {
+    const subs = subcategories.filter(s => cat.id in s.sortIn && !s.isAddon)
+    if (subs.length === 1 && subs[0].serviceCount > 0) return openBooking(subs[0])
+    setSearchParams({ category: cat.slug })
+  }
+  const openSubcategory = (slug) => setSearchParams({ category: activeSlug, subcategory: slug })
+
+  // The services inside a subcategory are variants of one offering, so its
+  // card goes straight to the booking page, where they're all listed as
+  // options. Cheapest first is the entry point. The ?subcategory= grid stays
+  // as a fallback for stale links or an empty service list.
+  const openBooking = (sub) => {
+    const entry = services
+      .filter(s => s.subcategoryId === sub.id)
+      .sort((a, b) => (a.price ?? Infinity) - (b.price ?? Infinity))[0]
+    if (entry) {
+      navigate(`/services/${entry.slug}`)
+    } else {
+      openSubcategory(sub.slug)
+    }
+  }
+
+  const goUp = () => {
+    const next = new URLSearchParams(searchParams)
+    // Step back one level at a time rather than jumping straight to the top.
+    next.delete(activeSubSlug ? 'subcategory' : 'category')
+    setSearchParams(next)
+  }
+
   useEffect(() => {
-    const fetchServices = async () => {
+    // Everything loads up front so drilling down is instant, not a round trip.
+    const fetchTaxonomy = async () => {
       try {
-        const mappedServices = await fetchCatalogServices()
-        setServices(mappedServices)
+        const [cats, subs, svcs] = await Promise.all([
+          fetchCatalogCategories(),
+          fetchCatalogSubcategories(),
+          fetchCatalogServices()
+        ])
+        setCategories(cats)
+        setSubcategories(subs)
+        setServices(svcs)
       } catch (error) {
-        console.error('Failed to fetch catalog services:', error)
+        console.error('Failed to fetch catalog taxonomy:', error)
       } finally {
         setLoading(false)
       }
     }
 
-    fetchServices()
+    fetchTaxonomy()
   }, [])
+
+  // A category that only ever shows one tile has no level to land on, so URLs
+  // pointing at it (the booking page's back arrow, shared links) resolve to
+  // the categories grid instead. Replacing keeps Back heading home.
+  useEffect(() => {
+    if (loading || !activeCategory || activeSubSlug) return
+    if (activeSubcategories.length === 1 && activeSubcategories[0].serviceCount > 0) {
+      navigate(`/${location.hash || '#services'}`, { replace: true })
+    }
+  }, [loading, activeCategory, activeSubSlug, activeSubcategories]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // A stale or hand-typed ?category=/?subcategory= should not blank the section.
+  useEffect(() => {
+    if (loading) return
+    if (activeSlug && !activeCategory) {
+      setSearchParams({}, { replace: true })
+    } else if (activeSubSlug && !activeSubcategory) {
+      setSearchParams({ category: activeSlug }, { replace: true })
+    }
+  }, [loading, activeSlug, activeCategory, activeSubSlug, activeSubcategory]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const fetchMoments = async () => {
@@ -102,7 +243,7 @@ export default function Services() {
           <div className="text-center">
             <h2 className="font-heading text-3xl md:text-4xl font-extrabold text-charcoal">Book trusted house<br />help.</h2>
             <p className="mt-3 text-warmgrey max-w-xl mx-auto">
-              Loading services...
+              Loading categories...
             </p>
           </div>
         </div>
@@ -114,15 +255,69 @@ export default function Services() {
     <section id="services" className="py-12 md:py-16">
       <div className="max-w-5xl mx-auto px-6">
         <div className="text-center">
-          <h2 className="font-heading text-3xl md:text-4xl font-extrabold text-charcoal">Categories<br /></h2>
-          {/* <p className="mt-3 text-warmgrey max-w-xl mx-auto">
-            From cleaning and maintenance to childcare and elderly support, Kynd's got you covered. {services.length} services, transparent flat pricing.
-          </p> */}
+          {activeCategory ? (
+            <>
+              <button
+                type="button"
+                onClick={goUp}
+                className="inline-flex items-center gap-1 text-sm font-semibold text-terracotta hover:text-charcoal transition"
+              >
+                <ChevronLeft className="w-4 h-4" />
+                {activeSubcategory ? activeCategory.name : 'All categories'}
+              </button>
+              <h2 className="mt-2 font-heading text-3xl md:text-4xl font-extrabold text-charcoal">
+                {(activeSubcategory || activeCategory).name}
+              </h2>
+              {(activeSubcategory || activeCategory).description && (
+                <p className="mt-3 text-warmgrey max-w-xl mx-auto">
+                  {(activeSubcategory || activeCategory).description}
+                </p>
+              )}
+            </>
+          ) : (
+            <h2 className="font-heading text-3xl md:text-4xl font-extrabold text-charcoal">Categories</h2>
+          )}
         </div>
 
-        <div className="mt-10 grid grid-cols-3 md:grid-cols-4 gap-3 md:gap-4">
-          {services.map(s => <ServiceTile key={s.id} s={s} />)}
-        </div>
+        {activeSubcategory ? (
+          activeServices.length > 0 ? (
+            <div className="mt-10 grid grid-cols-3 md:grid-cols-4 gap-3 md:gap-4">
+              {activeServices.map(s => <ServiceTile key={s.id} s={s} />)}
+            </div>
+          ) : (
+            <p className="mt-10 text-center text-warmgrey">
+              We’re still pricing {activeSubcategory.name}. Check back soon.
+            </p>
+          )
+        ) : activeCategory ? (
+          activeSubcategories.length > 0 ? (
+            <div className="mt-10 grid grid-cols-3 md:grid-cols-4 gap-3 md:gap-4">
+              {activeSubcategories.map(sub => (
+                <TaxonomyTile
+                  key={sub.id}
+                  item={sub}
+                  subtitle={sub.serviceCount > 0 ? `${sub.serviceCount} services` : 'Coming soon'}
+                  onClick={sub.serviceCount > 0 ? () => openBooking(sub) : undefined}
+                />
+              ))}
+            </div>
+          ) : (
+            <p className="mt-10 text-center text-warmgrey">
+              Nothing here just yet — we’re still setting up {activeCategory.name}.
+            </p>
+          )
+        ) : (
+          <div className="mt-10 grid grid-cols-3 md:grid-cols-4 gap-3 md:gap-4">
+            {categories.map(c => (
+              <TaxonomyTile
+                key={c.id}
+                item={c}
+                subtitle={c.subcategoryCount > 0 ? `${c.subcategoryCount} options` : 'Coming soon'}
+                onClick={c.subcategoryCount > 0 ? () => openCategory(c) : undefined}
+              />
+            ))}
+          </div>
+        )}
 
         {/* <div className="mt-10 text-center">
           <Link to="/cart" className="inline-flex items-center justify-center rounded-full bg-terracotta hover:bg-charcoal text-white font-semibold px-6 py-3 transition">

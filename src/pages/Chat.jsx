@@ -15,7 +15,7 @@ export default function Chat() {
       <div className="bg-white border-b border-lightstone sticky top-0 z-40">
         <div className="max-w-2xl mx-auto px-4 py-3 flex items-center gap-3">
           <button
-            onClick={() => navigate('/support')}
+            onClick={() => navigate('/messages')}
             className="p-2 -ml-2 rounded-lg text-warmgrey hover:text-charcoal hover:bg-warmlinen transition-colors"
           >
             <ArrowLeft className="w-5 h-5" />
@@ -36,7 +36,7 @@ export default function Chat() {
             bookingDbId={bookingId}
             isProvider={isProvider}
             isOpen={true}
-            onClose={() => navigate('/support')}
+            onClose={() => navigate('/messages')}
             isFullPage={true}
           />
         ) : (

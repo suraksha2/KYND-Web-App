@@ -1,10 +1,11 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Star, MessageCircle, Calendar, Clock, RotateCcw, Pause, SkipForward, Eye, Plus, Sparkles, X, AlertTriangle } from 'lucide-react'
 import { useBookings } from '../context/BookingsContext'
 import { useAuth } from '../context/AuthContext'
 import { useServices } from '../context/ServicesContext'
 import { API_BASE, serviceImageUrl } from '../lib/api'
+import { openPicker } from '../lib/openPicker'
 
 const SGT = { timeZone: 'Asia/Singapore' }
 const fmtTime = (d) => new Date(d).toLocaleTimeString('en-SG', { hour: 'numeric', minute: '2-digit', ...SGT })
@@ -348,6 +349,7 @@ function UpcomingCard({ booking }) {
                   min={minDt}
                   value={newAt}
                   onChange={(e) => setNewAt(e.target.value)}
+                  onClick={openPicker}
                   className="w-full rounded-lg border border-lightstone px-3 py-2 text-sm focus:outline-none focus:border-terracotta focus:ring-2 focus:ring-terracotta/25"
                 />
               </label>
@@ -451,9 +453,16 @@ function PastCard({ booking }) {
 export default function Bookings() {
   const { upcoming, past, cancelBooking, rescheduleBooking } = useBookings()
   const { services } = useServices()
-  const { sessionExpired } = useAuth()
+  const { sessionExpired, isAuthenticated } = useAuth()
   const navigate = useNavigate()
   const [tab, setTab] = useState('upcoming')
+
+  // Redirect unauthenticated users to login
+  useEffect(() => {
+    if (!isAuthenticated) {
+      navigate('/login')
+    }
+  }, [isAuthenticated, navigate])
 
   const list = tab === 'upcoming' ? upcoming : past
 

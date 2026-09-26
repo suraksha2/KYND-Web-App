@@ -3,6 +3,7 @@ import pool from '../lib/mysql';
 import { hasAdminAccess } from '../lib/auth';
 import { getSession } from '../http/session';
 import { withOccurrences, completeNextOccurrence } from '../lib/occurrences';
+import { sgtDateTime } from '../lib/sgt';
 
 const router = Router();
 
@@ -82,7 +83,7 @@ router.put('/bookings/:id', async (req, res) => {
     } catch {
       history = [];
     }
-    const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+    const now = sgtDateTime(new Date());
     const actor = isProvider ? 'provider' : 'admin';
     const isRecurring = booking.schedule === 'recurring';
 

@@ -4,6 +4,7 @@ import { Trash2, Minus, Plus, ShoppingBag, Zap, Calendar, Repeat } from 'lucide-
 import { useCart } from '../context/CartContext'
 import { useServices } from '../context/ServicesContext'
 import { iconForService } from '../lib/serviceIcon'
+import { openPicker } from '../lib/openPicker'
 
 const ScheduleOption = ({ value, current, onChange, icon: Icon, title, sub }) => {
   const active = current === value
@@ -146,6 +147,7 @@ export default function Cart() {
                   step={1800}
                   value={scheduledAt}
                   onChange={e => setScheduledAt(e.target.value)}
+                  onClick={openPicker}
                   className="w-full rounded-lg border border-lightstone px-3 py-2 text-sm focus:outline-none focus:border-terracotta focus:ring-2 focus:ring-terracotta/25"
                 />
               </div>

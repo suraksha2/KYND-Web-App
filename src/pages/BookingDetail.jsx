@@ -7,6 +7,7 @@ import {
 import { useBookings } from '../context/BookingsContext'
 import { useAuth } from '../context/AuthContext'
 import { iconForService } from '../lib/serviceIcon'
+import { openPicker } from '../lib/openPicker'
 
 const paymentLabel = (p) => p === 'cod' ? 'Cash after service' : p === 'upi' ? 'UPI' : p === 'card' ? 'Card' : (p || '').toUpperCase()
 const paymentIcon = (p) => p === 'cod' ? Banknote : p === 'card' ? CreditCard : Wallet
@@ -329,6 +330,7 @@ export default function BookingDetail() {
                 min={minDt}
                 value={newAt}
                 onChange={(e) => setNewAt(e.target.value)}
+                onClick={openPicker}
                 className="w-full rounded-lg border border-lightstone px-3 py-2 text-sm focus:outline-none focus:border-terracotta focus:ring-2 focus:ring-terracotta/25"
               />
             </label>

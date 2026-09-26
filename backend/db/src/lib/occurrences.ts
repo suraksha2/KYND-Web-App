@@ -1,5 +1,5 @@
 import pool from './mysql';
-import { PLANNED_OCCURRENCES, type Recurrence } from './recurrence';
+import { PLANNED_OCCURRENCES, anchorWallMs, nextWeekdayVisits, type Recurrence } from './recurrence';
 import { sgtDateTime } from './sgt';
 
 // Rows written to booking_occurrences: one per visit of a recurring booking.
@@ -65,6 +65,22 @@ export async function topUpOccurrences(bookingDbId: number): Promise<number> {
   const plan: Recurrence = typeof row.recurrence === 'string' ? JSON.parse(row.recurrence) : row.recurrence;
   const missing = PLANNED_OCCURRENCES - Number(row.pending || 0);
   if (!plan?.intervalDays || missing <= 0) return 0;
+  const lastSeq = Number(row.last_seq || 0);
+
+  // A weekly plan on chosen weekdays steps day by day to the next picked day.
+  // last_at is SGT wall-clock; parsing it as UTC keeps the arithmetic on that
+  // wall clock, so the formatted result is SGT wall-clock again.
+  if (Array.isArray(plan.days) && plan.days.length) {
+    const lastWallMs = Date.parse(`${String(row.last_at).replace(' ', 'T')}Z`);
+    if (Number.isNaN(lastWallMs)) return 0;
+    const stride = Number(plan.weekStride) > 1 ? Number(plan.weekStride) : 1;
+    const anchor = stride > 1 ? anchorWallMs(plan.anchor) : undefined;
+    const visits = nextWeekdayVisits(lastWallMs, plan.days, missing, anchor ? stride : 1, anchor).map((t, i) => ({
+      seq: lastSeq + i + 1,
+      at: new Date(t).toISOString().slice(0, 19).replace('T', ' '),
+    }));
+    return insertOccurrences(bookingDbId, row.provider_id ?? null, visits);
+  }
 
   // Step forward from the last planned visit in MySQL's own wall-clock so the
   // cadence stays exact no matter what timezone the API process runs in.
@@ -75,7 +91,6 @@ export async function topUpOccurrences(bookingDbId: number): Promise<number> {
     Array.from({ length: missing }, () => row.last_at)
   );
 
-  const lastSeq = Number(row.last_seq || 0);
   const visits = Array.from({ length: missing }, (_, i) => ({
     seq: lastSeq + i + 1,
     at: steps[0][`at${i}`] as string,

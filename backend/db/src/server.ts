@@ -17,6 +17,7 @@ import cookieParser from 'cookie-parser';
 import { corsMiddleware } from './http/cors';
 import { apiAuthGate } from './http/session';
 import apiRouter from './routes';
+import { serveStoredImage } from './routes/images';
 
 const app = express();
 
@@ -26,8 +27,11 @@ app.use(cookieParser());
 app.use(express.json({ limit: '5mb' }));
 
 // Service artwork. Next.js served `public/` automatically; the SPAs resolve
-// image URLs against this origin with `/api` stripped.
+// image URLs against this origin with `/api` stripped. Files committed under
+// public/images win; names that miss on disk fall through to the `images`
+// table, where admin uploads are stored.
 app.use(express.static(path.join(projectRoot, 'public'), { fallthrough: true }));
+app.get('/images/:name', serveStoredImage);
 
 app.get('/health', (_req, res) => res.json({ ok: true }));
 

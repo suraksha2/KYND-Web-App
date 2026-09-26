@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 import { Link, NavLink, useNavigate } from 'react-router-dom'
 import { ChevronDown, User, LogOut, ShoppingBag as Package, UserCircle, Bell } from 'lucide-react'
 // import { useCart } from '../context/CartContext'
@@ -184,6 +184,8 @@ const CitiesMenu = ({ cities }) => (
 export default function Header() {
   const [cities, setCities] = useState([])
   const { services } = useServices()
+  // Add-on services are sold from a booking's Add-ons panel, not browsed.
+  const bookableServices = useMemo(() => services.filter(s => !s.isAddon), [services])
 
   useEffect(() => {
     const fetchCities = async () => {
@@ -216,6 +218,12 @@ export default function Header() {
         <div className="flex items-center -mr-2">
           {/* <MobileCartLink /> */}
           <Link
+            to="/about"
+            className="mr-1 text-[13px] font-semibold text-charcoal hover:text-terracotta transition"
+          >
+            About us
+          </Link>
+          <Link
             to="/bookings"
             aria-label="Notifications"
             className="inline-flex items-center justify-center w-10 h-10 text-charcoal"
@@ -233,7 +241,7 @@ export default function Header() {
             <NavLink to="/" end className={({ isActive }) => `hover:text-terracotta transition ${isActive ? 'text-terracotta' : ''}`}>
               Why us
             </NavLink>
-            <NavDropdown label="Services"><ServicesMenu services={services} /></NavDropdown>
+            <NavDropdown label="Services"><ServicesMenu services={bookableServices} /></NavDropdown>
             <NavDropdown label="Cities"><CitiesMenu cities={cities} /></NavDropdown>
           </div>
 
@@ -247,6 +255,9 @@ export default function Header() {
             {/* <a href={import.meta.env.BASE_URL + "#how"} className="hover:text-terracotta transition">How it works</a>
             <a href={import.meta.env.BASE_URL + "#faq"} className="hover:text-terracotta transition">FAQs</a> */}
             {/* <CartButton /> */}
+            <NavLink to="/about" className={({ isActive }) => `hover:text-terracotta transition ${isActive ? 'text-terracotta' : ''}`}>
+              About us
+            </NavLink>
             <AuthButton />
           </div>
         </nav>
