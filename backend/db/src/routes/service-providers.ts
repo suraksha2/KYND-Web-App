@@ -4,6 +4,26 @@ import bcrypt from 'bcryptjs';
 
 const router = Router();
 
+// MariaDB stores JSON as LONGTEXT, so mysql2 may hand back strings (sometimes double-encoded).
+function parseJsonColumn(value: unknown): unknown {
+  let parsed = value;
+  for (let i = 0; i < 2 && typeof parsed === 'string'; i++) {
+    try {
+      parsed = JSON.parse(parsed);
+    } catch {
+      break;
+    }
+  }
+  return parsed;
+}
+
+function parseServices(value: unknown): string[] {
+  const parsed = parseJsonColumn(value);
+  if (Array.isArray(parsed)) return parsed.map(String).filter(Boolean);
+  if (typeof parsed === 'string') return parsed.split(',').map((s) => s.trim()).filter(Boolean);
+  return [];
+}
+
 // GET all service providers
 router.get('/', async (_req, res) => {
   try {
@@ -25,7 +45,12 @@ router.get('/', async (_req, res) => {
       FROM service_providers 
       ORDER BY created_at DESC`
     );
-    return res.status(200).json({ data: rows });
+    const data = (rows as any[]).map((row) => ({
+      ...row,
+      services: parseServices(row.services),
+      working_hours: row.working_hours == null ? null : parseJsonColumn(row.working_hours),
+    }));
+    return res.status(200).json({ data });
   } catch (error) {
     console.error('[GET /api/service-providers]', error);
     return res.status(500).json({ error: 'Failed to fetch service providers' });

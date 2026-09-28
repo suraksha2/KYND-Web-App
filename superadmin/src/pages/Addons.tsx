@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Plus, Pencil, Trash2, X, Package, Link2, Tag } from 'lucide-react';
-import { useSearchParams } from 'react-router-dom';
+import { Plus, Pencil, Trash2, X, Package, Link2, Tag, Layers } from 'lucide-react';
+import { Link, useSearchParams } from 'react-router-dom';
 import clsx from 'clsx';
 import ModalPortal from '@/components/ModalPortal';
 import { apiFetch } from '@/lib/api';
@@ -16,6 +16,15 @@ type CatalogService = {
   id: number;
   name: string;
   category: string;
+  subcategory: string | null;
+  subcategory_is_addon?: boolean;
+  duration: string | null;
+  worker_count: number | null;
+  rate_type: string | null;
+  default_partner_cost: number | null;
+  markup_pct_override: number | null;
+  pricing_strategy: string | null;
+  pricing_params: any;
 };
 
 type CatalogCategory = {
@@ -32,6 +41,38 @@ type AddonLink = {
 };
 
 const defaultAddonForm = { name: '', customer_price: '', partner_cost: '' };
+
+const DEFAULT_MARKUP_PCT = 30;
+
+const rateLabels: Record<string, string> = {
+  day_rate: 'day rate',
+  evening_rate: 'evening rate',
+  per_unit: 'per unit',
+  per_job: 'per job',
+  package: 'package price',
+};
+
+/** Same rule as the API: a flat rule is authoritative, else cost x markup. */
+function sellPrice(s: CatalogService): number | null {
+  if (s.pricing_strategy === 'flat') {
+    const amount = Number(s.pricing_params?.amount);
+    if (Number.isFinite(amount) && amount > 0) return amount;
+  }
+  if (s.pricing_strategy === 'custom_quote') return null;
+  const cost = s.default_partner_cost !== null ? Number(s.default_partner_cost) : null;
+  if (cost === null || Number.isNaN(cost)) return null;
+  return Math.round(cost * (1 + (s.markup_pct_override ?? DEFAULT_MARKUP_PCT) / 100));
+}
+
+function serviceMeta(s: CatalogService) {
+  return [
+    s.duration,
+    s.worker_count ? `${s.worker_count} worker${s.worker_count > 1 ? 's' : ''}` : null,
+    s.rate_type ? rateLabels[s.rate_type] ?? s.rate_type.replace(/_/g, ' ') : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+}
 
 const inputCls =
   'w-full px-3 py-2 text-sm bg-gray-50 border border-lightstone rounded-xl focus:outline-none focus:ring-2 focus:ring-terracotta/30 focus:border-terracotta transition placeholder:text-warmgrey';
@@ -94,6 +135,17 @@ export default function AddonsPage() {
       : [...addons];
     return list.sort((a, b) => a.name.localeCompare(b.name));
   }, [addons, query]);
+
+  // Catalog services that live in an add-on group. They are offered alongside
+  // the rows above in the storefront's Add-ons panel, but are owned by the
+  // catalog — priced and edited there, not here.
+  const catalogAddons = useMemo(() => {
+    const q = query.trim();
+    return services
+      .filter((s) => s.subcategory_is_addon)
+      .filter((s) => !q || s.name.toLowerCase().includes(q))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [services, query]);
 
   function openCreateAddon() {
     setEditingAddon(null);
@@ -252,7 +304,7 @@ export default function AddonsPage() {
       ) : filteredAddons.length === 0 ? (
         <div className="text-center py-16 bg-white rounded-2xl border border-lightstone">
           <Package size={32} className="text-lightstone mx-auto mb-3" />
-          <p className="text-sm text-warmgrey">{query ? 'No add-ons match your search.' : 'No add-ons yet.'}</p>
+          <p className="text-sm text-warmgrey">{query ? 'No add-ons match your search.' : 'No custom add-ons yet.'}</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -292,6 +344,49 @@ export default function AddonsPage() {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {catalogAddons.length > 0 && (
+        <div className="space-y-3">
+          <div>
+            <h2 className="text-sm font-bold text-charcoal">From the catalog</h2>
+            <p className="text-xs text-warmgrey mt-0.5">
+              Services in an add-on group. They appear in the Add-ons panel of every booking in
+              their category — price and details are edited in Catalog.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+            {catalogAddons.map((s) => {
+              const price = sellPrice(s);
+              const meta = serviceMeta(s);
+              return (
+                <div key={s.id} className="bg-white rounded-2xl border border-lightstone shadow-sm p-5">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-bold text-charcoal">{s.name}</p>
+                      <p className="text-[11px] text-warmgrey mt-0.5">
+                        {price === null ? 'Custom quote' : `S$${price.toFixed(2)} customer`}
+                        {s.default_partner_cost !== null && ` · S$${Number(s.default_partner_cost).toFixed(2)} partner`}
+                      </p>
+                      {meta && <p className="text-[11px] text-warmgrey mt-0.5">{meta}</p>}
+                      <p className="inline-flex items-center gap-1 mt-2 text-[11px] text-warmgrey">
+                        <Layers size={12} /> {s.category}
+                        {s.subcategory && ` › ${s.subcategory}`}
+                      </p>
+                    </div>
+                    <Link
+                      to={`/catalog-services?q=${encodeURIComponent(s.name)}`}
+                      className="p-1.5 rounded-lg text-warmgrey hover:text-terracotta hover:bg-accent-50 transition shrink-0"
+                      title="Edit in Catalog"
+                    >
+                      <Pencil size={14} />
+                    </Link>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 

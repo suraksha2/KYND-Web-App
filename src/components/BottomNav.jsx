@@ -1,6 +1,7 @@
 import { NavLink } from 'react-router-dom'
 import { Home, CalendarDays, MessageSquare, User } from 'lucide-react'
 import { useUnreadMessages } from '../hooks/useUnreadMessages.js'
+import { useAuth } from '../context/AuthContext'
 
 function NavItem({ to, icon: Icon, label, badge }) {
   return (
@@ -26,14 +27,15 @@ function NavItem({ to, icon: Icon, label, badge }) {
 
 export default function BottomNav() {
   const unreadMessages = useUnreadMessages()
+  const { isAuthenticated } = useAuth()
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 bg-white/95 backdrop-blur border-t border-lightstone/60 tabbar-safe">
       <div className="max-w-md mx-auto flex items-center h-16">
         <NavItem to="/" icon={Home} label="Home" />
-        <NavItem to="/bookings" icon={CalendarDays} label="Bookings" />
-        <NavItem to="/support" icon={MessageSquare} label="Messages" badge={unreadMessages} />
-        <NavItem to="/account" icon={User} label="Profile" />
+        <NavItem to={isAuthenticated ? '/bookings' : '/login'} icon={CalendarDays} label="Bookings" />
+        <NavItem to="/messages" icon={MessageSquare} label="Messages" badge={unreadMessages} />
+        <NavItem to={isAuthenticated ? '/account' : '/login'} icon={User} label="Profile" />
       </div>
     </nav>
   )

@@ -8,7 +8,21 @@ import { apiFetch, serviceImageUrl } from '@/lib/api';
 type CatalogCategory = {
   id: number;
   name: string;
+  description: string | null;
+  image: string | null;
+  sort_order: number;
   variant_schema: any;
+};
+
+type CatalogSubcategory = {
+  id: number;
+  category_id: number;
+  name: string;
+  description: string | null;
+  image: string | null;
+  is_addon: boolean;
+  sort_order: number;
+  service_count: number;
 };
 
 type PricingRule = {
@@ -35,9 +49,13 @@ type CatalogService = {
   description: string;
   image: string | null;
   duration: string | null;
+  worker_count: number | null;
+  rate_type: string | null;
   status: 'live' | 'pending_rates' | 'paused';
   category: string;
   category_id: number;
+  subcategory: string | null;
+  subcategory_id: number | null;
   default_partner_cost: number | null;
   markup_pct_override: number | null;
   pricing_rules: PricingRule[];
@@ -46,6 +64,13 @@ type CatalogService = {
 };
 
 const statusOptions: CatalogService['status'][] = ['live', 'pending_rates', 'paused'];
+const rateTypeOptions = [
+  { value: 'day_rate', label: 'Day rate' },
+  { value: 'evening_rate', label: 'Evening rate' },
+  { value: 'per_unit', label: 'Per unit' },
+  { value: 'per_job', label: 'Per job' },
+  { value: 'package', label: 'Package price' },
+];
 const inputCls =
   'w-full px-3 py-2 text-sm bg-gray-50 border border-lightstone rounded-xl focus:outline-none focus:ring-2 focus:ring-terracotta/30 focus:border-terracotta transition placeholder:text-warmgrey';
 
@@ -62,9 +87,98 @@ const defaultMode = (mode: BookingMode['mode']): BookingMode => ({
   min_lead_time_hours: 0,
 });
 
+// Choose-file -> POST /api/images/upload -> store the returned /images/<name>
+// path. Used by the service, category and subcategory forms.
+function ImageUploadField({
+  value,
+  name,
+  onChange,
+}: {
+  value: string;
+  name: string;
+  onChange: (path: string) => void;
+}) {
+  const [file, setFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
+  async function upload() {
+    if (!file) return;
+    setUploading(true);
+    setUploadError(null);
+    try {
+      const data = new FormData();
+      data.append('image', file);
+      const res = await apiFetch('/api/images/upload', { method: 'POST', body: data });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? 'Image upload failed.');
+      onChange(json.data);
+      setFile(null);
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : 'Image upload failed.');
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  return (
+    <div className="flex items-start gap-3">
+      {value ? (
+        <div className="w-12 h-12 rounded-xl overflow-hidden border border-lightstone shrink-0">
+          <img src={serviceImageUrl(value) ?? ''} alt={name || 'Image'} className="w-full h-full object-cover" />
+        </div>
+      ) : (
+        <div className="w-12 h-12 rounded-xl bg-terracotta flex items-center justify-center text-white text-sm font-extrabold shrink-0">
+          {name?.substring(0, 2).toUpperCase() || '—'}
+        </div>
+      )}
+      <div className="flex-1 space-y-1.5">
+        <div className="flex items-center gap-2">
+          <label className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-semibold text-charcoal bg-accent-50 hover:bg-lightstone rounded-xl cursor-pointer transition">
+            <Upload size={14} className="text-terracotta" />
+            <span>Choose file</span>
+            <input
+              type="file"
+              accept="image/*"
+              onChange={(e) => {
+                setFile(e.target.files?.[0] ?? null);
+                setUploadError(null);
+              }}
+              className="hidden"
+            />
+          </label>
+          {file && (
+            <button
+              type="button"
+              onClick={upload}
+              disabled={uploading}
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-bold text-white bg-terracotta hover:bg-accent-700 rounded-xl transition disabled:opacity-60"
+            >
+              {uploading ? 'Uploading…' : 'Upload'}
+            </button>
+          )}
+          {value && (
+            <button
+              type="button"
+              onClick={() => { onChange(''); setFile(null); }}
+              className="p-2 rounded-lg text-warmgrey hover:text-rosewood hover:bg-dustyrose/10 transition"
+              title="Remove image"
+            >
+              <X size={14} />
+            </button>
+          )}
+        </div>
+        {file && <p className="text-xs text-warmgrey">Selected: {file.name}</p>}
+        {uploadError && <p className="text-xs text-rosewood">{uploadError}</p>}
+      </div>
+    </div>
+  );
+}
+
 export default function CatalogServicesPage() {
   const [services, setServices] = useState<CatalogService[]>([]);
   const [categories, setCategories] = useState<CatalogCategory[]>([]);
+  const [subcategories, setSubcategories] = useState<CatalogSubcategory[]>([]);
   const [availableImages, setAvailableImages] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -75,21 +189,37 @@ export default function CatalogServicesPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  const [imageFile, setImageFile] = useState<File | null>(null);
-  const [uploadingImage, setUploadingImage] = useState(false);
-  const [imageUploadError, setImageUploadError] = useState<string | null>(null);
-
   const [deleteServiceId, setDeleteServiceId] = useState<number | null>(null);
   const [deleting, setDeleting] = useState(false);
 
   const [showCategoryModal, setShowCategoryModal] = useState(false);
-  const [categoryForm, setCategoryForm] = useState<{ name: string; description: string; variant_schema: any[] }>({
+  const [editingCategory, setEditingCategory] = useState<CatalogCategory | null>(null);
+  const [categoryForm, setCategoryForm] = useState<{ name: string; description: string; image: string; variant_schema: any[] }>({
     name: '',
     description: '',
+    image: '',
     variant_schema: [],
   });
   const [categoryFormError, setCategoryFormError] = useState<string | null>(null);
   const [savingCategory, setSavingCategory] = useState(false);
+
+  const [showSubcategoryModal, setShowSubcategoryModal] = useState(false);
+  const [editingSubcategory, setEditingSubcategory] = useState<CatalogSubcategory | null>(null);
+  const [subcategoryForm, setSubcategoryForm] = useState<{
+    name: string;
+    description: string;
+    image: string;
+    sort_order: string;
+    is_addon: boolean;
+  }>({
+    name: '',
+    description: '',
+    image: '',
+    sort_order: '0',
+    is_addon: false,
+  });
+  const [subcategoryFormError, setSubcategoryFormError] = useState<string | null>(null);
+  const [savingSubcategory, setSavingSubcategory] = useState(false);
 
   const [searchParams] = useSearchParams();
   const query = searchParams.get('q')?.toLowerCase().trim() ?? '';
@@ -113,6 +243,17 @@ export default function CatalogServicesPage() {
     }
   };
 
+  const fetchSubcategories = async () => {
+    try {
+      const res = await apiFetch('/api/catalog/subcategories');
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? 'Failed to load subcategories.');
+      setSubcategories(json.data ?? []);
+    } catch (err) {
+      console.error('Failed to fetch subcategories', err);
+    }
+  };
+
   const fetchServices = async () => {
     setLoading(true);
     setError(null);
@@ -130,6 +271,7 @@ export default function CatalogServicesPage() {
 
   useEffect(() => {
     fetchServices();
+    fetchSubcategories();
     apiFetch('/api/catalog/categories')
       .then((res) => res.json())
       .then((json) => setCategories(json.data ?? []))
@@ -146,6 +288,7 @@ export default function CatalogServicesPage() {
       list = services.filter((s) =>
         s.name.toLowerCase().includes(query) ||
         s.category.toLowerCase().includes(query) ||
+        (s.subcategory ?? '').toLowerCase().includes(query) ||
         (s.description ?? '').toLowerCase().includes(query)
       );
     }
@@ -155,6 +298,12 @@ export default function CatalogServicesPage() {
   const selectedCategory = useMemo(() => {
     return categories.find((c) => c.id === Number(form?.category_id));
   }, [categories, form?.category_id]);
+
+  // A subcategory only belongs to one category, so the picker is scoped to
+  // whichever category is currently selected on the form.
+  const subcategoriesForCategory = useMemo(() => {
+    return subcategories.filter((s) => s.category_id === Number(form?.category_id));
+  }, [subcategories, form?.category_id]);
 
   useEffect(() => {
     const schema = selectedCategory?.variant_schema;
@@ -173,9 +322,12 @@ export default function CatalogServicesPage() {
     return {
       name: '',
       category_id: categories[0]?.id ?? '',
+      subcategory_id: '',
       description: '',
       image: '',
       duration: '',
+      worker_count: '',
+      rate_type: '',
       status: 'pending_rates',
       default_partner_cost: '',
       markup_pct_override: '',
@@ -194,13 +346,27 @@ export default function CatalogServicesPage() {
     setEditingService(null);
     setForm(buildEmptyForm());
     setFormError(null);
-    setImageFile(null);
-    setImageUploadError(null);
     setShowModal(true);
   }
 
   function openCreateCategory() {
-    setCategoryForm({ name: '', description: '', variant_schema: [] });
+    setEditingCategory(null);
+    setCategoryForm({ name: '', description: '', image: '', variant_schema: [] });
+    setCategoryFormError(null);
+    setShowCategoryModal(true);
+  }
+
+  // Edits whichever category is currently selected in the service form.
+  function openEditCategory() {
+    const category = categories.find((c) => c.id === Number(form.category_id));
+    if (!category) return;
+    setEditingCategory(category);
+    setCategoryForm({
+      name: category.name,
+      description: category.description ?? '',
+      image: category.image ?? '',
+      variant_schema: Array.isArray(category.variant_schema) ? category.variant_schema : [],
+    });
     setCategoryFormError(null);
     setShowCategoryModal(true);
   }
@@ -215,34 +381,111 @@ export default function CatalogServicesPage() {
     setCategoryFormError(null);
 
     try {
-      const res = await apiFetch('/api/catalog/categories', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: categoryForm.name.trim(),
-          description: categoryForm.description.trim() || null,
-          variant_schema: categoryForm.variant_schema,
-        }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? 'Failed to create category.');
+      const res = await apiFetch(
+        editingCategory ? `/api/catalog/categories/${editingCategory.id}` : '/api/catalog/categories',
+        {
+          method: editingCategory ? 'PUT' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: categoryForm.name.trim(),
+            description: categoryForm.description.trim() || null,
+            image: categoryForm.image || null,
+            sort_order: editingCategory?.sort_order ?? 0,
+            variant_schema: categoryForm.variant_schema,
+          }),
+        }
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error ?? 'Failed to save category.');
 
       setShowCategoryModal(false);
-      setCategoryForm({ name: '', description: '', variant_schema: [] });
+      setEditingCategory(null);
+      setCategoryForm({ name: '', description: '', image: '', variant_schema: [] });
       await fetchCategories();
-      setForm((prev: any) => ({ ...prev, category_id: json.id }));
+      setForm((prev: any) => ({ ...prev, category_id: editingCategory?.id ?? json.id }));
     } catch (err) {
-      setCategoryFormError(err instanceof Error ? err.message : 'Failed to create category.');
+      setCategoryFormError(err instanceof Error ? err.message : 'Failed to save category.');
     } finally {
       setSavingCategory(false);
+    }
+  }
+
+  function openCreateSubcategory() {
+    setEditingSubcategory(null);
+    setSubcategoryForm({
+      name: '',
+      description: '',
+      image: '',
+      sort_order: String(subcategoriesForCategory.length + 1),
+      is_addon: false,
+    });
+    setSubcategoryFormError(null);
+    setShowSubcategoryModal(true);
+  }
+
+  // Edits whichever subcategory is currently selected in the service form.
+  function openEditSubcategory() {
+    const subcategory = subcategories.find((s) => s.id === Number(form.subcategory_id));
+    if (!subcategory) return;
+    setEditingSubcategory(subcategory);
+    setSubcategoryForm({
+      name: subcategory.name,
+      description: subcategory.description ?? '',
+      image: subcategory.image ?? '',
+      sort_order: String(subcategory.sort_order ?? 0),
+      is_addon: Boolean(subcategory.is_addon),
+    });
+    setSubcategoryFormError(null);
+    setShowSubcategoryModal(true);
+  }
+
+  async function handleSaveSubcategory(e: React.FormEvent) {
+    e.preventDefault();
+    if (!subcategoryForm.name.trim()) {
+      setSubcategoryFormError('Subcategory name is required.');
+      return;
+    }
+    const categoryId = editingSubcategory?.category_id ?? Number(form.category_id);
+    if (!categoryId) {
+      setSubcategoryFormError('Pick a category first.');
+      return;
+    }
+    setSavingSubcategory(true);
+    setSubcategoryFormError(null);
+
+    try {
+      const res = await apiFetch(
+        editingSubcategory ? `/api/catalog/subcategories/${editingSubcategory.id}` : '/api/catalog/subcategories',
+        {
+          method: editingSubcategory ? 'PUT' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            category_id: categoryId,
+            name: subcategoryForm.name.trim(),
+            description: subcategoryForm.description.trim() || null,
+            image: subcategoryForm.image || null,
+            sort_order: Number(subcategoryForm.sort_order) || 0,
+            is_addon: subcategoryForm.is_addon,
+          }),
+        }
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error ?? 'Failed to save subcategory.');
+
+      setShowSubcategoryModal(false);
+      setEditingSubcategory(null);
+      await fetchSubcategories();
+      setForm((prev: any) => ({ ...prev, subcategory_id: editingSubcategory?.id ?? json.id }));
+    } catch (err) {
+      setSubcategoryFormError(err instanceof Error ? err.message : 'Failed to save subcategory.');
+    } finally {
+      setSavingSubcategory(false);
     }
   }
 
   async function openEdit(service: CatalogService) {
     setEditingService(service);
     setFormError(null);
-    setImageFile(null);
-    setImageUploadError(null);
     try {
       const res = await apiFetch(`/api/catalog/services/${service.id}`);
       const json = await res.json();
@@ -251,9 +494,12 @@ export default function CatalogServicesPage() {
       setForm({
         name: detail.name,
         category_id: detail.category_id,
+        subcategory_id: detail.subcategory_id ?? '',
         description: detail.description ?? '',
         image: detail.image ?? '',
         duration: detail.duration ?? '',
+        worker_count: detail.worker_count ?? '',
+        rate_type: detail.rate_type ?? '',
         status: detail.status,
         default_partner_cost: detail.default_partner_cost ?? '',
         markup_pct_override: detail.markup_pct_override ?? '',
@@ -302,8 +548,11 @@ export default function CatalogServicesPage() {
 
     const payload = {
       ...form,
+      subcategory_id: form.subcategory_id ? Number(form.subcategory_id) : null,
       description: form.description || null,
       image: form.image || null,
+      worker_count: form.worker_count ? Number(form.worker_count) : null,
+      rate_type: form.rate_type || null,
       default_partner_cost: form.default_partner_cost ? Number(form.default_partner_cost) : null,
       markup_pct_override: form.markup_pct_override ? Number(form.markup_pct_override) : null,
       pricing_rules: [cleanedRule],
@@ -430,28 +679,6 @@ export default function CatalogServicesPage() {
     });
   }
 
-  async function handleImageUpload() {
-    if (!imageFile) return;
-    setUploadingImage(true);
-    setImageUploadError(null);
-    try {
-      const data = new FormData();
-      data.append('image', imageFile);
-      const res = await apiFetch('/api/images/upload', {
-        method: 'POST',
-        body: data,
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? 'Image upload failed.');
-      setForm((prev: any) => ({ ...prev, image: json.data }));
-      setImageFile(null);
-    } catch (err) {
-      setImageUploadError(err instanceof Error ? err.message : 'Image upload failed.');
-    } finally {
-      setUploadingImage(false);
-    }
-  }
-
   const rule = form.pricing_rules?.[0] || { strategy: 'flat', params: {} };
   const statusCfg: Record<CatalogService['status'], { cls: string; dot: string }> = {
     live: { cls: 'bg-sage/10 text-sage ring-1 ring-sage/20', dot: 'bg-sage' },
@@ -465,8 +692,8 @@ export default function CatalogServicesPage() {
         {[
           { label: 'Total catalog services', value: services.length, icon: Package, color: 'bg-terracotta' },
           { label: 'Live', value: services.filter((s) => s.status === 'live').length, icon: Layers, color: 'bg-sage' },
-          { label: 'Pending rates', value: services.filter((s) => s.status === 'pending_rates').length, icon: Tag, color: 'bg-terracotta' },
           { label: 'Categories', value: categories.length, icon: Tag, color: 'bg-terracotta' },
+          { label: 'Subcategories', value: subcategories.length, icon: Layers, color: 'bg-terracotta' },
         ].map(({ label, value, icon: Icon, color }) => (
           <div key={label} className="bg-white rounded-2xl border border-lightstone shadow-sm p-5">
             <div className={clsx('w-10 h-10 rounded-xl flex items-center justify-center mb-3', color)}>
@@ -535,7 +762,10 @@ export default function CatalogServicesPage() {
                       )}
                       <div>
                         <h3 className="text-sm font-bold text-charcoal leading-tight">{service.name}</h3>
-                        <p className="text-[11px] text-warmgrey mt-0.5">{service.category}</p>
+                        <p className="text-[11px] text-warmgrey mt-0.5">
+                          {service.category}
+                          {service.subcategory ? ` · ${service.subcategory}` : ' · Unassigned'}
+                        </p>
                       </div>
                     </div>
                     <div className="flex items-center gap-0.5">
@@ -607,17 +837,31 @@ export default function CatalogServicesPage() {
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
                       <label className="text-xs font-semibold text-warmgrey">Category *</label>
-                      <button
-                        type="button"
-                        onClick={openCreateCategory}
-                        className="text-[11px] font-semibold text-terracotta hover:text-accent-700"
-                      >
-                        + Add category
-                      </button>
+                      <div className="flex items-center gap-2">
+                        {form.category_id && (
+                          <button
+                            type="button"
+                            onClick={openEditCategory}
+                            className="text-[11px] font-semibold text-warmgrey hover:text-terracotta"
+                          >
+                            Edit
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={openCreateCategory}
+                          className="text-[11px] font-semibold text-terracotta hover:text-accent-700"
+                        >
+                          + Add category
+                        </button>
+                      </div>
                     </div>
                     <select
                       value={form.category_id || ''}
-                      onChange={(e) => setForm((p: any) => ({ ...p, category_id: Number(e.target.value) }))}
+                      onChange={(e) =>
+                        // Changing category invalidates the current subcategory.
+                        setForm((p: any) => ({ ...p, category_id: Number(e.target.value), subcategory_id: '' }))
+                      }
                       className={inputCls}
                     >
                       {categories.length === 0 && <option value="">No categories</option>}
@@ -627,6 +871,45 @@ export default function CatalogServicesPage() {
                         </option>
                       ))}
                     </select>
+                  </div>
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="text-xs font-semibold text-warmgrey">Subcategory</label>
+                      <div className="flex items-center gap-2">
+                        {form.subcategory_id && (
+                          <button
+                            type="button"
+                            onClick={openEditSubcategory}
+                            className="text-[11px] font-semibold text-warmgrey hover:text-terracotta"
+                          >
+                            Edit
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={openCreateSubcategory}
+                          disabled={!form.category_id}
+                          className="text-[11px] font-semibold text-terracotta hover:text-accent-700 disabled:text-warmgrey disabled:cursor-not-allowed"
+                        >
+                          + Add subcategory
+                        </button>
+                      </div>
+                    </div>
+                    <select
+                      value={form.subcategory_id || ''}
+                      onChange={(e) => setForm((p: any) => ({ ...p, subcategory_id: e.target.value }))}
+                      className={inputCls}
+                    >
+                      <option value="">Unassigned</option>
+                      {subcategoriesForCategory.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-[11px] text-warmgrey mt-1">
+                      Unassigned services are hidden from the storefront drill-down.
+                    </p>
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-warmgrey mb-1.5">Status</label>
@@ -678,60 +961,11 @@ export default function CatalogServicesPage() {
                   </div>
                   <div className="sm:col-span-2">
                     <label className="block text-xs font-semibold text-warmgrey mb-1.5">Image</label>
-                    <div className="flex items-start gap-3">
-                      {form.image ? (
-                        <div className="w-12 h-12 rounded-xl overflow-hidden border border-lightstone shrink-0">
-                          <img
-                            src={serviceImageUrl(form.image) ?? ''}
-                            alt={form.name || 'Service'}
-                            className="w-full h-full object-cover"
-                          />
-                        </div>
-                      ) : (
-                        <div className="w-12 h-12 rounded-xl bg-terracotta flex items-center justify-center text-white text-sm font-extrabold shrink-0">
-                          {form.name?.substring(0, 2).toUpperCase() || '—'}
-                        </div>
-                      )}
-                      <div className="flex-1 space-y-1.5">
-                        <div className="flex items-center gap-2">
-                          <label className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-semibold text-charcoal bg-accent-50 hover:bg-lightstone rounded-xl cursor-pointer transition">
-                            <Upload size={14} className="text-terracotta" />
-                            <span>Choose file</span>
-                            <input
-                              type="file"
-                              accept="image/*"
-                              onChange={(e) => {
-                                setImageFile(e.target.files?.[0] ?? null);
-                                setImageUploadError(null);
-                              }}
-                              className="hidden"
-                            />
-                          </label>
-                          {imageFile && (
-                            <button
-                              type="button"
-                              onClick={handleImageUpload}
-                              disabled={uploadingImage}
-                              className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-bold text-white bg-terracotta hover:bg-accent-700 rounded-xl transition disabled:opacity-60"
-                            >
-                              {uploadingImage ? 'Uploading…' : 'Upload'}
-                            </button>
-                          )}
-                          {form.image && (
-                            <button
-                              type="button"
-                              onClick={() => { setForm((p: any) => ({ ...p, image: '' })); setImageFile(null); }}
-                              className="p-2 rounded-lg text-warmgrey hover:text-rosewood hover:bg-dustyrose/10 transition"
-                              title="Remove image"
-                            >
-                              <X size={14} />
-                            </button>
-                          )}
-                        </div>
-                        {imageFile && <p className="text-xs text-warmgrey">Selected: {imageFile.name}</p>}
-                        {imageUploadError && <p className="text-xs text-rosewood">{imageUploadError}</p>}
-                      </div>
-                    </div>
+                    <ImageUploadField
+                      value={form.image || ''}
+                      name={form.name || ''}
+                      onChange={(path) => setForm((p: any) => ({ ...p, image: path }))}
+                    />
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-warmgrey mb-1.5">Duration</label>
@@ -742,6 +976,33 @@ export default function CatalogServicesPage() {
                       className={inputCls}
                       placeholder="e.g. 60 mins, 2 hours"
                     />
+                  </div>
+                  {/* Shown under each option in the storefront variant picker
+                      as "1 worker · day rate". */}
+                  <div>
+                    <label className="block text-xs font-semibold text-warmgrey mb-1.5">Workers</label>
+                    <input
+                      type="number"
+                      min="1"
+                      step="1"
+                      value={form.worker_count || ''}
+                      onChange={(e) => setForm((p: any) => ({ ...p, worker_count: e.target.value }))}
+                      className={inputCls}
+                      placeholder="e.g. 1"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-warmgrey mb-1.5">Rate basis</label>
+                    <select
+                      value={form.rate_type || ''}
+                      onChange={(e) => setForm((p: any) => ({ ...p, rate_type: e.target.value }))}
+                      className={inputCls}
+                    >
+                      <option value="">Not specified</option>
+                      {rateTypeOptions.map((r) => (
+                        <option key={r.value} value={r.value}>{r.label}</option>
+                      ))}
+                    </select>
                   </div>
                 </div>
 
@@ -1109,11 +1370,11 @@ export default function CatalogServicesPage() {
             <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm border border-lightstone overflow-hidden">
               <div className="flex items-center justify-between px-6 py-4 border-b border-lightstone">
                 <div>
-                  <h2 className="text-base font-bold text-charcoal">Add Category</h2>
-                  <p className="text-xs text-warmgrey mt-0.5">New catalog category</p>
+                  <h2 className="text-base font-bold text-charcoal">{editingCategory ? 'Edit Category' : 'Add Category'}</h2>
+                  <p className="text-xs text-warmgrey mt-0.5">{editingCategory ? 'Update catalog category' : 'New catalog category'}</p>
                 </div>
                 <button
-                  onClick={() => setShowCategoryModal(false)}
+                  onClick={() => { setShowCategoryModal(false); setEditingCategory(null); }}
                   className="p-1.5 hover:bg-accent-50 rounded-lg transition"
                 >
                   <X size={16} className="text-warmgrey" />
@@ -1138,6 +1399,14 @@ export default function CatalogServicesPage() {
                     onChange={(e) => setCategoryForm((p) => ({ ...p, description: e.target.value }))}
                     className={clsx(inputCls, 'resize-none')}
                     placeholder="Short description…"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-warmgrey mb-1.5">Image</label>
+                  <ImageUploadField
+                    value={categoryForm.image}
+                    name={categoryForm.name}
+                    onChange={(path) => setCategoryForm((p) => ({ ...p, image: path }))}
                   />
                 </div>
 
@@ -1234,7 +1503,7 @@ export default function CatalogServicesPage() {
                 <div className="flex justify-end gap-2 pt-1">
                   <button
                     type="button"
-                    onClick={() => setShowCategoryModal(false)}
+                    onClick={() => { setShowCategoryModal(false); setEditingCategory(null); }}
                     className="px-4 py-2 text-sm font-semibold text-warmgrey bg-accent-50 hover:bg-lightstone rounded-xl transition"
                   >
                     Cancel
@@ -1244,7 +1513,100 @@ export default function CatalogServicesPage() {
                     disabled={savingCategory}
                     className="px-5 py-2 text-sm font-bold bg-terracotta hover:bg-accent-700 text-white rounded-xl shadow-sm shadow-soft transition disabled:opacity-60"
                   >
-                    {savingCategory ? 'Saving…' : 'Add Category'}
+                    {savingCategory ? 'Saving…' : editingCategory ? 'Save Changes' : 'Add Category'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </ModalPortal>
+      )}
+
+      {showSubcategoryModal && (
+        <ModalPortal>
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-charcoal/20 p-4">
+            <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm border border-lightstone overflow-hidden">
+              <div className="flex items-center justify-between px-6 py-4 border-b border-lightstone">
+                <div>
+                  <h2 className="text-base font-bold text-charcoal">{editingSubcategory ? 'Edit Subcategory' : 'Add Subcategory'}</h2>
+                  <p className="text-xs text-warmgrey mt-0.5">Under {editingSubcategory ? categories.find((c) => c.id === editingSubcategory.category_id)?.name ?? 'category' : selectedCategory?.name ?? 'category'}</p>
+                </div>
+                <button
+                  onClick={() => { setShowSubcategoryModal(false); setEditingSubcategory(null); }}
+                  className="p-1.5 hover:bg-accent-50 rounded-lg transition"
+                >
+                  <X size={16} className="text-warmgrey" />
+                </button>
+              </div>
+              <form onSubmit={handleSaveSubcategory} className="px-6 py-5 space-y-4">
+                <div>
+                  <label className="block text-xs font-semibold text-warmgrey mb-1.5">Name *</label>
+                  <input
+                    type="text"
+                    value={subcategoryForm.name}
+                    onChange={(e) => setSubcategoryForm((p) => ({ ...p, name: e.target.value }))}
+                    className={inputCls}
+                    placeholder="e.g. Weekly Package"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-warmgrey mb-1.5">Description</label>
+                  <textarea
+                    rows={2}
+                    value={subcategoryForm.description}
+                    onChange={(e) => setSubcategoryForm((p) => ({ ...p, description: e.target.value }))}
+                    className={clsx(inputCls, 'resize-none')}
+                    placeholder="Shown under the title on the storefront…"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-warmgrey mb-1.5">Image</label>
+                  <ImageUploadField
+                    value={subcategoryForm.image}
+                    name={subcategoryForm.name}
+                    onChange={(path) => setSubcategoryForm((p) => ({ ...p, image: path }))}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-warmgrey mb-1.5">Sort order</label>
+                  <input
+                    type="number"
+                    value={subcategoryForm.sort_order}
+                    onChange={(e) => setSubcategoryForm((p) => ({ ...p, sort_order: e.target.value }))}
+                    className={inputCls}
+                  />
+                </div>
+                <label className="flex items-start gap-2.5">
+                  <input
+                    type="checkbox"
+                    checked={subcategoryForm.is_addon}
+                    onChange={(e) => setSubcategoryForm((p) => ({ ...p, is_addon: e.target.checked }))}
+                    className="mt-0.5 accent-terracotta"
+                  />
+                  <span>
+                    <span className="block text-xs font-semibold text-charcoal">Add-on group</span>
+                    <span className="block text-xs text-warmgrey">
+                      Services here are hidden from the storefront grid and offered in the
+                      Add-ons panel of other bookings in this category.
+                    </span>
+                  </span>
+                </label>
+
+                {subcategoryFormError && <p className="text-xs text-rosewood">{subcategoryFormError}</p>}
+                <div className="flex justify-end gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => { setShowSubcategoryModal(false); setEditingSubcategory(null); }}
+                    className="px-4 py-2 text-sm font-semibold text-warmgrey bg-accent-50 hover:bg-lightstone rounded-xl transition"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={savingSubcategory}
+                    className="px-5 py-2 text-sm font-bold bg-terracotta hover:bg-accent-700 text-white rounded-xl shadow-sm shadow-soft transition disabled:opacity-60"
+                  >
+                    {savingSubcategory ? 'Saving…' : editingSubcategory ? 'Save Changes' : 'Add Subcategory'}
                   </button>
                 </div>
               </form>

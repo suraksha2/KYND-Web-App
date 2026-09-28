@@ -18,7 +18,8 @@ const readStore = () => {
  */
 function toSgtIso(v) {
   if (!v || typeof v !== 'string') return v
-  if (/[Z+-]/.test(v)) return v
+  // Only a trailing Z / ±hh:mm counts as an offset — the date's own dashes don't.
+  if (/(Z|[+-]\d{2}:?\d{2})$/.test(v)) return v
   return v.replace(' ', 'T') + '+08:00'
 }
 
@@ -112,18 +113,23 @@ export function BookingsProvider({ children }) {
   // booking) must not treat the initial empty array as "no bookings".
   const [loaded, setLoaded] = useState(() => !user?.id)
 
+  // Never persist bookings to localStorage for security - clear on logout
   useEffect(() => {
     if (user?.id) return
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(bookings)) } catch {}
-  }, [bookings, user?.id])
+    try { localStorage.removeItem(STORAGE_KEY) } catch {}
+  }, [user?.id])
 
   // Load real data from the API when a user is authenticated
+  // Clear bookings when user logs out for security
   useEffect(() => {
     if (!user?.id || !token) {
+      setBookings([])
       setLoaded(true)
+      try { localStorage.removeItem(STORAGE_KEY) } catch {}
       return
     }
     setLoaded(false)
+    let ignore = false
     const fetchBookings = async () => {
       try {
         const response = await fetch(`${API_BASE}/bookings`, {
@@ -131,13 +137,15 @@ export function BookingsProvider({ children }) {
           credentials: 'include'
         })
         // The session died server-side (expired or revoked): drop it so the UI
-        // stops claiming to be signed in, and fall back to the local list.
+        // stops claiming to be signed in, and clear bookings.
         if (response.status === 401) {
-          setBookings(readStore())
+          setBookings([])
           expireSession()
+          try { localStorage.removeItem(STORAGE_KEY) } catch {}
           return
         }
         const json = await response.json()
+        if (ignore) return
         if (response.ok && Array.isArray(json.data)) {
           setBookings(json.data.map(transformBooking))
         } else {
@@ -150,6 +158,17 @@ export function BookingsProvider({ children }) {
       }
     }
     fetchBookings()
+
+    // Visits are completed from the provider app, so re-sync whenever the
+    // customer comes back to this tab rather than only once per sign-in.
+    const onVisible = () => { if (document.visibilityState === 'visible') fetchBookings() }
+    window.addEventListener('focus', onVisible)
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      ignore = true
+      window.removeEventListener('focus', onVisible)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
   }, [user?.id, token, expireSession])
 
   const addBooking = useCallback(async (order) => {

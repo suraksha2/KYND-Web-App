@@ -413,19 +413,61 @@ CREATE TABLE IF NOT EXISTS catalog_categories (
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
-CREATE TABLE IF NOT EXISTS catalog_services (
+-- Middle level of the storefront taxonomy: Category -> Subcategory -> Service.
+-- Mirrors the "Group" column of the Kynd Service Master sheet (e.g. Cleaning ->
+-- "House Cleaning - Weekly Package"). Not to be confused with the older
+-- `service_subcategories` table, which holds the home page "help moments".
+CREATE TABLE IF NOT EXISTS catalog_subcategories (
   id INT AUTO_INCREMENT PRIMARY KEY,
   category_id INT NOT NULL,
   name VARCHAR(255) NOT NULL,
   description TEXT,
+  -- Services in this group are sold as add-ons to another booking, not on
+  -- their own: hidden from the service grid, listed in the Add-ons panel.
+  is_addon TINYINT(1) NOT NULL DEFAULT 0,
+  image VARCHAR(255),
+  sort_order INT NOT NULL DEFAULT 0,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY unique_subcategory_name_per_category (category_id, name),
+  FOREIGN KEY (category_id) REFERENCES catalog_categories(id) ON DELETE CASCADE
+);
+
+-- Extra categories a subcategory is also listed under (e.g. Cleaning's
+-- Move-Out cards shown in Office Cleaning too). The home category stays
+-- catalog_subcategories.category_id; sort_order positions the card within
+-- the extra category.
+CREATE TABLE IF NOT EXISTS catalog_subcategory_placements (
+  subcategory_id INT NOT NULL,
+  category_id INT NOT NULL,
+  sort_order INT NOT NULL DEFAULT 0,
+  PRIMARY KEY (subcategory_id, category_id),
+  FOREIGN KEY (subcategory_id) REFERENCES catalog_subcategories(id) ON DELETE CASCADE,
+  FOREIGN KEY (category_id) REFERENCES catalog_categories(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS catalog_services (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  category_id INT NOT NULL,
+  subcategory_id INT,
+  name VARCHAR(255) NOT NULL,
+  description TEXT,
   image VARCHAR(255),
   duration VARCHAR(100),
+  -- Crew size and rate basis ('day_rate', 'per_unit', 'package', ...), shown
+  -- under each option in the storefront's variant picker.
+  worker_count TINYINT UNSIGNED,
+  rate_type VARCHAR(32),
   status ENUM('live', 'pending_rates', 'paused') DEFAULT 'pending_rates',
   default_partner_cost DECIMAL(10,2),
   markup_pct_override DECIMAL(5,2),
+  -- Carried over from the Service Master sheet's research columns.
+  competitor_reference VARCHAR(255),
+  notes TEXT,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  FOREIGN KEY (category_id) REFERENCES catalog_categories(id) ON DELETE CASCADE
+  FOREIGN KEY (category_id) REFERENCES catalog_categories(id) ON DELETE CASCADE,
+  FOREIGN KEY (subcategory_id) REFERENCES catalog_subcategories(id) ON DELETE SET NULL
 );
 
 CREATE TABLE IF NOT EXISTS service_booking_modes (
@@ -522,6 +564,87 @@ SET @stmt := IF(
   'DO 0');
 PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
+-- Migration: give catalog_categories the tile artwork and ordering the
+-- storefront category grid needs.
+SET @stmt := IF(
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'catalog_categories'
+      AND COLUMN_NAME = 'image') = 0,
+  'ALTER TABLE catalog_categories ADD COLUMN image VARCHAR(255) AFTER description',
+  'DO 0');
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @stmt := IF(
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'catalog_categories'
+      AND COLUMN_NAME = 'sort_order') = 0,
+  'ALTER TABLE catalog_categories ADD COLUMN sort_order INT NOT NULL DEFAULT 0 AFTER image',
+  'DO 0');
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- Migration: attach existing catalog_services rows to the new subcategory level.
+-- Nullable, so services created before subcategories existed keep working.
+SET @stmt := IF(
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'catalog_services'
+      AND COLUMN_NAME = 'subcategory_id') = 0,
+  'ALTER TABLE catalog_services ADD COLUMN subcategory_id INT NULL AFTER category_id',
+  'DO 0');
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @stmt := IF(
+  (SELECT COUNT(*) FROM information_schema.TABLE_CONSTRAINTS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'catalog_services'
+      AND CONSTRAINT_NAME = 'fk_catalog_services_subcategory') = 0,
+  'ALTER TABLE catalog_services ADD CONSTRAINT fk_catalog_services_subcategory
+     FOREIGN KEY (subcategory_id) REFERENCES catalog_subcategories(id) ON DELETE SET NULL',
+  'DO 0');
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- Migration: research columns carried over from the Service Master sheet.
+SET @stmt := IF(
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'catalog_services'
+      AND COLUMN_NAME = 'competitor_reference') = 0,
+  'ALTER TABLE catalog_services ADD COLUMN competitor_reference VARCHAR(255) AFTER markup_pct_override',
+  'DO 0');
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @stmt := IF(
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'catalog_services'
+      AND COLUMN_NAME = 'notes') = 0,
+  'ALTER TABLE catalog_services ADD COLUMN notes TEXT AFTER competitor_reference',
+  'DO 0');
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- Migration: crew size and rate basis (see migrations/004-service-crew-rate.sql
+-- for the accompanying backfill).
+SET @stmt := IF(
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'catalog_services'
+      AND COLUMN_NAME = 'worker_count') = 0,
+  'ALTER TABLE catalog_services ADD COLUMN worker_count TINYINT UNSIGNED NULL AFTER duration',
+  'DO 0');
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @stmt := IF(
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'catalog_services'
+      AND COLUMN_NAME = 'rate_type') = 0,
+  'ALTER TABLE catalog_services ADD COLUMN rate_type VARCHAR(32) NULL AFTER worker_count',
+  'DO 0');
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- Migration: add-on groups (see migrations/005-addon-subcategories.sql).
+SET @stmt := IF(
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'catalog_subcategories'
+      AND COLUMN_NAME = 'is_addon') = 0,
+  'ALTER TABLE catalog_subcategories ADD COLUMN is_addon TINYINT(1) NOT NULL DEFAULT 0 AFTER description',
+  'DO 0');
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
 -- Messages table for temporary in-app messaging between customers and providers
 -- Messages are scoped to a booking and available around the time of service
 CREATE TABLE IF NOT EXISTS messages (
@@ -600,3 +723,16 @@ PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 UPDATE users SET reset_token = NULL, reset_token_expiry = NULL
  WHERE reset_token IS NOT NULL OR reset_token_expiry IS NOT NULL;
 
+-- Admin-uploaded service artwork. POST /api/images/upload stores the bytes
+-- here (not public/, which is baked into the Docker image); GET /images/:name
+-- serves a row when no committed file on disk matches. `filename` doubles as
+-- the public URL tail, so it stays unique across the table and the directory.
+CREATE TABLE IF NOT EXISTS images (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  filename VARCHAR(255) NOT NULL,
+  mime_type VARCHAR(100) NOT NULL,
+  data MEDIUMBLOB NOT NULL,
+  size_bytes INT UNSIGNED NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY unique_image_filename (filename)
+);

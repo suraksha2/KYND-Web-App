@@ -68,7 +68,8 @@ export default function Services() {
     const fetchServices = async () => {
       try {
         const mappedServices = await fetchCatalogServices()
-        setServices(mappedServices)
+        // Add-ons are only bookable on top of another service.
+        setServices(mappedServices.filter(s => !s.isAddon))
       } catch (error) {
         console.error('Failed to fetch catalog services:', error)
       } finally {

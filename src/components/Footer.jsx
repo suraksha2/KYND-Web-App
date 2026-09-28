@@ -61,6 +61,7 @@ export default function Footer() {
           <div>
             <h4 className="text-white font-semibold mb-3">Company</h4>
             <ul className="space-y-2 text-warmgrey">
+              <li><Link to="/about" className="hover:text-white">About Us</Link></li>
               <li><a href="mailto:careers@kynd.sg?subject=Become%20a%20Kynd%20Pro" className="hover:text-white">Become a Kynd Pro</a></li>
               <li><a href="mailto:careers@kynd.sg?subject=Become%20a%20Kynd%20Buddy" className="hover:text-white">Become a Kynd Buddy</a></li>
               <li><Link to="/support" className="hover:text-white">Request Kynd in your locality</Link></li>

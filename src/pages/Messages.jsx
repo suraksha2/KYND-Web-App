@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { MessageCircle, Clock, ChevronRight, Loader2 } from 'lucide-react'
+import { useNavigate, Link } from 'react-router-dom'
+import { MessageCircle, Clock, ChevronRight, Loader2, Lock } from 'lucide-react'
 import { API_BASE, serviceImageUrl } from '../lib/api'
 import { useAuth } from '../context/AuthContext'
 import PageHero from '../components/PageHero'
@@ -34,7 +34,8 @@ export default function Messages() {
       setError('')
     } catch (err) {
       console.error('Failed to fetch conversations:', err)
-      setError(err.message || 'Failed to load conversations')
+      const errorMessage = err.message || 'Failed to load conversations'
+      setError(errorMessage === 'Authentication required.' ? 'Please login or sign up' : errorMessage)
     } finally {
       setLoading(false)
     }
@@ -67,11 +68,38 @@ export default function Messages() {
   }
 
   if (error) {
+    const isAuthError = error === 'Please login or sign up'
     return (
       <div>
         <PageHero title="Messages" subtitle="Your conversations with service partners" />
-        <div className="flex items-center justify-center py-20">
-          <p className="text-red-600">{error}</p>
+        <div className="flex flex-col items-center justify-center py-20 px-6">
+          {isAuthError ? (
+            <>
+              <div className="w-16 h-16 rounded-full bg-warmlinen flex items-center justify-center mb-4">
+                <Lock className="w-8 h-8 text-terracotta" />
+              </div>
+              <p className="text-charcoal font-semibold text-lg mb-2">Sign in to view messages</p>
+              <p className="text-warmgrey text-sm text-center mb-6">
+                Please login or sign up to access your conversations with service partners
+              </p>
+              <div className="flex gap-3 w-full max-w-xs">
+                <Link
+                  to="/login"
+                  className="flex-1 rounded-full bg-terracotta hover:bg-charcoal text-white font-semibold px-6 py-3 text-sm transition text-center"
+                >
+                  Sign in
+                </Link>
+                <Link
+                  to="/signup"
+                  className="flex-1 rounded-full bg-white border border-lightstone hover:border-terracotta text-charcoal font-semibold px-6 py-3 text-sm transition text-center"
+                >
+                  Sign up
+                </Link>
+              </div>
+            </>
+          ) : (
+            <p className="text-red-600">{error}</p>
+          )}
         </div>
       </div>
     )

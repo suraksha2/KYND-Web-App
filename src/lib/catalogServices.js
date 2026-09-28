@@ -1,5 +1,6 @@
 // Helpers for the new modular catalog on the customer storefront.
 import { API_BASE, serviceImageUrl } from './api'
+import { slugify } from './catalogCategories'
 
 const DEFAULT_MARKUP_PCT = 30
 
@@ -8,28 +9,44 @@ function markupPct(override) {
   return pct / 100
 }
 
-export function mapCatalogService(service) {
-  const cost = service.default_partner_cost !== null ? Number(service.default_partner_cost) : null
-  let price = null
-  let pricingFrom = 'Custom quote'
-
-  if (cost !== null && !Number.isNaN(cost)) {
-    const sell = Math.round(cost * (1 + markupPct(service.markup_pct_override)))
-    price = sell
-    pricingFrom = `S$${sell.toFixed(2)}`
+/**
+ * Sell price for a catalog row. A `flat` pricing rule is authoritative — it
+ * holds the negotiated listed price. Everything else falls back to
+ * cost x (1 + markup), which only approximates it.
+ */
+function sellPrice(service) {
+  if (service.pricing_strategy === 'flat') {
+    const amount = Number(service.pricing_params?.amount)
+    if (Number.isFinite(amount) && amount > 0) return amount
   }
+  if (service.pricing_strategy === 'custom_quote') return null
+
+  const cost = service.default_partner_cost !== null ? Number(service.default_partner_cost) : null
+  if (cost === null || Number.isNaN(cost)) return null
+  return Math.round(cost * (1 + markupPct(service.markup_pct_override)))
+}
+
+export function mapCatalogService(service) {
+  const price = sellPrice(service)
 
   return {
     id: service.id,
-    slug: service.name.toLowerCase().replace(/\s+/g, '-'),
+    slug: slugify(service.name),
     name: service.name,
     short: service.category || 'Professional service',
     category: service.category || '',
     categoryId: service.category_id != null ? String(service.category_id) : null,
+    subcategory: service.subcategory || '',
+    subcategoryId: service.subcategory_id != null ? String(service.subcategory_id) : null,
+    isAddon: Boolean(service.subcategory_is_addon),
     img: serviceImageUrl(service.image),
     price,
-    pricingFrom,
+    pricingFrom: price === null ? 'Custom quote' : `S$${price.toFixed(2)}`,
     duration: service.duration || 'Variable',
+    workers: service.worker_count != null ? Number(service.worker_count) : null,
+    rateType: service.rate_type || null,
+    description: service.description || '',
+    status: service.status,
     rating: 0,
     reviewCount: 0,
     bullets: ['Professional service', 'Quality guaranteed', 'Trusted providers'],

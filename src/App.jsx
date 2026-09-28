@@ -10,6 +10,7 @@ import ServiceDetail from './pages/ServiceDetail'
 import Cities from './pages/Cities'
 import CityDetail from './pages/CityDetail'
 import FAQ from './pages/FAQ'
+import About from './pages/About'
 import Support from './pages/Support'
 import Messages from './pages/Messages'
 import Chat from './pages/Chat'
@@ -69,7 +70,9 @@ export default function App() {
         <Route path="/cities" element={<Cities />} />
         <Route path="/cities/:slug" element={<CityDetail />} />
         <Route path="/frequently-asked-questions" element={<FAQ />} />
-        <Route path="/support" element={<Messages />} />
+        <Route path="/about" element={<About />} />
+        <Route path="/support" element={<Support />} />
+        <Route path="/messages" element={<Messages />} />
         <Route path="/chat/:bookingId" element={<Chat />} />
         <Route path="/delete-account" element={<DeleteAccount />} />
         <Route path="/cart" element={<Cart />} />

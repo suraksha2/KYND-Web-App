@@ -46,12 +46,16 @@ serves `backend/db/public` statically).
 attaches the bearer token from `localStorage`. Keep using it for new calls — a
 bare `fetch('/api/...')` hits the Vite dev server instead of the API.
 
-Service artwork lives in `backend/db/public/images` (committed, read-only at
-runtime — there is no upload endpoint; `/api/images` just lists the directory).
-It is baked into the backend Docker image, so it must **not** be mounted as a
-volume: a named volume masks the image's contents and any artwork added by a
-later push 404s forever. Filenames contain spaces and inconsistent casing, and
-Linux containers are case-sensitive where a macOS checkout is not.
+Service artwork lives in `backend/db/public/images` (committed) plus the
+`images` table: `POST /api/images/upload` stores bytes there, `GET /api/images`
+lists both sources, and `GET /images/:name` falls through to the table when no
+committed file matches on disk. The committed files are baked into the backend
+Docker image, so `public/images` must **not** be mounted as a volume: a named
+volume masks the image's contents and any artwork added by a later push 404s
+forever. Filenames contain spaces and inconsistent casing, and Linux containers
+are case-sensitive where a macOS checkout is not. Uploads are limited to 5MB,
+so `max_allowed_packet` must exceed that — MySQL 8 defaults to 64MB but XAMPP
+ships with 1MB (raise it in `my.cnf` or larger uploads 500).
 
 ## API layout
 
@@ -102,7 +106,25 @@ A recurring booking is one `bookings` row (cadence in `cadence` + normalized
 
 - `src/lib/recurrence.ts` — turns a preset (`weekly`) or a custom frequency
   (`{times: 3, unit: 'week'}` → `'3 times/week'`) into `intervalDays` and the
-  next `PLANNED_OCCURRENCES` (4) visit dates.
+  next `PLANNED_OCCURRENCES` (4) visit dates. `weekly` and `biweekly` accept a
+  `days` array; biweekly keeps `weekStride: 2` + an `anchor` (first visit date)
+  in the plan JSON so top-ups stay on alternate weeks.
+
+Storefront recurring for **house cleaning** (subcategory with
+`One-Time Cleaning` variants) is the inline `HouseRecurringPanel` in
+`src/pages/ServiceDetail.jsx`: plan cards (Weekly / Every 2 weeks / Mon–Fri /
+Every day, all a flat 15% off per Service Master), weekday chips (≤4),
+a first-visit calendar with repeat-visit highlights, and the availability-API
+slot grid. The duration list there is replaced by `HousePicker` (home size →
+suggested hours, hours = the "One-Time Cleaning" variants, cleaners stepper —
+each extra cleaner is one more priced worker, `qty` on the order item).
+
+**Wellness @ Home** services use `SessionPlanPanel` in the same page instead of
+the schedule pills: duration variants render as minute pills ("How long?"),
+then plan cards (One-time / Monthly / Every 2 weeks / Weekly at 0/5/10/15% per
+session) plus a first-session calendar. "Monthly" sends the `fourweekly` preset
+— a fixed 28-day step so sessions keep the same weekday (added in
+`backend/db/src/lib/recurrence.ts`).
 - `src/lib/occurrences.ts` — writes the series, tops it up so four visits stay
   ahead, and finds visits due for notification. `(booking_id, seq)` is unique and
   inserts use `INSERT IGNORE`, so re-running any of it is safe.

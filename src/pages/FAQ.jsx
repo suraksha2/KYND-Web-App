@@ -16,7 +16,13 @@ const items = [
   { q: 'What if I am not satisfied?', a: 'Reach support immediately on +91 9910483315 or help@kynd.sg. We resolve, send a replacement Pro if needed, and refund where appropriate.' },
   { q: 'How is pricing calculated?', a: 'Transparent and shown upfront in the app — per visit, no per-bedroom multipliers, no hidden charges, no advance deposits.' },
   { q: 'Which cities is Kynd in?', a: '15 Indian cities: Ahmedabad, Bangalore, Chennai, Delhi, Faridabad, Ghaziabad, Gurgaon, Hyderabad, Jaipur, Kolkata, Mumbai, Navi Mumbai, Noida, Pune, and Thane.' },
-  { q: 'How do I contact support?', a: 'Call +91 9910483315 or email help@kynd.sg.' }
+  { q: 'How do I contact support?', a: 'Call +91 9910483315 or email help@kynd.sg.' },
+  { q: 'How does Kynd verify its pros?', a: "Every professional on Kynd goes through a background check, identity verification, and reference screening before they're allowed to accept bookings. We re-verify periodically." },
+  { q: "What happens if I'm not happy with a service?", a: "Tell us right away on +91 9910483315 or help@kynd.sg. We'll resolve the issue, send a replacement Pro if needed, and refund where appropriate." },
+  { q: 'How do I cancel or reschedule a booking?', a: 'Cancel or reschedule from the app up to 2 hours before your slot at no charge. Later cancellations may incur a fee as per the Cancellation Policy.' },
+  { q: 'Are pros insured?', a: 'Yes — every booking made through Kynd is covered against accidental damage during the visit. If something goes wrong, contact support and we will sort it out.' },
+  { q: 'Which areas does Kynd operate in?', a: 'Kynd currently operates in 15 Indian cities: Ahmedabad, Bangalore, Chennai, Delhi, Faridabad, Ghaziabad, Gurgaon, Hyderabad, Jaipur, Kolkata, Mumbai, Navi Mumbai, Noida, Pune, and Thane.' },
+  { q: 'How do I become a Kynd pro?', a: 'Email help@kynd.sg to apply. Once you clear background verification and complete our training program, you can start accepting bookings through the Kynd Pro app.' }
 ]
 
 export default function FAQ() {

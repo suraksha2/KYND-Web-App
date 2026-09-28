@@ -30,8 +30,8 @@ export default function MainLayout() {
 
   const tabs = [
     { tab: 'home',     path: '/',                                     icon: Home,          label: 'Home',     match: ['/'] },
-    { tab: 'bookings', path: '/bookings',                             icon: CalendarDays,  label: 'Bookings', match: ['/bookings', '/booking'], dot: activeCount > 0 },
-    { tab: 'messages', path: '/support',                              icon: MessageSquare, label: 'Messages', match: ['/support', '/chat'], dot: unreadMessages > 0 },
+    { tab: 'bookings', path: isAuthenticated ? '/bookings' : '/login', icon: CalendarDays,  label: 'Bookings', match: ['/bookings', '/booking'], dot: activeCount > 0 },
+    { tab: 'messages', path: '/messages',                             icon: MessageSquare, label: 'Messages', match: ['/messages', '/chat'], dot: unreadMessages > 0 },
     { tab: 'profile',  path: isAuthenticated ? '/account' : '/login', icon: User,          label: 'Profile',  match: ['/account', '/login', '/signup'] },
   ]
 

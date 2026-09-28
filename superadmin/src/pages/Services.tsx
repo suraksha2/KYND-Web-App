@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Plus, Search, Pencil, Trash2, X, Wrench, Tag, DollarSign, CheckCircle, AlertCircle, Package } from "lucide-react";
+import { Plus, Search, Pencil, Trash2, X, Wrench, Tag, DollarSign, CheckCircle, AlertCircle, Package, Upload } from "lucide-react";
 import clsx from "clsx";
 import { ServiceCategory } from "@/lib/service-category-types";
 import ModalPortal from "@/components/ModalPortal";
@@ -107,6 +107,8 @@ export default function ServicesPage() {
   const [showServiceModal, setShowServiceModal] = useState(false);
   const [serviceForm, setServiceForm] = useState(defaultServiceForm);
   const [serviceFormError, setServiceFormError] = useState<string | null>(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [imageUploadError, setImageUploadError] = useState<string | null>(null);
   const [editingService, setEditingService] = useState<Service | null>(null);
   const [openMenuId, setOpenMenuId] = useState<number | null>(null);
   const [deleteServiceId, setDeleteServiceId] = useState<number | null>(null);
@@ -249,6 +251,26 @@ export default function ServicesPage() {
       setServiceFormError(
         error instanceof Error ? error.message : "Failed to save service."
       );
+    }
+  }
+
+  // Uploads straight to POST /api/images/upload and selects the result, so the
+  // dropdown below always has the freshly uploaded file available.
+  async function handleImageFile(file: File) {
+    setUploadingImage(true);
+    setImageUploadError(null);
+    try {
+      const data = new FormData();
+      data.append("image", file);
+      const res = await apiFetch("/api/images/upload", { method: "POST", body: data });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Image upload failed.");
+      setAvailableImages((prev) => (prev.includes(json.data) ? prev : [json.data, ...prev]));
+      setServiceForm((p) => ({ ...p, image: json.data }));
+    } catch (err) {
+      setImageUploadError(err instanceof Error ? err.message : "Image upload failed.");
+    } finally {
+      setUploadingImage(false);
     }
   }
 
@@ -586,18 +608,31 @@ export default function ServicesPage() {
                   <input type="text" placeholder="e.g. Mon–Sat" value={serviceForm.availability}
                     onChange={e => setServiceForm(p => ({ ...p, availability: e.target.value }))} className={inputCls} />
                 </div>
-                <div>
+                <div className="col-span-2">
                   <label className="block text-xs font-semibold text-warmgrey mb-1.5">Image</label>
-                  <select value={serviceForm.image}
-                    onChange={e => setServiceForm(p => ({ ...p, image: e.target.value }))} className={inputCls}>
-                    <option value="">None (use initials)</option>
-                    {(serviceForm.image && !availableImages.includes(serviceForm.image)
-                      ? [serviceForm.image, ...availableImages]
-                      : availableImages
-                    ).map(img => (
-                      <option key={img} value={img}>{imageLabel(img)}</option>
-                    ))}
-                  </select>
+                  <div className="flex items-center gap-2">
+                    <select value={serviceForm.image}
+                      onChange={e => setServiceForm(p => ({ ...p, image: e.target.value }))} className={inputCls}>
+                      <option value="">None (use initials)</option>
+                      {(serviceForm.image && !availableImages.includes(serviceForm.image)
+                        ? [serviceForm.image, ...availableImages]
+                        : availableImages
+                      ).map(img => (
+                        <option key={img} value={img}>{imageLabel(img)}</option>
+                      ))}
+                    </select>
+                    <label className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-semibold text-charcoal bg-accent-50 hover:bg-lightstone rounded-xl cursor-pointer transition shrink-0">
+                      <Upload size={14} className="text-terracotta" />
+                      <span>{uploadingImage ? "Uploading…" : "Upload new"}</span>
+                      <input type="file" accept="image/*" className="hidden" disabled={uploadingImage}
+                        onChange={(e) => {
+                          const f = e.target.files?.[0];
+                          if (f) handleImageFile(f);
+                          e.target.value = "";
+                        }} />
+                    </label>
+                  </div>
+                  {imageUploadError && <p className="text-xs text-rosewood mt-1">{imageUploadError}</p>}
                 </div>
                 {serviceForm.image && (
                   <div className="col-span-2">

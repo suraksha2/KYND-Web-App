@@ -34,14 +34,17 @@ export function PrivacyPolicy() {
   return (
     <div>
       <Seo title="Privacy Policy" description="How Kynd collects, uses and protects your information." path="/privacy-policy" />
-      <PageHero title="Privacy Policy" subtitle="How Kynd collects, uses and protects your information." />
+      <PageHero title="Privacy Policy" subtitle="Last updated: August 2026" />
       <section className="py-14">
         <div className="max-w-3xl mx-auto px-6">
-          <Section title="Information we collect" body={"• Account details: name, phone, email\n• Address & locality\n• Booking history & preferences\n• Device & app usage data"} />
-          <Section title="How we use it" body="To deliver bookings, assign verified Pros, process payments, send service updates, and improve the platform." />
-          <Section title="Sharing" body="We never sell your data. We share limited information with assigned Pros (first name, address, contact mask) and with payment partners for transaction processing." />
-          <Section title="Your rights" body="You can update your profile, request data export, or delete your account from the app. Email help@kynd.sg for any privacy-related request." />
-          <Section title="Security" body="Data is encrypted in transit and at rest. Payment information is tokenised and handled by PCI-DSS compliant partners." />
+          <p className="text-sm text-charcoal leading-relaxed">
+            Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque laudantium, totam rem aperiam, eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dicta sunt explicabo.
+          </p>
+          <Section title="Information we collect" body={"Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.\n\nDuis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum."} />
+          <Section title="How we use your information" body={"Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.\n\nDuis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum."} />
+          <Section title="Sharing your information" body={"Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.\n\nDuis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum."} />
+          <Section title="Your choices" body={"Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.\n\nDuis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum."} />
+          <Section title="Contact us" body={"Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.\n\nDuis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum."} />
         </div>
       </section>
     </div>
