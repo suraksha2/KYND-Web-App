@@ -2,9 +2,10 @@ import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Plus, Image as ImageIcon, Star, ShieldCheck, FileText, UserCheck } from 'lucide-react'
 import { iconForService } from '../../lib/serviceIcon'
-import { taglineForService } from '../../lib/serviceTagline'
 // import { useCart } from '../../context/CartContext'
-import { OFFERS, storeOffer } from '../../lib/offers'
+import { useAuth } from '../../context/AuthContext'
+import { API_BASE, serviceImageUrl } from '../../lib/api'
+import { OFFERS, storeOffer, copyReferralCode } from '../../lib/offers'
 import { fetchCatalogServices } from '../../lib/catalogServices'
 
 const ServiceTile = ({ s }) => {
@@ -14,9 +15,9 @@ const ServiceTile = ({ s }) => {
   return (
     <Link
       to={`/services/${s.slug}`}
-      className="group relative flex flex-col rounded-3xl bg-white border border-lightstone p-4 md:p-5 hover:shadow-soft hover:border-terracotta/40 transition"
+      className="group relative flex flex-col rounded-2xl bg-white border border-lightstone p-3 md:p-4 hover:shadow-soft hover:border-terracotta/40 transition"
     >
-      <div className="relative w-12 h-12 sm:w-14 sm:h-14 md:w-16 md:h-16 shrink-0 rounded-2xl bg-warmlinen group-hover:bg-accent-50 grid place-items-center overflow-hidden transition">
+      <div className="relative w-10 h-10 sm:w-12 sm:h-12 md:w-14 md:h-14 shrink-0 rounded-xl bg-warmlinen group-hover:bg-accent-50 grid place-items-center overflow-hidden transition">
         {showImage ? (
           <img
             src={s.img}
@@ -27,15 +28,16 @@ const ServiceTile = ({ s }) => {
             className="absolute inset-0 w-full h-full object-cover object-center group-hover:scale-[1.08] transition duration-300"
           />
         ) : (
-          <Icon className="w-6 h-6 sm:w-7 sm:h-7 md:w-8 md:h-8 text-terracotta group-hover:scale-[1.08] transition duration-300" strokeWidth={1.75} />
+          <Icon className="w-5 h-5 sm:w-6 sm:h-6 md:w-7 md:h-7 text-terracotta group-hover:scale-[1.08] transition duration-300" strokeWidth={1.75} />
         )}
       </div>
-      <div className="mt-3 text-sm md:text-base font-semibold text-charcoal leading-snug">
-        {s.name}
-      </div>
-      <p className="mt-1 text-xs text-warmgrey leading-relaxed flex-1">{taglineForService(s.name)}</p>
-      <div className="mt-3 flex items-center gap-2">
-        <span className="text-xs font-semibold text-charcoal">from {s.pricingFrom}</span>
+      <div className="mt-2 flex-1 flex flex-col">
+        <div className="text-sm font-semibold text-charcoal leading-snug line-clamp-2">
+          {s.name}
+        </div>
+        <div className="mt-auto pt-2 flex items-center gap-2">
+          <span className="text-xs font-semibold text-charcoal">from {s.pricingFrom}</span>
+        </div>
       </div>
     </Link>
   )
@@ -50,9 +52,11 @@ const defaultMoments = [
 
 export default function Services() {
   const navigate = useNavigate()
+  const { user, isAuthenticated, token } = useAuth()
   const [services, setServices] = useState([])
   const [loading, setLoading] = useState(true)
   const [moments, setMoments] = useState(defaultMoments)
+  const [copiedOffer, setCopiedOffer] = useState(null)
 
   useEffect(() => {
     const fetchServices = async () => {
@@ -116,7 +120,7 @@ export default function Services() {
           </p> */}
         </div>
 
-        <div className="mt-10 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 md:gap-4">
+        <div className="mt-10 grid grid-cols-3 md:grid-cols-4 gap-3 md:gap-4">
           {services.map(s => <ServiceTile key={s.id} s={s} />)}
         </div>
 
@@ -148,13 +152,27 @@ export default function Services() {
                 </div>
                 <button
                   type="button"
-                  onClick={() => {
+                  onClick={async () => {
+                    if (offer.id === 'refer') {
+                      if (!isAuthenticated) {
+                        navigate('/login')
+                        return
+                      }
+                      try {
+                        await copyReferralCode(user, token)
+                        setCopiedOffer(offer.id)
+                        setTimeout(() => setCopiedOffer(null), 2000)
+                      } catch (err) {
+                        alert(err.message || 'Could not copy code.')
+                      }
+                      return
+                    }
                     storeOffer(offer)
                     navigate('/services')
                   }}
                   className="mt-8 w-full rounded-2xl bg-white/15 hover:bg-white/25 text-white font-semibold py-3 text-sm transition"
                 >
-                  {offer.action}
+                  {copiedOffer === offer.id ? 'Copied!' : offer.action}
                 </button>
               </div>
             ))}

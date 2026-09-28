@@ -1,20 +1,15 @@
 import { useEffect, useState } from "react";
-import { X, Plus, Trash2 } from "lucide-react";
+import { X } from "lucide-react";
 import clsx from "clsx";
 import ModalPortal from "@/components/ModalPortal";
 import { apiFetch } from "@/lib/api";
 import { CityRecord, CreateCityInput } from "@/lib/types";
 
-interface AreaPincode {
-  areaName: string;
-  pinCode: string;
-}
-
 type CityFormState = CreateCityInput & { serviceCategoryId?: string };
 
 const EMPTY_FORM: CityFormState = {
   cityName: "",
-  pinCode: "",
+  pinCode: JSON.stringify([]),
   serviceCategoryId: "",
 };
 
@@ -41,8 +36,6 @@ export default function CityFormModal({ open, city, onClose, onSave }: Props) {
   const [form, setForm] = useState<CityFormState>(EMPTY_FORM);
   const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
-  const [areas, setAreas] = useState<AreaPincode[]>([]);
-  const [newArea, setNewArea] = useState({ areaName: "", pinCode: "" });
   
   useEffect(() => {
     apiFetch("/api/service-categories")
@@ -57,25 +50,14 @@ export default function CityFormModal({ open, city, onClose, onSave }: Props) {
 
   useEffect(() => {
     if (city) {
-      setForm({ 
-        cityName: city.cityName, 
-        pinCode: city.pinCode, 
-        serviceCategoryId: city.serviceCategoryId ? String(city.serviceCategoryId) : "" 
+      setForm({
+        cityName: city.cityName,
+        pinCode: city.pinCode,
+        serviceCategoryId: city.serviceCategoryId ? String(city.serviceCategoryId) : ""
       });
       setSelectedCategoryIds(parseCategoryIds(city.serviceCategoryId));
-      try {
-        const parsed = JSON.parse(city.pinCode);
-        if (Array.isArray(parsed)) {
-          setAreas(parsed);
-        } else {
-          setAreas([{ areaName: "Default", pinCode: city.pinCode }]);
-        }
-      } catch {
-        setAreas([{ areaName: "Default", pinCode: city.pinCode }]);
-      }
     } else {
       setForm(EMPTY_FORM);
-      setAreas([]);
       setSelectedCategoryIds([]);
     }
     setErrors({});
@@ -92,22 +74,8 @@ export default function CityFormModal({ open, city, onClose, onSave }: Props) {
     if (!form.cityName.trim()) {
       nextErrors.cityName = "City name is required.";
     }
-    if (areas.length === 0) {
-      nextErrors.pinCode = "At least one area/pincode is required.";
-    }
     setErrors(nextErrors);
     return Object.keys(nextErrors).length === 0;
-  }
-
-  function addArea() {
-    if (newArea.areaName.trim() && newArea.pinCode.trim()) {
-      setAreas([...areas, { ...newArea }]);
-      setNewArea({ areaName: "", pinCode: "" });
-    }
-  }
-
-  function removeArea(index: number) {
-    setAreas(areas.filter((_, i) => i !== index));
   }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -118,10 +86,9 @@ export default function CityFormModal({ open, city, onClose, onSave }: Props) {
 
     setSaving(true);
     try {
-      const pinCodeJson = JSON.stringify(areas);
       await onSave({
         cityName: form.cityName.trim(),
-        pinCode: pinCodeJson,
+        pinCode: form.pinCode,
         serviceCategoryId: selectedCategoryIds.length > 0 ? JSON.stringify(selectedCategoryIds) : "",
       });
       onClose();
@@ -169,54 +136,6 @@ export default function CityFormModal({ open, city, onClose, onSave }: Props) {
               placeholder="Enter city name"
             />
             {errors.cityName && <p className="mt-1 text-xs text-rosewood">{errors.cityName}</p>}
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-warmgrey mb-1.5">Areas & Pincodes <span className="text-rosewood">*</span></label>
-
-            <div className="space-y-2 mb-3">
-              {areas.map((area, index) => (
-                <div key={index} className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg">
-                  <div className="flex-1">
-                    <p className="text-sm font-medium text-charcoal">{area.areaName}</p>
-                    <p className="text-xs text-warmgrey">{area.pinCode}</p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => removeArea(index)}
-                    className="p-1 text-rosewood hover:bg-dustyrose/10 rounded transition"
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                </div>
-              ))}
-              {areas.length === 0 && (
-                <p className="text-sm text-warmgrey italic">No areas added yet</p>
-              )}
-            </div>
-
-            <div className="flex flex-col sm:flex-row gap-2">
-              <input
-                value={newArea.areaName}
-                onChange={(e) => setNewArea({ ...newArea, areaName: e.target.value })}
-                className="flex-1 rounded-xl border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-terracotta/30 focus:border-terracotta transition-all border-lightstone"
-                placeholder="Area name (e.g., Indiranagar)"
-              />
-              <input
-                value={newArea.pinCode}
-                onChange={(e) => setNewArea({ ...newArea, pinCode: e.target.value })}
-                className="w-full sm:w-28 rounded-xl border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-terracotta/30 focus:border-terracotta transition-all border-lightstone"
-                placeholder="Pincode"
-              />
-              <button
-                type="button"
-                onClick={addArea}
-                className="px-3 py-2 bg-terracotta text-white rounded-xl hover:bg-accent-700 transition shadow-sm shrink-0"
-              >
-                <Plus size={16} />
-              </button>
-            </div>
-            {errors.pinCode && <p className="mt-1 text-xs text-rosewood">{errors.pinCode}</p>}
           </div>
 
           <div>

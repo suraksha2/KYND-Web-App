@@ -2,9 +2,10 @@ import React, { useMemo, useState } from 'react'
 import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import {
   ArrowLeft, Calendar, Clock, MapPin, Phone, User, CreditCard, Wallet, Banknote,
-  CheckCircle2, XCircle, Repeat, Zap, AlertTriangle, RotateCcw, X, StickyNote
+  CheckCircle2, XCircle, Repeat, Zap, AlertTriangle, RotateCcw, X, StickyNote, MessageCircle
 } from 'lucide-react'
 import { useBookings } from '../context/BookingsContext'
+import { useAuth } from '../context/AuthContext'
 import { iconForService } from '../lib/serviceIcon'
 
 const paymentLabel = (p) => p === 'cod' ? 'Cash after service' : p === 'upi' ? 'UPI' : p === 'card' ? 'Card' : (p || '').toUpperCase()
@@ -52,10 +53,23 @@ function StatusBanner({ booking }) {
   let cls = 'bg-accent-50 text-terracotta border-accent-100'
   let Icon = Calendar
   let label = 'Scheduled'
-  if (booking.status === 'cancelled') { cls = 'bg-red-50 text-red-700 border-red-100'; Icon = XCircle; label = cancelledByLabel(booking.cancelledBy) }
-  else if (booking.status === 'completed') { cls = 'bg-sage/10 text-sage border-sage/20'; Icon = CheckCircle2; label = 'Completed' }
-  else if (booking.schedule === 'instant') { cls = 'bg-amber-50 text-amber-700 border-amber-100'; Icon = Zap; label = 'In progress — Pro on the way' }
-  else if (booking.schedule === 'recurring') { cls = 'bg-indigo-50 text-indigo-700 border-indigo-100'; Icon = Repeat; label = `Recurring · ${booking.cadence}` }
+  
+  // For recurring bookings, check the status of occurrences
+  if (booking.schedule === 'recurring' && Array.isArray(booking.occurrences) && booking.occurrences.length > 0) {
+    const hasUpcoming = booking.occurrences.some(o => o.status === 'upcoming')
+    const hasCompleted = booking.occurrences.some(o => o.status === 'completed')
+    const hasCancelled = booking.occurrences.some(o => o.status === 'cancelled')
+    
+    if (hasCancelled) { cls = 'bg-red-50 text-red-700 border-red-100'; Icon = XCircle; label = 'Cancelled' }
+    else if (hasUpcoming) { cls = 'bg-indigo-50 text-indigo-700 border-indigo-100'; Icon = Repeat; label = `Recurring · ${booking.cadence}` }
+    else if (hasCompleted) { cls = 'bg-sage/10 text-sage border-sage/20'; Icon = CheckCircle2; label = 'All visits completed' }
+  } else {
+    // For non-recurring bookings, use the main booking status
+    if (booking.status === 'cancelled') { cls = 'bg-red-50 text-red-700 border-red-100'; Icon = XCircle; label = cancelledByLabel(booking.cancelledBy) }
+    else if (booking.status === 'completed') { cls = 'bg-sage/10 text-sage border-sage/20'; Icon = CheckCircle2; label = 'Completed' }
+    else if (booking.schedule === 'instant') { cls = 'bg-amber-50 text-amber-700 border-amber-100'; Icon = Zap; label = 'In progress — Pro on the way' }
+  }
+  
   return (
     <div className={`flex items-center gap-2 px-4 py-3 rounded-2xl border text-sm font-semibold ${cls}`}>
       <Icon className="w-4 h-4" /> {label}
@@ -67,6 +81,7 @@ export default function BookingDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
   const { getBooking, cancelBooking, rescheduleBooking } = useBookings()
+  const { user } = useAuth()
   const booking = getBooking(id)
 
   const [showReschedule, setShowReschedule] = useState(false)
@@ -195,7 +210,7 @@ export default function BookingDetail() {
                     <span className="text-warmgrey mr-2">#{v.seq}</span>
                     {v.scheduledAt ? new Date(v.scheduledAt).toLocaleString('en-SG', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', ...sgt }) : '—'}
                   </span>
-                  <span className={`text-[11px] font-semibold uppercase shrink-0 ${v.status === 'completed' ? 'text-emerald-700' : v.status === 'cancelled' ? 'text-red-600' : 'text-warmgrey'}`}>
+                  <span className={`text-[11px] font-semibold uppercase shrink-0 ${v.status === 'completed' ? 'text-emerald-700' : v.status === 'cancelled' ? 'text-red-600' : 'text-amber-700'}`}>
                     {v.status}
                   </span>
                 </li>
@@ -278,6 +293,19 @@ export default function BookingDetail() {
                 <AlertTriangle className="w-3 h-3" /> Reschedule unavailable for past or in-progress bookings.
               </p>
             )}
+          </div>
+        )}
+
+        {/* Messaging section - available for upcoming and completed bookings with an assigned partner */}
+        {(booking.status === 'upcoming' || booking.status === 'completed') && booking.providerId && (
+          <div className="mt-5">
+            <button
+              onClick={() => navigate(`/chat/${booking.id}`)}
+              className="inline-flex items-center gap-2 rounded-full bg-terracotta hover:bg-accent-600 text-white font-semibold py-3 px-5 text-sm transition-colors"
+            >
+              <MessageCircle className="w-4 h-4" />
+              Message your partner
+            </button>
           </div>
         )}
       </div>

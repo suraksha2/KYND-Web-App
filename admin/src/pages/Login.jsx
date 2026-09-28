@@ -7,7 +7,7 @@ export default function Login() {
   const { login } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
-  const redirectTo = location.state?.from || '/'
+  const redirectTo = location.state?.from || '/dashboard'
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -21,7 +21,7 @@ export default function Login() {
     setLoading(true)
     try {
       await login({ email, password })
-      navigate(redirectTo === '/login' ? '/' : redirectTo, { replace: true })
+      navigate(redirectTo === '/login' ? '/dashboard' : redirectTo, { replace: true })
     } catch (err) {
       setError(err.message || 'Unable to sign in.')
     } finally {

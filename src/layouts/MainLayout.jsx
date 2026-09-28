@@ -5,17 +5,20 @@ import Header from '../components/Header'
 import Footer from '../components/Footer'
 import { useAuth } from '../context/AuthContext'
 import { useBookings } from '../context/BookingsContext'
+import { useUnreadMessages } from '../hooks/useUnreadMessages.js'
 
 export default function MainLayout() {
   const { pathname, hash } = useLocation()
   const navigate = useNavigate()
   const { isAuthenticated } = useAuth()
   const { activeCount } = useBookings()
+  const unreadMessages = useUnreadMessages()
 
   // Service detail has its own inline back button and hero, so the global header
   // is hidden there to match the native app design.
   const isServiceDetail = useMatch('/services/:slug')
   const isHelpDetail = useMatch('/help/:slug')
+  const isChat = useMatch('/chat/:bookingId')
 
   useEffect(() => {
     if (hash) {
@@ -28,7 +31,7 @@ export default function MainLayout() {
   const tabs = [
     { tab: 'home',     path: '/',                                     icon: Home,          label: 'Home',     match: ['/'] },
     { tab: 'bookings', path: '/bookings',                             icon: CalendarDays,  label: 'Bookings', match: ['/bookings', '/booking'], dot: activeCount > 0 },
-    { tab: 'messages', path: '/support',                              icon: MessageSquare, label: 'Messages', match: ['/support'] },
+    { tab: 'messages', path: '/support',                              icon: MessageSquare, label: 'Messages', match: ['/support', '/chat'], dot: unreadMessages > 0 },
     { tab: 'profile',  path: isAuthenticated ? '/account' : '/login', icon: User,          label: 'Profile',  match: ['/account', '/login', '/signup'] },
   ]
 
@@ -38,14 +41,14 @@ export default function MainLayout() {
 
   return (
     <div className="min-h-full flex flex-col">
-      {!isServiceDetail && !isHelpDetail && <Header />}
+      {!isServiceDetail && !isHelpDetail && !isChat && <Header />}
       <main className="flex-1">
         <Outlet />
       </main>
-      <Footer />
+      {!isChat && <Footer />}
 
       {/* Mobile-only bottom tab bar (native app feel) */}
-      <nav
+      {!isChat && <nav
         aria-label="Primary"
         className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-white/95 backdrop-blur-sm rounded-t-[26px] border-t border-lightstone/60 shadow-[0_-10px_30px_-14px_rgba(74,46,31,0.25)] tabbar-safe"
       >
@@ -81,7 +84,7 @@ export default function MainLayout() {
             )
           })}
         </ul>
-      </nav>
+      </nav>}
     </div>
   )
 }

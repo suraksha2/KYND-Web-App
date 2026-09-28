@@ -75,6 +75,11 @@ function isPublicApi(pathname: string, method: string): boolean {
 
   // Provider APIs are gated by the route handlers themselves (provider or admin).
   if (pathname.startsWith('/provider/')) return true;
+  // Providers can send and read messages for their assigned bookings; the route verifies
+  // provider_id before allowing access.
+  if (pathname.startsWith('/messages/')) return true;
+  // Customers can list their conversations and get unread count for notifications
+  if (pathname === '/messages' || pathname === '/messages/unread-count') return true;
 
   // Machine-to-machine endpoints for the cron dispatcher. There is no session to
   // verify; the handlers check INTERNAL_API_TOKEN themselves.
@@ -128,6 +133,9 @@ export async function apiAuthGate(req: Request, res: Response, next: NextFunctio
     if (req.method === 'GET' && /^\/payments\/[^/]+$/.test(pathname)) return next();
     // Customers submit reviews for their own bookings.
     if (pathname === '/reviews' && req.method === 'POST') return next();
+    // Customers read and edit their own saved booking defaults; the route scopes
+    // every query to session.id.
+    if (pathname === '/profile' && (req.method === 'GET' || req.method === 'PUT')) return next();
     return res.status(403).json({ error: 'Admin access required.' });
   }
 

@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { Eye, EyeOff, Mail, Lock, User, Loader2, Check } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import KyndWordmark from '../components/KyndWordmark'
+import BottomNav from '../components/BottomNav'
 
 const scorePassword = (pwd) => {
   let score = 0
@@ -49,13 +50,18 @@ export default function Signup() {
   }
 
   return (
-    <section className="pt-28 md:pt-32 pb-16 min-h-screen">
+    <section className="pt-28 md:pt-32 pb-24 min-h-screen">
       <div className="max-w-md mx-auto px-5 sm:px-6">
         <div className="bg-white rounded-3xl ring-1 ring-lightstone shadow-soft p-6 sm:p-8">
           <div className="text-center">
             <Link to="/"><KyndWordmark className="text-3xl" /></Link>
             <h1 className="font-heading mt-4 text-2xl sm:text-3xl font-extrabold text-charcoal">Create your account</h1>
             <p className="mt-1.5 text-sm text-warmgrey">Book trusted home services in minutes.</p>
+          </div>
+
+          <div className="mt-6 grid grid-cols-2 gap-1 rounded-full bg-warmlinen p-1">
+            <Link to="/login" className="rounded-full py-2.5 text-center text-sm font-medium text-warmgrey hover:text-charcoal transition">Sign in</Link>
+            <div className="rounded-full bg-white py-2.5 text-center text-sm font-semibold text-charcoal shadow-sm" aria-current="page">Sign up</div>
           </div>
 
           {error && (
@@ -178,13 +184,9 @@ export default function Signup() {
               {loading ? 'Creating account…' : 'Create account'}
             </button>
           </form>
-
-          <p className="mt-6 text-center text-sm text-warmgrey">
-            Already have an account?{' '}
-            <Link to="/login" className="font-semibold text-terracotta hover:text-charcoal">Sign in</Link>
-          </p>
         </div>
       </div>
+      <BottomNav />
     </section>
   )
 }

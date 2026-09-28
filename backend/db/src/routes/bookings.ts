@@ -179,6 +179,7 @@ router.post('/', async (req, res) => {
       contact,
       notes,
       payment,
+      referralCode,
       placedAt,
       addOns,
       offer,
@@ -268,8 +269,8 @@ router.post('/', async (req, res) => {
       `INSERT INTO bookings (
         booking_id, items, total, schedule, scheduled_at, cadence, recurrence,
         contact_name, contact_phone, contact_address, contact_city, contact_pincode, contact_area,
-        notes, payment, payment_intent_id, placed_at, status, history, user_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        notes, payment, referral_code, payment_intent_id, placed_at, status, history, user_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         bookingId,
         JSON.stringify([
@@ -295,6 +296,7 @@ router.post('/', async (req, res) => {
         contact.area || null,
         trimmedNotes || null,
         payment,
+        referralCode || null,
         storedPaymentIntentId,
         sgtDateTime(placedAt),
         status,
@@ -408,7 +410,7 @@ router.get('/', async (req, res) => {
 
     let query = `
       SELECT b.*,
-             sp.id AS provider_id,
+             COALESCE(sp.id, b.provider_id) AS provider_id,
              sp.name AS provider_name,
              sp.rating AS provider_rating,
              sp.avatar AS provider_avatar,
@@ -423,7 +425,7 @@ router.get('/', async (req, res) => {
       // Customer: show only their own bookings.
       query = `
         SELECT b.*,
-               sp.id AS provider_id,
+               COALESCE(sp.id, b.provider_id) AS provider_id,
                sp.name AS provider_name,
                sp.rating AS provider_rating,
                sp.avatar AS provider_avatar,

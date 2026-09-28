@@ -1,32 +1,28 @@
-import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
-import { useAuth } from './context/AuthContext'
+import { Routes, Route, Navigate } from 'react-router-dom'
+import AdminLayout from './components/AdminLayout'
 import Login from './pages/Login'
 import Signup from './pages/Signup'
-import AdminPanel from './pages/AdminPanel'
-
-function RequireAdmin({ children }) {
-  const { isAdmin } = useAuth()
-  const location = useLocation()
-  if (!isAdmin) {
-    return <Navigate to="/login" state={{ from: location.pathname }} replace />
-  }
-  return children
-}
+import Dashboard from './pages/Dashboard'
+import Orders from './pages/Orders'
+import Services from './pages/Services'
+import Clients from './pages/Clients'
+import Providers from './pages/Providers'
 
 export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/secret-signup" element={<Signup />} />
-      <Route
-        path="/"
-        element={
-          <RequireAdmin>
-            <AdminPanel />
-          </RequireAdmin>
-        }
-      />
-      <Route path="*" element={<Navigate to="/" replace />} />
+
+      <Route element={<AdminLayout />}>
+        <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/orders" element={<Orders />} />
+        <Route path="/services" element={<Services />} />
+        <Route path="/clients" element={<Clients />} />
+        <Route path="/providers" element={<Providers />} />
+      </Route>
+
+      <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
   )
 }

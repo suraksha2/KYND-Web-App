@@ -25,6 +25,7 @@ export function mapCatalogService(service) {
     name: service.name,
     short: service.category || 'Professional service',
     category: service.category || '',
+    categoryId: service.category_id != null ? String(service.category_id) : null,
     img: serviceImageUrl(service.image),
     price,
     pricingFrom,
