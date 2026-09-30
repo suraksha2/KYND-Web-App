@@ -48,7 +48,8 @@ INSERT INTO catalog_subcategories (id, category_id, name, description, sort_orde
 -- Beauty Services (category 4). The sheet's Hair Services and Hair Cut groups
 -- are merged into one "Hair Services" card — every service under it is a
 -- variant of the same offering and they are all listed together on the booking
--- page (see migration 009).
+-- page (see migration 009). Threading and Waxing are likewise merged into one
+-- "Waxing & Threading" card (see migration 011).
   (301, 4, 'Hair Services',        'Haircuts and styling by hair length.',                     1),  -- Beauty - Hair Services / Hair Cut
   (303, 4, 'Nail Art',             'Nail art and extensions.',                                 2),  -- Beauty - Nail Art
   (304, 4, 'Heena Art',            'Full hand and kids heena designs.',                        3),  -- Beauty - Heena Art
@@ -57,8 +58,7 @@ INSERT INTO catalog_subcategories (id, category_id, name, description, sort_orde
   (307, 4, 'Makeup',               'Party makeup, with or without hairstyling.',                6),  -- Beauty - Makeup
   (308, 4, 'Mani-Pedi',            'Manicure and pedicure.',                                    7),  -- Beauty - Mani - Pedi
   (309, 4, 'Hair Care',            'Hair spa, blow dry, heena and colour touch-up.',            8),  -- Beauty - Hair Care
-  (310, 4, 'Threading',            'Eyebrow, lips, forehead and full face.',                    9),  -- Beauty - Threading
-  (311, 4, 'Waxing',               'Face, arms, legs, underarm, tummy and back.',              10),  -- Beauty - Waxing
+  (310, 4, 'Waxing & Threading',   'Eyebrow, lips, face, arms, legs, underarm and back.',       9),  -- Beauty - Threading / Waxing
 
 -- Office Cleaning (category 5) — pricing pending
   (401, 5, 'General Office Cleaning', 'Ad-hoc, weekly, daily and move-in/out deep cleans.',    1),  -- Office Cleaning - General

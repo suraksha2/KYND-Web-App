@@ -8,7 +8,7 @@ import { useBookings } from '../context/BookingsContext'
 import { useUnreadMessages } from '../hooks/useUnreadMessages.js'
 
 export default function MainLayout() {
-  const { pathname, hash } = useLocation()
+  const { pathname, hash, state } = useLocation()
   const navigate = useNavigate()
   const { isAuthenticated } = useAuth()
   const { activeCount } = useBookings()
@@ -21,12 +21,16 @@ export default function MainLayout() {
   const isChat = useMatch('/chat/:bookingId')
 
   useEffect(() => {
+    // Selecting an option on the service detail page swaps the slug in place
+    // (variant/checkbox picks navigate to a sibling service's URL) — that's
+    // not a page change the viewport should jump for.
+    if (state?.skipScrollTop) return
     if (hash) {
       const el = document.querySelector(hash)
       if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); return }
     }
     window.scrollTo({ top: 0, behavior: 'instant' in window ? 'instant' : 'auto' })
-  }, [pathname, hash])
+  }, [pathname, hash, state])
 
   const tabs = [
     { tab: 'home',     path: '/',                                     icon: Home,          label: 'Home',     match: ['/'] },

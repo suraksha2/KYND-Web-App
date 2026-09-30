@@ -140,7 +140,7 @@ const roomLabel = (name = '') =>
     .replace(/\s+/g, ' ')
     .trim() || name
 
-const MULTI_SELECT_GROUPS = new Set(['heena art', 'threading', 'waxing'])
+const MULTI_SELECT_GROUPS = new Set(['heena art', 'threading', 'waxing', 'waxing & threading'])
 const isMultiSelectGroup = (name = '') => MULTI_SELECT_GROUPS.has(String(name).trim().toLowerCase())
 
 const VariantRow = ({ svc, label, meta, selected, multi, onSelect }) => (
@@ -1233,7 +1233,7 @@ const HowSoonPanel = ({ open, setOpen, summary, goToAddons, schedule, setSchedul
                   <p className="mt-4 text-sm text-warmgrey">No available slots for this date. Try another.</p>
                 ) : (
                   <>
-                    <p className="text-xs font-bold text-warmgrey uppercase tracking-wide mt-4 mb-2">Available slots</p>
+                    <p className="text-xs font-bold text-warmgrey uppercase tracking-wide mt-4 mb-2">Preferred slots</p>
                     <div className="grid grid-cols-3 gap-2">
                       {slots.map((slot) => (
                         <button
@@ -1805,7 +1805,7 @@ export default function ServiceDetail() {
     if (!houseMode || !primary || HOUSE_RE.test(primary.name)) return
     const hours = (parseDurationMinutes(primary.duration) || 0) / 60
     const target = houseOptions.find(o => o.hours === hours) || houseOptions[0]
-    navigate(`/services/${target.svc.slug}`, { replace: true })
+    navigate(`/services/${target.svc.slug}`, { replace: true, state: { skipScrollTop: true } })
   }, [houseMode, primary])
 
   const hasVariants = sortedVariants.length > 0
@@ -1816,14 +1816,14 @@ export default function ServiceDetail() {
   }, [hasVariants])
 
   const selectVariant = (svc) => {
-    if (svc.slug !== primary.slug) navigate(`/services/${svc.slug}`, { replace: true })
+    if (svc.slug !== primary.slug) navigate(`/services/${svc.slug}`, { replace: true, state: { skipScrollTop: true } })
     goToHow()
   }
 
   // The weekly pickers take two taps to express one choice, so picking an axis
   // must not collapse the card the way a single-tap row does.
   const selectVariantStay = (svc) => {
-    if (svc.slug !== primary.slug) navigate(`/services/${svc.slug}`, { replace: true })
+    if (svc.slug !== primary.slug) navigate(`/services/${svc.slug}`, { replace: true, state: { skipScrollTop: true } })
   }
 
   const isPicked = (svc) => selectedServices.some(s => s.slug === svc.slug)
@@ -1835,7 +1835,7 @@ export default function ServiceDetail() {
     const slugs = selectedServices.map(s => s.slug)
     const next = slugs.includes(svc.slug) ? slugs.filter(s => s !== svc.slug) : [...slugs, svc.slug]
     if (!next.length) return
-    navigate(`/services/${next[next.length - 1]}`, { replace: true, state: { selectedSlugs: next } })
+    navigate(`/services/${next[next.length - 1]}`, { replace: true, state: { selectedSlugs: next, skipScrollTop: true } })
   }
 
   const arrivalTime = useMemo(() => {
