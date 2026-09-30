@@ -142,7 +142,7 @@ export async function priceOrder(input: {
     if (!service) {
       throw new PricingError(`Unknown service: ${raw.name || raw.slug || raw.id || 'item'}`);
     }
-    if (service.status && service.status !== 'active') {
+    if (service.status && service.status !== 'live') {
       throw new PricingError(`Service "${service.name}" is not available.`);
     }
     resolvedServices.push({ service, qty, raw });

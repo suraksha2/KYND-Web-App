@@ -103,7 +103,7 @@ const RATE_LABELS = {
   package: 'package price'
 }
 
-const formatHours = (minutes) => `${(minutes / 60).toFixed(1)} hr`
+const formatHours = (minutes) => minutes < 60 ? `${minutes} min` : `${(minutes / 60).toFixed(1)} hr`
 
 /** "1 worker · day rate" — whichever of the two the catalog knows. */
 const variantMeta = (svc) => {
