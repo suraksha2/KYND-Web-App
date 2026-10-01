@@ -461,6 +461,9 @@ CREATE TABLE IF NOT EXISTS catalog_services (
   status ENUM('live', 'pending_rates', 'paused') DEFAULT 'pending_rates',
   default_partner_cost DECIMAL(10,2),
   markup_pct_override DECIMAL(5,2),
+  net_margin DECIMAL(10,2),
+  net_margin_pct DECIMAL(5,2),
+  actual_markup_pct DECIMAL(5,2),
   -- Carried over from the Service Master sheet's research columns.
   competitor_reference VARCHAR(255),
   notes TEXT,
@@ -633,6 +636,31 @@ SET @stmt := IF(
     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'catalog_services'
       AND COLUMN_NAME = 'rate_type') = 0,
   'ALTER TABLE catalog_services ADD COLUMN rate_type VARCHAR(32) NULL AFTER worker_count',
+  'DO 0');
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- Migration: margin columns (see migrations/012-catalog-artwork-and-margins.sql).
+SET @stmt := IF(
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'catalog_services'
+      AND COLUMN_NAME = 'net_margin') = 0,
+  'ALTER TABLE catalog_services ADD COLUMN net_margin DECIMAL(10,2) NULL',
+  'DO 0');
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @stmt := IF(
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'catalog_services'
+      AND COLUMN_NAME = 'net_margin_pct') = 0,
+  'ALTER TABLE catalog_services ADD COLUMN net_margin_pct DECIMAL(5,2) NULL',
+  'DO 0');
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @stmt := IF(
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'catalog_services'
+      AND COLUMN_NAME = 'actual_markup_pct') = 0,
+  'ALTER TABLE catalog_services ADD COLUMN actual_markup_pct DECIMAL(5,2) NULL',
   'DO 0');
 PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
