@@ -378,8 +378,9 @@ router.get('/services', async (req, res) => {
     const [rows] = await pool.query(
       `SELECT s.id, s.name, s.description, s.image, s.duration, s.worker_count, s.rate_type, s.status,
               s.default_partner_cost, s.markup_pct_override,
-              c.id as category_id, c.name as category,
+              c.id as category_id, c.name as category, c.image as category_image,
               sc.id as subcategory_id, sc.name as subcategory, sc.is_addon as subcategory_is_addon,
+              sc.image as subcategory_image,
               pr.strategy as pricing_strategy, pr.params as pricing_params
        FROM catalog_services s
        JOIN catalog_categories c ON s.category_id = c.id

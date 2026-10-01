@@ -40,6 +40,9 @@ export function mapCatalogService(service) {
     subcategoryId: service.subcategory_id != null ? String(service.subcategory_id) : null,
     isAddon: Boolean(service.subcategory_is_addon),
     img: serviceImageUrl(service.image),
+    // Subcategory (else category) tile art, for screens that need a picture
+    // even when the service itself has none.
+    groupImg: serviceImageUrl(service.subcategory_image || service.category_image),
     price,
     pricingFrom: price === null ? 'Custom quote' : `S$${price.toFixed(2)}`,
     duration: service.duration || 'Variable',

@@ -411,7 +411,7 @@ const ServiceHero = ({ svc }) => {
   const HeroIcon = iconForService(svc.name)
   const [liked, setLiked] = useState(false)
 
-  const sources = [servicePeopleImage(svc.slug || svc.name), svc.img, localServiceImage(svc.slug || svc.name)].filter(Boolean)
+  const sources = [servicePeopleImage(svc.slug || svc.name), svc.img, localServiceImage(svc.slug || svc.name), svc.groupImg].filter(Boolean)
   const [sourceIndex, setSourceIndex] = useState(0)
   const heroSrc = sources[sourceIndex] ?? null
 
@@ -2244,14 +2244,14 @@ export default function ServiceDetail() {
         title={primary.name}
         description={taglineForService(primary.name) || `Book ${primary.name} with verified Kynd Pros in Singapore.`}
         path={`/services/${slug}`}
-        image={primary.img || undefined}
+        image={primary.img || primary.groupImg || undefined}
         jsonLd={[
           serviceSchema({
             name: primary.name,
             description: taglineForService(primary.name),
             path: `/services/${slug}`,
             price: primary.price || parsePrice(primary.pricingFrom),
-            image: primary.img,
+            image: primary.img || primary.groupImg,
           }),
           breadcrumbSchema([
             { name: 'Home', path: '/' },
