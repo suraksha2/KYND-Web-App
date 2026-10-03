@@ -28,6 +28,25 @@ SET @stmt := IF(
   'DO 0');
 PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
+-- The rate_type backfill reads `notes`, which tables created before the
+-- Service Master research columns lack. No AFTER: markup_pct_override may be
+-- missing on those tables too.
+SET @stmt := IF(
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'catalog_services'
+      AND COLUMN_NAME = 'competitor_reference') = 0,
+  'ALTER TABLE catalog_services ADD COLUMN competitor_reference VARCHAR(255) NULL',
+  'DO 0');
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @stmt := IF(
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'catalog_services'
+      AND COLUMN_NAME = 'notes') = 0,
+  'ALTER TABLE catalog_services ADD COLUMN notes TEXT NULL',
+  'DO 0');
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
 -- Backfill from the text the Service Master import left behind. Kept in sync
 -- with the same block at the end of backend/db/seed/catalog-services.sql.
 UPDATE catalog_services

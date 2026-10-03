@@ -17,6 +17,9 @@ ios
 *.tsbuildinfo
 **/*.tsbuildinfo
 
+# phpMyAdmin dumps of a dev database — they hold users, bookings and password hashes.
+/urban_service*.sql
+
 # Planning/exported office files
 *.xlsx
 *.xlsx.bak

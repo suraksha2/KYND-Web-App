@@ -56,7 +56,7 @@ INSERT INTO catalog_subcategories (id, category_id, name, description, sort_orde
   (305, 4, 'Bleach',               'Oxy and chandan bleach.',                                   4),  -- Beauty - Bleach
   (306, 4, 'Facial',               'VLCC, O3, Lotus, Shahnaz and fruit facials.',               5),  -- Beauty - Facial
   (307, 4, 'Makeup',               'Party makeup, with or without hairstyling.',                6),  -- Beauty - Makeup
-  (308, 4, 'Mani-Pedi',            'Manicure and pedicure.',                                    7),  -- Beauty - Mani - Pedi
+  (308, 4, 'Mani Pedi',            'Manicure and pedicure.',                                    7),  -- Beauty - Mani - Pedi
   (309, 4, 'Hair Care',            'Hair spa, blow dry, heena and colour touch-up.',            8),  -- Beauty - Hair Care
   (310, 4, 'Waxing & Threading',   'Eyebrow, lips, face, arms, legs, underarm and back.',       9),  -- Beauty - Threading / Waxing
 
