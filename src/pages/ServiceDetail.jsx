@@ -637,6 +637,40 @@ const isRepeatVisit = (plan, days, first, iso) => {
   return plan.id !== 'biweekly' || (mondayWeekOf(iso) - mondayWeekOf(first)) % 2 === 0
 }
 
+// Office cleaning: premises-size bands with flat monthly plan rates (per
+// cleaner), taken from the ops pricing sheet. A band/plan combo with no fixed
+// rate yet ("By quote") always routes to a quote instead of a bookable
+// number — as does the dedicated-onsite-cleaner table, which is priced as a
+// range rather than a fixed rate.
+const OFFICE_SIZES = [
+  { id: '1-2k', label: '1,000\u20132,000 sqft', threeWeek: 450, daily: 550 },
+  { id: '2-3k', label: '2,001\u20133,000 sqft', threeWeek: 650, daily: 750 },
+  { id: '3-4k', label: '3,001\u20134,000 sqft', threeWeek: 850, daily: 1100 },
+  { id: '4-5k', label: '4,001\u20135,000 sqft', threeWeek: null, daily: 1250 },
+  { id: '5-7k', label: '5,001\u20137,000 sqft', threeWeek: null, daily: 1520 },
+  { id: '7k+', label: '7,001 sqft onwards', threeWeek: null, daily: null },
+]
+const OFFICE_HOURS = [2, 3, 4, 6, 8]
+// One-time/ad-hoc visits aren't in the contract table, so they price like the
+// other ad-hoc cleaning rows: an hourly day rate per cleaner.
+const OFFICE_HOURLY_RATE = 28
+const OFFICE_PLANS = [
+  { id: 'threeWeek', title: '3x per week', subtitle: 'Per cleaner, per month', key: 'threeWeek', allowedDays: [1, 2, 3, 4, 5], maxDays: 3, cap: '3 weekdays' },
+  { id: 'daily', title: 'Daily, Mon\u2013Fri', subtitle: 'Per cleaner, per month', key: 'daily', allowedDays: [1, 2, 3, 4, 5], maxDays: 5, defaultDays: [1, 2, 3, 4, 5], cap: '5 weekdays' },
+]
+// Dedicated, full-time onsite cleaners are quoted as a range in the sheet —
+// always a "Contact us", never a bookable card.
+const OFFICE_DEDICATED_PLANS = [
+  { id: 'dedicatedWeekday', title: 'Dedicated cleaner, Mon\u2013Fri', subtitle: 'Full-time, stationed onsite', range: 'S$2,900\u2013S$4,200/mo' },
+  { id: 'dedicatedFull', title: 'Dedicated cleaner, Mon\u2013Sun', subtitle: 'Full-time, incl. public holidays', range: 'S$3,800\u2013S$4,800/mo' },
+]
+const officeSizeOf = (id) => OFFICE_SIZES.find(s => s.id === id) || OFFICE_SIZES[0]
+const officePlanOf = (recurrence) => OFFICE_PLANS.find(p => p.id === recurrence?.plan) || null
+const officePlanPrice = (size, plan) => size?.[plan.key] ?? null
+const officePlanRecurrence = (plan, days = []) => ({ type: 'preset', value: plan.id === 'daily' ? 'daily' : 'weekly', days, plan: plan.id })
+const officeQuoteMailto = (title, size) =>
+  `mailto:help@kynd.sg?subject=${encodeURIComponent(`Office cleaning quote: ${title}`)}&body=${encodeURIComponent(`Hi Kynd team,\n\nI'd like a quote for "${title}"${size ? ` (${size.label})` : ''}.\n\n`)}`
+
 const AxisStepper = ({ value, min, max, onChange }) => (
   <div className="flex items-center gap-3 shrink-0">
     <button
@@ -708,6 +742,45 @@ const HousePicker = ({ options, selectedSlug, homeSize, setHomeSize, cleaners, s
     </div>
   )
 }
+
+// Office cleaning's picker mirrors HousePicker's shape (size, hours,
+// cleaners) but the size feeds the recurring plan table further down instead
+// of suggesting hours — office contracts are priced by premises size, not by
+// how long a single visit takes.
+const OfficePicker = ({ officeSize, setOfficeSize, hours, setHours, cleaners, setCleaners, onContinue }) => (
+  <div className="pt-1">
+    <p className="text-sm font-bold text-charcoal mb-2">Size of your office</p>
+    <div className="grid grid-cols-2 gap-2">
+      {OFFICE_SIZES.map(s => (
+        <AxisPill key={s.id} selected={officeSize === s.id} onClick={() => setOfficeSize(s.id)}>{s.label}</AxisPill>
+      ))}
+    </div>
+
+    <p className="text-sm font-bold text-charcoal mt-5 mb-2">Hours per visit</p>
+    <div className="grid grid-cols-5 gap-2">
+      {OFFICE_HOURS.map(h => (
+        <AxisPill key={h} selected={hours === h} onClick={() => setHours(h)}>{formatHrs(h)}</AxisPill>
+      ))}
+    </div>
+    <p className="mt-2 text-xs text-warmgrey">Hours are for one-time visits — recurring contracts are priced by office size.</p>
+
+    <div className="mt-5 flex items-center justify-between gap-4">
+      <div className="min-w-0">
+        <p className="text-sm font-bold text-charcoal">Cleaners</p>
+        <p className="text-xs text-warmgrey mt-0.5">More cleaners, same job done faster</p>
+      </div>
+      <AxisStepper value={cleaners} min={1} max={MAX_CLEANERS} onChange={setCleaners} />
+    </div>
+
+    <button
+      type="button"
+      onClick={onContinue}
+      className="mt-5 w-full rounded-full bg-warmlinen hover:bg-lightstone text-charcoal font-semibold py-2.5 text-sm transition"
+    >
+      Continue
+    </button>
+  </div>
+)
 
 /** Month grid, Monday first. Dates are 'YYYY-MM-DD' strings throughout. */
 const MonthCalendar = ({ value, minDate, canPick, isRepeat, onPick }) => {
@@ -1022,8 +1095,167 @@ const HouseRecurringPanel = ({ oneTimePrice, recurrence, setRecurrence, date, se
   )
 }
 
+// Recurring office cleaning, inline in "When?": same shape as
+// HouseRecurringPanel (plan cards, weekday chips, first-visit calendar), but
+// the plan price comes straight from the office-size table instead of a %
+// off the one-time rate, and a plan/size with no fixed rate is a "Contact us"
+// quote link rather than a selectable card.
+const OfficeRecurringPanel = ({ oneTimePrice, officeSize, recurrence, setRecurrence, date, setDate, time, setTime, minDate, onOneTime, onContinue, error, serviceName, city, duration }) => {
+  const plan = officePlanOf(recurrence) || OFFICE_PLANS[0]
+  const size = officeSizeOf(officeSize)
+  const days = planDays(recurrence, date)
+  const price = officePlanPrice(size, plan)
+  const { slots, loading, error: slotsError } = useSlots(true, date, serviceName, city, duration)
+
+  const choosePlan = (next) => {
+    if (next.id === plan.id) return
+    let kept = (recurrence.days || [])
+      .filter(d => (next.allowedDays || []).includes(d))
+      .slice(0, next.maxDays)
+    if (!kept.length && next.defaultDays) kept = next.defaultDays
+    if (date && kept.length && !kept.includes(weekdayOf(date))) { setDate(''); setTime('') }
+    setRecurrence(officePlanRecurrence(next, kept))
+  }
+
+  const toggleDay = (d) => {
+    const current = recurrence.days || []
+    if (current.includes(d)) {
+      if (date && weekdayOf(date) === d) { setDate(''); setTime('') }
+      setRecurrence({ ...recurrence, days: current.filter(x => x !== d) })
+    } else if (current.length < plan.maxDays) {
+      setRecurrence({ ...recurrence, days: [...current, d] })
+    }
+  }
+
+  const canPick = (iso) => iso >= minDate && (!days.length || days.includes(weekdayOf(iso)))
+  const pickDate = (iso) => {
+    const wd = weekdayOf(iso)
+    const current = recurrence.days || []
+    if (!current.includes(wd) && current.length < plan.maxDays) {
+      setRecurrence({ ...recurrence, days: [...current, wd] })
+    }
+    setDate(iso)
+    setTime('')
+  }
+
+  const dayCount = days.length
+  const hint = !dayCount
+    ? 'Pick at least one day.'
+    : plan.id === 'threeWeek' && dayCount < 3
+      ? `Add ${3 - dayCount} more day${3 - dayCount > 1 ? 's' : ''} to complete your 3x/week plan.`
+      : `${dayCount} visit${dayCount === 1 ? '' : 's'} a week.`
+
+  return (
+    <div className="mt-5">
+      <h4 className="font-heading text-base sm:text-lg font-bold text-charcoal">How often?</h4>
+      <div className="mt-3 space-y-3">
+        <PlanCard selected={false} onClick={onOneTime} title="One-time" subtitle="A single clean" price={oneTimePrice} />
+        {OFFICE_PLANS.map(p => {
+          const pPrice = officePlanPrice(size, p)
+          return pPrice === null ? (
+            <a
+              key={p.id}
+              href={officeQuoteMailto(p.title, size)}
+              className="w-full flex items-start justify-between gap-3 rounded-3xl border border-lightstone bg-white px-4 py-3.5 sm:px-5 sm:py-4 text-left hover:border-terracotta/50 transition"
+            >
+              <span className="min-w-0">
+                <span className="block text-sm sm:text-base font-bold text-charcoal">{p.title}</span>
+                <span className="block text-xs sm:text-sm text-warmgrey mt-0.5">{p.subtitle} · {size.label}</span>
+              </span>
+              <span className="shrink-0 text-sm font-bold text-terracotta">Contact us</span>
+            </a>
+          ) : (
+            <PlanCard
+              key={p.id}
+              selected={p.id === plan.id}
+              onClick={() => choosePlan(p)}
+              title={p.title}
+              subtitle={`${p.subtitle} · ${size.label}`}
+              price={pPrice}
+            />
+          )
+        })}
+        {OFFICE_DEDICATED_PLANS.map(p => (
+          <a
+            key={p.id}
+            href={officeQuoteMailto(p.title, null)}
+            className="w-full flex items-start justify-between gap-3 rounded-3xl border border-lightstone bg-white px-4 py-3.5 sm:px-5 sm:py-4 text-left hover:border-terracotta/50 transition"
+          >
+            <span className="min-w-0">
+              <span className="block text-sm sm:text-base font-bold text-charcoal">{p.title}</span>
+              <span className="block text-xs sm:text-sm text-warmgrey mt-0.5">{p.subtitle}</span>
+            </span>
+            <span className="shrink-0 text-right">
+              <span className="block text-xs text-warmgrey">{p.range}</span>
+              <span className="block text-sm font-bold text-terracotta">Contact us</span>
+            </span>
+          </a>
+        ))}
+      </div>
+
+      {price !== null && (
+        <>
+          <div className="mt-6 flex items-baseline justify-between">
+            <h4 className="font-heading text-base sm:text-lg font-bold text-charcoal">Which days?</h4>
+            <span className="text-xs sm:text-sm text-warmgrey">{plan.cap}</span>
+          </div>
+          <div className="mt-3 grid grid-cols-7 gap-1.5 sm:gap-2">
+            {WEEK_DAYS.map(([label, d]) => {
+              const on = days.includes(d)
+              const notAllowed = plan.allowedDays && !plan.allowedDays.includes(d)
+              const full = !on && (recurrence.days || []).length >= plan.maxDays
+              return (
+                <button
+                  key={label}
+                  type="button"
+                  onClick={() => toggleDay(d)}
+                  disabled={!!notAllowed || full}
+                  aria-pressed={on}
+                  className={`rounded-2xl border py-2.5 text-xs sm:text-sm font-semibold transition ${
+                    on
+                      ? 'bg-accent-100 border-terracotta text-terracotta'
+                      : 'bg-white border-lightstone text-charcoal hover:border-terracotta/50'
+                  } ${(notAllowed || full) ? 'opacity-40 hover:border-lightstone' : ''}`}
+                >
+                  {label.slice(0, 2)}
+                </button>
+              )
+            })}
+          </div>
+          <p className="mt-2 text-xs sm:text-sm font-semibold text-sage">{hint}</p>
+          {plan.id === 'daily' && (
+            <p className="mt-3 rounded-2xl bg-sage/10 px-4 py-3 text-xs sm:text-sm text-charcoal leading-relaxed">
+              The same cleaner comes Monday to Friday. If they&rsquo;re on leave, we send a verified stand-in and tell you first.
+            </p>
+          )}
+
+          <h4 className="mt-6 mb-3 font-heading text-base sm:text-lg font-bold text-charcoal">First visit</h4>
+          <MonthCalendar
+            value={date}
+            minDate={minDate}
+            canPick={canPick}
+            isRepeat={(iso) => isRepeatVisit(plan, days, date, iso)}
+            onPick={pickDate}
+          />
+          <SlotGrid loading={loading} error={slotsError} date={date} slots={slots} selected={time} onSelect={setTime} />
+          {error && (!date || !time) && <p className="text-xs text-red-600 mt-2">{error}</p>}
+
+          <button
+            type="button"
+            onClick={onContinue}
+            disabled={!dayCount || !date || !time}
+            className="mt-5 w-full rounded-full bg-terracotta hover:bg-charcoal disabled:opacity-50 text-white font-semibold py-2.5 text-sm transition"
+          >
+            Continue
+          </button>
+        </>
+      )}
+    </div>
+  )
+}
+
 /* ---------- How soon? ---------- */
-const HowSoonPanel = ({ open, setOpen, summary, goToAddons, schedule, setSchedule, date, setDate, time, setTime, recurrence, setRecurrence, customTimes, setCustomTimes, customUnit, setCustomUnit, arrivalTime, errors, submitAttempt, serviceName, city, duration, houseMode, oneTimePrice, wellnessMode }) => {
+const HowSoonPanel = ({ open, setOpen, summary, goToAddons, schedule, setSchedule, date, setDate, time, setTime, recurrence, setRecurrence, customTimes, setCustomTimes, customUnit, setCustomUnit, arrivalTime, errors, submitAttempt, serviceName, city, duration, houseMode, officeMode, officeSize, oneTimePrice, wellnessMode }) => {
   const [showModal, setShowModal] = useState(false)
   const [pickDate, setPickDate] = useState('')
   const [selectedSlot, setSelectedSlot] = useState('')
@@ -1031,7 +1263,7 @@ const HowSoonPanel = ({ open, setOpen, summary, goToAddons, schedule, setSchedul
   const minDate = useMemo(() => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Singapore' }).format(new Date()), [])
 
   useEffect(() => {
-    if (datetimeError && !(houseMode && schedule === 'recurring') && !wellnessMode) setShowModal(true)
+    if (datetimeError && !(houseMode && schedule === 'recurring') && !(officeMode && schedule === 'recurring') && !wellnessMode) setShowModal(true)
   }, [submitAttempt])
 
   useEffect(() => {
@@ -1053,12 +1285,21 @@ const HowSoonPanel = ({ open, setOpen, summary, goToAddons, schedule, setSchedul
 
   const closeModal = () => setShowModal(false)
 
-  // House cleaning picks its cadence inline instead of in the modal; seed the
-  // default plan if the modal had left a non-house recurrence behind.
+  // House and office cleaning pick their cadence inline instead of in the
+  // modal; seed the default plan if the modal had left a mismatched
+  // recurrence behind.
   const selectRecurring = () => {
-    if (!houseMode) return openModal('recurring')
-    setSchedule('recurring')
-    if (!housePlanOf(recurrence)) setRecurrence(planRecurrence(HOUSE_PLANS[0], recurrence.days || []))
+    if (houseMode) {
+      setSchedule('recurring')
+      if (!housePlanOf(recurrence)) setRecurrence(planRecurrence(HOUSE_PLANS[0], recurrence.days || []))
+      return
+    }
+    if (officeMode) {
+      setSchedule('recurring')
+      if (!officePlanOf(recurrence)) setRecurrence(officePlanRecurrence(OFFICE_PLANS[0], recurrence.days || []))
+      return
+    }
+    openModal('recurring')
   }
 
   // Wellness sessions: a non-recurring schedule is the "once" card.
@@ -1161,7 +1402,7 @@ const HowSoonPanel = ({ open, setOpen, summary, goToAddons, schedule, setSchedul
           selected={schedule === 'recurring'}
           onClick={selectRecurring}
           title="Recurring"
-          subtitle="save 15%"
+          subtitle={officeMode ? 'monthly contract' : 'save 15%'}
           error={datetimeError && schedule === 'recurring'}
         />
       </div>
@@ -1185,7 +1426,27 @@ const HowSoonPanel = ({ open, setOpen, summary, goToAddons, schedule, setSchedul
         />
       )}
 
-      {schedule !== 'instant' && selectedLabel && !(houseMode && schedule === 'recurring') && !wellnessMode && (
+      {officeMode && schedule === 'recurring' && (
+        <OfficeRecurringPanel
+          oneTimePrice={oneTimePrice}
+          officeSize={officeSize}
+          recurrence={recurrence}
+          setRecurrence={setRecurrence}
+          date={date}
+          setDate={setDate}
+          time={time}
+          setTime={setTime}
+          minDate={minDate}
+          onOneTime={() => openModal('scheduled')}
+          onContinue={goToAddons}
+          error={errors?.datetime}
+          serviceName={serviceName}
+          city={city}
+          duration={duration}
+        />
+      )}
+
+      {schedule !== 'instant' && selectedLabel && !(houseMode && schedule === 'recurring') && !(officeMode && schedule === 'recurring') && !wellnessMode && (
         <div className="mt-4 rounded-2xl bg-warmlinen p-3 sm:p-4">
           <p className="text-sm font-medium text-charcoal">
             {schedule === 'recurring' ? 'First visit' : 'Selected'}: {selectedLabel}
@@ -1652,6 +1913,8 @@ export default function ServiceDetail() {
   const [recurrence, setRecurrence] = useState({ type: 'preset', value: 'weekly' })
   const [homeSize, setHomeSize] = useState(null)
   const [cleaners, setCleaners] = useState(1)
+  const [officeSize, setOfficeSize] = useState(OFFICE_SIZES[0].id)
+  const [officeHours, setOfficeHours] = useState(OFFICE_HOURS[1])
   const [customTimes, setCustomTimes] = useState(3)
   const [customUnit, setCustomUnit] = useState('week')
   const [name, setName] = useState('')
@@ -1792,8 +2055,11 @@ export default function ServiceDetail() {
     return list.length > 1 ? list : []
   }, [variants, multiSelect, selectedServices.length])
   const houseMode = houseOptions.length > 0
+  // Office cleaning gets its own size/plan picker and recurring panel,
+  // mirroring house cleaning's UX with contract pricing from the ops sheet.
+  const officeMode = !houseMode && selectedServices.length === 1 && /office cleaning/i.test(primary?.category || '')
   // Wellness sessions book by duration and cadence, not an instant dispatch.
-  const wellnessMode = !houseMode && selectedServices.length === 1 && /wellness/i.test(primary?.category || '')
+  const wellnessMode = !houseMode && !officeMode && selectedServices.length === 1 && /wellness/i.test(primary?.category || '')
 
   useEffect(() => {
     if (wellnessMode && schedule === 'instant') setSchedule('scheduled')
@@ -1936,18 +2202,34 @@ export default function ServiceDetail() {
 
   if (!primary) return <Navigate to="/services" replace />
 
-  const basePrice = selectedServices.reduce((sum, s) => sum + (s.price || parsePrice(s.pricingFrom)), 0) * (houseMode ? cleaners : 1)
+  // Office cleaning's one-time price is an hourly day rate per cleaner —
+  // there's no real catalog row backing it since the contract table above is
+  // what's actually priced.
+  const basePrice = officeMode
+    ? OFFICE_HOURLY_RATE * officeHours * cleaners
+    : selectedServices.reduce((sum, s) => sum + (s.price || parsePrice(s.pricingFrom)), 0) * (houseMode ? cleaners : 1)
   const addOnTotal = addons.reduce((sum, a) => sum + (selectedAddons[addonKey(a)] ? Number(a.customer_price) : 0), 0)
   // Recurring visits are priced per visit at the plan's tiered discount —
   // the sheet's 15% is the floor for a single weekly visit / other services.
   const housePlan = housePlanOf(recurrence) || HOUSE_PLANS[0]
   const recurringDayCount = weeklyDays(recurrence.days, date).length
+  const officePlan = officePlanOf(recurrence) || OFFICE_PLANS[0]
+  // The office contract price is already a flat monthly rate per cleaner —
+  // back it into a "per visit" number using the same visits/month basis the
+  // house cleaning plans use, so the rest of the pricing UI (which is all
+  // framed per visit) still adds up to that monthly figure.
+  const officeMonthlyPrice = officeMode ? officePlanPrice(officeSizeOf(officeSize), officePlan) : null
+  const officeVisitsPerMonth = (recurringDayCount || officePlan.defaultDays?.length || (officePlan.id === 'threeWeek' ? 3 : 5)) * 52 / 12
   const effectiveDiscount = houseMode && housePlan
     ? planDiscount(housePlan, recurringDayCount || housePlan.defaultDays?.length || 1)
     : wellnessMode && Number.isFinite(recurrence.pct)
       ? recurrence.pct
       : RECURRING_DISCOUNT
-  const visitPrice = schedule === 'recurring' ? Math.round(basePrice * (1 - effectiveDiscount)) : basePrice
+  const visitPrice = schedule === 'recurring'
+    ? (officeMode && officeMonthlyPrice != null
+        ? Math.round((officeMonthlyPrice * cleaners) / officeVisitsPerMonth)
+        : Math.round(basePrice * (1 - effectiveDiscount)))
+    : basePrice
   const displayPrice = visitPrice + addOnTotal
   const offerDiscount = computeDiscount(selectedOffer, displayPrice, selectedServices.length)
   const totalDiscount = Math.min(displayPrice, offerDiscount + promoDiscount)
@@ -2027,11 +2309,12 @@ export default function ServiceDetail() {
         slug: s.slug,
         name: s.name,
         img: s.img,
-        priceFrom: s.price || parsePrice(s.pricingFrom),
+        priceFrom: officeMode ? basePrice : (s.price || parsePrice(s.pricingFrom)),
         duration: s.duration,
         catalogId: s.catalogId || s.id || null,
-        qty: houseMode ? cleaners : 1,
+        qty: houseMode || officeMode ? cleaners : 1,
         ...(houseMode ? { homeSize, cleaners } : {}),
+        ...(officeMode ? { officeSize, officeHours, cleaners } : {}),
       })),
       total: discountedPrice,
       discount: totalDiscount,
@@ -2143,21 +2426,23 @@ export default function ServiceDetail() {
       ? wellnessMode ? 'One-time' : 'Scheduled'
       : `Recurring (${cadence})`
 
-  const variantTitle = houseMode ? 'Your home' : wellnessMode ? 'How long?' : durationMode ? 'Duration' : roomMode ? 'Unit type' : primary.subcategory || 'Options'
+  const variantTitle = houseMode ? 'Your home' : officeMode ? 'Your office' : wellnessMode ? 'How long?' : durationMode ? 'Duration' : roomMode ? 'Unit type' : primary.subcategory || 'Options'
   const primaryWeekly = parseWeekly(primary.name)
   const primaryHours = (parseDurationMinutes(primary.duration) || 0) / 60
   const variantSummary = !hasVariants
     ? ''
     : houseMode
       ? `${[homeSize, primaryHours ? formatHrs(primaryHours) : null, `${cleaners} cleaner${cleaners > 1 ? 's' : ''}`].filter(Boolean).join(' · ')}`
-      : multiSelect && selectedServices.length > 1
-        ? `${selectedServices.length} selected`
-        : `${primaryWeekly ? `${primaryWeekly.hours} hr × ${primaryWeekly.times}/week` : variantLabel(primary)} selected`
+      : officeMode
+        ? `${[officeSizeOf(officeSize).label, formatHrs(officeHours), `${cleaners} cleaner${cleaners > 1 ? 's' : ''}`].filter(Boolean).join(' · ')}`
+        : multiSelect && selectedServices.length > 1
+          ? `${selectedServices.length} selected`
+          : `${primaryWeekly ? `${primaryWeekly.hours} hr × ${primaryWeekly.times}/week` : variantLabel(primary)} selected`
   // The price is for the whole visit, not per hour — say which visit it buys.
   const primaryMinutes = parseDurationMinutes(primary.duration)
   const totalNote = selectedServices.length > 1
     ? `${selectedServices.length} services`
-    : houseMode
+    : houseMode || officeMode
       ? 'per visit'
       : wellnessMode
         ? 'per session'
@@ -2170,9 +2455,11 @@ export default function ServiceDetail() {
   const visitsPerMonth = housePlan.perMonth(recurringDayCount || housePlan.defaultDays?.length || 1)
   const barSubnote = houseMode && schedule === 'recurring'
     ? `Save ${Math.round(effectiveDiscount * 100)}% · about ${formatPrice(visitPrice * visitsPerMonth)} a month`
-    : wellnessMode && schedule === 'recurring'
-      ? `Save ${Math.round(effectiveDiscount * 100)}% · skip or pause anytime`
-      : null
+    : officeMode && schedule === 'recurring'
+      ? (officeMonthlyPrice != null ? `${officePlan.title} · about ${formatPrice(officeMonthlyPrice * cleaners)} a month per cleaner` : null)
+      : wellnessMode && schedule === 'recurring'
+        ? `Save ${Math.round(effectiveDiscount * 100)}% · skip or pause anytime`
+        : null
 
   // Rows for the bar's expandable details box: what was picked, when it
   // repeats, and how the headline price is built up.
@@ -2181,7 +2468,11 @@ export default function ServiceDetail() {
     ? 'Just once'
     : recurrence.type === 'custom'
       ? `${recurrence.times}× per ${recurrence.unit}`
-      : recurrence.value === 'daily'
+      : officeMode && officePlan?.id === 'daily'
+        ? 'Every weekday'
+        : officeMode && officePlan?.id === 'threeWeek'
+          ? `3x a week${visitDays.length ? ` (${dayNames(visitDays)})` : ''}`
+          : recurrence.value === 'daily'
         ? 'Every day'
         : recurrence.value === 'fourweekly'
           ? (visitDays.length === 1 ? `Every 4th ${FULL_DAYS[visitDays[0]]}` : 'Every 4 weeks')
@@ -2211,9 +2502,12 @@ export default function ServiceDetail() {
   if (houseMode && serviceLines.length) {
     serviceLines[0] += ` · ${[homeSize, `${cleaners} cleaner${cleaners > 1 ? 's' : ''}`].filter(Boolean).join(' · ')}`
   }
+  if (officeMode && serviceLines.length) {
+    serviceLines[0] += ` · ${[officeSizeOf(officeSize).label, `${cleaners} cleaner${cleaners > 1 ? 's' : ''}`].filter(Boolean).join(' · ')}`
+  }
 
   const detailRows = [
-    { label: wellnessMode ? 'Session' : houseMode ? 'Visit' : selectedServices.length > 1 ? 'Services' : 'Service', lines: serviceLines },
+    { label: wellnessMode ? 'Session' : houseMode || officeMode ? 'Visit' : selectedServices.length > 1 ? 'Services' : 'Service', lines: serviceLines },
     { label: 'Repeats', value: repeatsLabel },
     { label: whenLabel, value: whenValue },
   ]
@@ -2224,9 +2518,11 @@ export default function ServiceDetail() {
     if (planCut > 0) {
       const planName = houseMode
         ? { weekly: 'Weekly', biweekly: 'Every 2 weeks', weekdays: 'Mon–Fri', daily: 'Daily' }[housePlan?.id] || 'Recurring'
-        : wellnessMode
-          ? SESSION_PLANS.find(p => (p.id === 'monthly' ? 'fourweekly' : p.id) === recurrence.value)?.title || 'Recurring'
-          : 'Recurring'
+        : officeMode
+          ? officePlan?.title || 'Recurring'
+          : wellnessMode
+            ? SESSION_PLANS.find(p => (p.id === 'monthly' ? 'fourweekly' : p.id) === recurrence.value)?.title || 'Recurring'
+            : 'Recurring'
       detailRows.push({ label: `${planName} discount`, value: `−${formatPrice(planCut)}`, tone: 'discount' })
     }
   } else {
@@ -2300,6 +2596,16 @@ export default function ServiceDetail() {
                     cleaners={cleaners}
                     setCleaners={setCleaners}
                     onSelect={selectVariantStay}
+                    onContinue={goToHow}
+                  />
+                ) : officeMode ? (
+                  <OfficePicker
+                    officeSize={officeSize}
+                    setOfficeSize={setOfficeSize}
+                    hours={officeHours}
+                    setHours={setOfficeHours}
+                    cleaners={cleaners}
+                    setCleaners={setCleaners}
                     onContinue={goToHow}
                   />
                 ) : wellnessMode ? (
@@ -2382,6 +2688,8 @@ export default function ServiceDetail() {
               city={city}
               duration={serviceDuration}
               houseMode={houseMode}
+              officeMode={officeMode}
+              officeSize={officeSize}
               oneTimePrice={basePrice}
               wellnessMode={wellnessMode}
             />

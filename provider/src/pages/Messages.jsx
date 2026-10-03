@@ -123,7 +123,7 @@ export default function Messages() {
     const partnerName = activeConv?.customer_name || 'Customer'
 
     return (
-      <div className="fixed inset-0 z-50 bg-warmlinen/30 flex flex-col">
+      <div className="fixed inset-0 z-50 bg-warmlinen flex flex-col">
         {/* Header */}
         <div className="bg-white border-b border-lightstone sticky top-0 z-40">
           <div className="max-w-2xl mx-auto px-4 py-3 flex items-center gap-3">
