@@ -39,7 +39,36 @@ export function mapCatalogService(service) {
     subcategory: service.subcategory || '',
     subcategoryId: service.subcategory_id != null ? String(service.subcategory_id) : null,
     isAddon: Boolean(service.subcategory_is_addon),
+    // Admin-set home-size suggestions for the house-cleaning picker (see
+    // superadmin's Subcategory > Home sizes); null/empty means ServiceDetail
+    // falls back to its own built-in Studio/1BR/2BR/3BR/4BR+ defaults.
+    homeSizes: Array.isArray(service.subcategory_home_sizes) && service.subcategory_home_sizes.length
+      ? service.subcategory_home_sizes
+      : null,
+    // Admin-set office-cleaning pricing (premises-size monthly rates,
+    // one-time hourly rate/hour options, dedicated-cleaner quote rows — see
+    // superadmin's Subcategory > Office pricing); null means ServiceDetail
+    // falls back to its built-in tables.
+    officePricing: service.subcategory_office_pricing &&
+      typeof service.subcategory_office_pricing === 'object'
+      ? service.subcategory_office_pricing
+      : null,
+    // Explicit picker set by the subcategory's "Booking style" in Superadmin;
+    // null means ServiceDetail falls back to inferring it from names.
+    bookingBehavior: service.subcategory_booking_behavior || null,
+    // Under bookingBehavior 'house_cleaning', flagged services are the
+    // "Hours per visit" options; ServiceDetail falls back to the
+    // "One-Time Cleaning" name rule when nothing in the subcategory is flagged.
+    isPickerOption: Boolean(service.is_picker_option),
     img: serviceImageUrl(service.image),
+    // Admin-uploaded ServiceDetail banner, set once per subcategory so every
+    // service under it shares the same artwork; wins over the committed
+    // people artwork (see ServiceHero in src/pages/ServiceDetail.jsx).
+    heroImg: serviceImageUrl(service.subcategory_hero_image),
+    // CSS object-position for heroImg (admin-set focal point), so the crop
+    // keeps the subject in frame across the hero's mobile/desktop aspect
+    // ratios; null/unset means "center center".
+    heroImgFocus: service.subcategory_hero_image_focus || null,
     // Subcategory (else category) tile art, for screens that need a picture
     // even when the service itself has none.
     groupImg: serviceImageUrl(service.subcategory_image || service.category_image),

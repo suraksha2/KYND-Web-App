@@ -38,7 +38,7 @@ export default function Account() {
   const [showLanguage, setShowLanguage] = useState(false)
   const [showSavedEdit, setShowSavedEdit] = useState(false)
   const [cities, setCities] = useState([])
-  const [form, setForm] = useState({ phone: '', address: '', city: '', area: '', pincode: '', payment: 'card' })
+  const [form, setForm] = useState({ phone: '', address: '', city: 'Singapore', area: '', pincode: '', payment: 'card' })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
@@ -62,7 +62,7 @@ export default function Account() {
     setForm({
       phone: prefill.phone || '',
       address: prefill.address || '',
-      city: prefill.city || '',
+      city: prefill.city || 'Singapore',
       area: prefill.area || '',
       pincode: prefill.pincode || '',
       payment: prefill.payment || 'card',
@@ -87,7 +87,6 @@ export default function Account() {
   const savedPayment = PAYMENT_LABELS[prefill?.payment] || null
   const savedSource = prefill?.source || null
 
-  const cityOptions = useMemo(() => cities, [cities])
   const areaOptions = useMemo(() => {
     const city = cities.find(c => c.cityName === form.city)
     return city?.areas || []
@@ -107,7 +106,7 @@ export default function Account() {
     setForm({
       phone: defaults.phone || '',
       address: defaults.address || '',
-      city: defaults.city || '',
+      city: defaults.city || 'Singapore',
       area: defaults.area || '',
       pincode: defaults.pincode || '',
       payment: defaults.payment || 'card',
@@ -228,18 +227,9 @@ export default function Account() {
                 </label>
 
                 <div className="grid grid-cols-2 gap-3">
-                  <label className="block relative">
+                  <label className="block">
                     <span className="block text-sm font-semibold text-charcoal mb-1.5">City</span>
-                    <select
-                      className={selectCls}
-                      value={form.city}
-                      onChange={(e) => updateField('city', e.target.value)}
-                    >
-                      <option value="">Select city</option>
-                      {cityOptions.map(c => (
-                        <option key={c.id} value={c.cityName}>{c.cityName}</option>
-                      ))}
-                    </select>
+                    <input className={inputCls} value={form.city || 'Singapore'} readOnly tabIndex={-1} />
                   </label>
 
                   <label className="block relative">

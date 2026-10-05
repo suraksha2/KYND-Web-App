@@ -3,13 +3,14 @@ import { useParams, Link, useNavigate } from 'react-router-dom'
 import { ChevronLeft, ArrowRight, Image as ImageIcon, Check, MessageCircle } from 'lucide-react'
 import { API_BASE, serviceImageUrl } from '../lib/api'
 import { iconForService } from '../lib/serviceIcon'
+import { slugify } from '../lib/catalogCategories'
 import Seo from '../components/Seo'
 import { breadcrumbSchema } from '../lib/schema'
 
 function ServiceCard({ s, selected, onToggle }) {
   const Icon = iconForService(s.name)
   const [imgFailed, setImgFailed] = useState(false)
-  const slug = s.name.toLowerCase().replace(/\s+/g, '-')
+  const slug = slugify(s.name)
   const showImage = s.image && !imgFailed
 
   return (
@@ -157,7 +158,7 @@ export default function SubcategoryDetail() {
   const onContinue = () => {
     if (selectedIds.length > 0) {
       const selected = subcategory.services.filter((s) => selectedIds.includes(s.id))
-      const slugs = selected.map((s) => s.name.toLowerCase().replace(/\s+/g, '-'))
+      const slugs = selected.map((s) => slugify(s.name))
       const lastSlug = slugs[slugs.length - 1]
       navigate(`/services/${lastSlug}`, { state: { selectedSlugs: slugs } })
       return
@@ -215,6 +216,9 @@ export default function SubcategoryDetail() {
             <ServiceCard key={s.id} s={s} selected={selectedIds.includes(s.id)} onToggle={() => toggleService(s.id)} />
           ))}
         </div>
+        {subcategory.services.length === 0 && (
+          <p className="mt-4 text-sm text-warmgrey">Nothing listed here yet — pick “None of these” below and tell us what you need.</p>
+        )}
 
         <div className="mt-4">
           <NoneOfTheseCard selected={otherSelected} onToggle={toggleOther} />

@@ -16,7 +16,9 @@ type CatalogService = {
   id: number;
   name: string;
   category: string;
+  category_id: number;
   subcategory: string | null;
+  subcategory_id: number | null;
   subcategory_is_addon?: boolean;
   duration: string | null;
   worker_count: number | null;
@@ -376,7 +378,7 @@ export default function AddonsPage() {
                       </p>
                     </div>
                     <Link
-                      to={`/catalog-services?q=${encodeURIComponent(s.name)}`}
+                      to={`/catalog-services?category=${s.category_id}${s.subcategory_id ? `&subcategory=${s.subcategory_id}` : ''}&edit=${s.id}`}
                       className="p-1.5 rounded-lg text-warmgrey hover:text-terracotta hover:bg-accent-50 transition shrink-0"
                       title="Edit in Catalog"
                     >

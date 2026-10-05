@@ -1,5 +1,4 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { createPortal } from 'react-dom'
 import { useParams, Link, Navigate, useNavigate, useLocation } from 'react-router-dom'
 import { Check, X, ChevronLeft, ChevronRight, Heart, Star, ShieldCheck, ChevronUp, ChevronDown, CreditCard, Banknote } from 'lucide-react'
 import { useServices } from '../context/ServicesContext'
@@ -15,7 +14,6 @@ import Seo from '../components/Seo'
 import { serviceSchema, breadcrumbSchema } from '../lib/schema'
 import { usePrefillDetails, rememberedPayment } from '../lib/lastBooking'
 import { saveLastOrder } from '../lib/lastOrder'
-import { openPicker } from '../lib/openPicker'
 import { slugify } from '../lib/catalogCategories'
 
 /** Payment methods this form offers — anything else cannot be prefilled. */
@@ -407,13 +405,16 @@ const BookingBar = ({ price, discount, submitting, note, subnote, details = [] }
 }
 
 /* ---------- Full-width hero ---------- */
-const ServiceHero = ({ svc }) => {
+const ServiceHero = ({ svc, title }) => {
   const HeroIcon = iconForService(svc.name)
   const [liked, setLiked] = useState(false)
 
-  const sources = [servicePeopleImage(svc.slug || svc.name), svc.img, localServiceImage(svc.slug || svc.name), svc.groupImg].filter(Boolean)
+  const sources = [svc.heroImg, servicePeopleImage(svc.slug || svc.name), svc.img, localServiceImage(svc.slug || svc.name), svc.groupImg].filter(Boolean)
   const [sourceIndex, setSourceIndex] = useState(0)
   const heroSrc = sources[sourceIndex] ?? null
+  // The admin-set focal point only applies to the admin-uploaded hero photo —
+  // once onError falls through to a different image, "center" is correct again.
+  const heroObjectPosition = heroSrc && heroSrc === svc.heroImg ? (svc.heroImgFocus || 'center') : 'center'
 
   const rating = svc.rating || 4.8
   const reviewCount = svc.reviewCount || 236
@@ -428,7 +429,8 @@ const ServiceHero = ({ svc }) => {
             fetchpriority="high"
             decoding="async"
             onError={() => setSourceIndex(i => i + 1)}
-            className="absolute inset-0 w-full h-full object-cover object-center"
+            className="absolute inset-0 w-full h-full object-cover"
+            style={{ objectPosition: heroObjectPosition }}
           />
         ) : (
           <div className="absolute inset-0 grid place-items-center">
@@ -463,7 +465,7 @@ const ServiceHero = ({ svc }) => {
 
       <div className="max-w-5xl mx-auto px-4 sm:px-6 pt-4 sm:pt-5 md:pt-6">
         <h1 className="font-heading text-2xl sm:text-3xl md:text-4xl font-extrabold text-charcoal leading-[1.1]">
-          {svc.name}
+          {title || svc.name}
         </h1>
         <p className="mt-1.5 sm:mt-2 text-warmgrey text-sm sm:text-base">
           {taglineForService(svc.name)}
@@ -594,7 +596,13 @@ const useSlots = (enabled, date, serviceName, city, duration) => {
 // 4 hr) are the hours options, each priced for one cleaner. The size of the
 // home only suggests the hours; each extra cleaner adds the same price again.
 const HOUSE_RE = /^one-time cleaning\b/i
-const HOME_SIZES = [['Studio', 2, 'A studio'], ['1BR', 2.5, 'A 1-bedroom'], ['2BR', 3, 'A 2-bedroom'], ['3BR', 4, 'A 3-bedroom'], ['4BR+', 4, 'A 4-bedroom']]
+// Fallback when the subcategory has no admin-set home sizes (superadmin's
+// Subcategory > Home sizes — see src/lib/catalogServices.js homeSizes).
+const DEFAULT_HOME_SIZES = [['Studio', 2, 'A studio'], ['1BR', 2.5, 'A 1-bedroom'], ['2BR', 3, 'A 2-bedroom'], ['3BR', 4, 'A 3-bedroom'], ['4BR+', 4, 'A 4-bedroom']]
+const toHomeSizeTuples = (sizes) =>
+  Array.isArray(sizes) && sizes.length
+    ? sizes.map(s => [s.label, Number(s.hours) || 0, s.description || s.label])
+    : DEFAULT_HOME_SIZES
 const MAX_CLEANERS = 4
 // Recurring discounts are tiered by cadence; one weekly visit keeps the
 // sheet's base recurring rate (Service Master: "Recurring (15%)").
@@ -638,36 +646,71 @@ const isRepeatVisit = (plan, days, first, iso) => {
 }
 
 // Office cleaning: premises-size bands with flat monthly plan rates (per
-// cleaner), taken from the ops pricing sheet. A band/plan combo with no fixed
-// rate yet ("By quote") always routes to a quote instead of a bookable
-// number — as does the dedicated-onsite-cleaner table, which is priced as a
-// range rather than a fixed rate.
-const OFFICE_SIZES = [
-  { id: '1-2k', label: '1,000\u20132,000 sqft', threeWeek: 450, daily: 550 },
-  { id: '2-3k', label: '2,001\u20133,000 sqft', threeWeek: 650, daily: 750 },
-  { id: '3-4k', label: '3,001\u20134,000 sqft', threeWeek: 850, daily: 1100 },
-  { id: '4-5k', label: '4,001\u20135,000 sqft', threeWeek: null, daily: 1250 },
-  { id: '5-7k', label: '5,001\u20137,000 sqft', threeWeek: null, daily: 1520 },
-  { id: '7k+', label: '7,001 sqft onwards', threeWeek: null, daily: null },
-]
-const OFFICE_HOURS = [2, 3, 4, 6, 8]
-// One-time/ad-hoc visits aren't in the contract table, so they price like the
-// other ad-hoc cleaning rows: an hourly day rate per cleaner.
-const OFFICE_HOURLY_RATE = 28
+// cleaner), the one-time hourly rate/hour options, and the
+// dedicated-onsite-cleaner quote rows. These are the built-in defaults — a
+// subcategory overrides them via its office_pricing column (Superadmin >
+// Subcategory > Office pricing). A band/plan combo with no fixed rate yet
+// ("By quote") always routes to a quote instead of a bookable number — as
+// does the dedicated table, which is priced as a range rather than a fixed
+// rate.
+const DEFAULT_OFFICE_PRICING = {
+  // One-time/ad-hoc visits aren't in the contract table, so they price like
+  // the other ad-hoc cleaning rows: an hourly day rate per cleaner.
+  hourlyRate: 28,
+  hours: [2, 3, 4, 6, 8],
+  sizes: [
+    { id: '1-2k', label: '1,000\u20132,000 sqft', threeWeek: 450, daily: 550 },
+    { id: '2-3k', label: '2,001\u20133,000 sqft', threeWeek: 650, daily: 750 },
+    { id: '3-4k', label: '3,001\u20134,000 sqft', threeWeek: 850, daily: 1100 },
+    { id: '4-5k', label: '4,001\u20135,000 sqft', threeWeek: null, daily: 1250 },
+    { id: '5-7k', label: '5,001\u20137,000 sqft', threeWeek: null, daily: 1520 },
+    { id: '7k+', label: '7,001 sqft onwards', threeWeek: null, daily: null },
+  ],
+  // Dedicated, full-time onsite cleaners are quoted as a range — always a
+  // "Contact us", never a bookable card.
+  dedicated: [
+    { id: 'dedicatedWeekday', title: 'Dedicated cleaner, Mon\u2013Fri', subtitle: 'Full-time, stationed onsite', range: 'S$2,900\u2013S$4,200/mo' },
+    { id: 'dedicatedFull', title: 'Dedicated cleaner, Mon\u2013Sun', subtitle: 'Full-time, incl. public holidays', range: 'S$3,800\u2013S$4,800/mo' },
+  ],
+}
+// The plan cards stay in code — they carry booking behaviour (which weekdays
+// a plan allows, how many can be picked, the recurrence preset it maps to),
+// not just labels. `key` addresses the price column on each size row, and
+// the ids are what `recurrence.plan` round-trips through the API.
 const OFFICE_PLANS = [
   { id: 'threeWeek', title: '3x per week', subtitle: 'Per cleaner, per month', key: 'threeWeek', allowedDays: [1, 2, 3, 4, 5], maxDays: 3, cap: '3 weekdays' },
   { id: 'daily', title: 'Daily, Mon\u2013Fri', subtitle: 'Per cleaner, per month', key: 'daily', allowedDays: [1, 2, 3, 4, 5], maxDays: 5, defaultDays: [1, 2, 3, 4, 5], cap: '5 weekdays' },
 ]
-// Dedicated, full-time onsite cleaners are quoted as a range in the sheet —
-// always a "Contact us", never a bookable card.
-const OFFICE_DEDICATED_PLANS = [
-  { id: 'dedicatedWeekday', title: 'Dedicated cleaner, Mon\u2013Fri', subtitle: 'Full-time, stationed onsite', range: 'S$2,900\u2013S$4,200/mo' },
-  { id: 'dedicatedFull', title: 'Dedicated cleaner, Mon\u2013Sun', subtitle: 'Full-time, incl. public holidays', range: 'S$3,800\u2013S$4,800/mo' },
-]
-const officeSizeOf = (id) => OFFICE_SIZES.find(s => s.id === id) || OFFICE_SIZES[0]
+const officeNum = (v) => {
+  const n = Number(v)
+  return Number.isFinite(n) && n > 0 ? n : null
+}
+// The subcategory's office_pricing overrides the defaults field-by-field and
+// each field is validated on the way in, so a partial or malformed blob
+// falls back per field instead of wedging the picker.
+const officePricingOf = (svc) => {
+  const raw = svc?.officePricing
+  if (!raw || typeof raw !== 'object') return DEFAULT_OFFICE_PRICING
+  const sizes = (Array.isArray(raw.sizes) ? raw.sizes : [])
+    .filter(s => s && typeof s === 'object' && s.label)
+    .map((s, i) => ({ id: s.id || `s${i}`, label: s.label, threeWeek: officeNum(s.threeWeek), daily: officeNum(s.daily) }))
+  const hours = (Array.isArray(raw.hours) ? raw.hours : []).map(Number).filter(n => Number.isFinite(n) && n > 0)
+  const dedicated = (Array.isArray(raw.dedicated) ? raw.dedicated : [])
+    .filter(d => d && typeof d === 'object' && d.title)
+    .map((d, i) => ({ id: d.id || `d${i}`, title: d.title, subtitle: d.subtitle || '', range: d.range || '' }))
+  return {
+    hourlyRate: officeNum(raw.hourlyRate) ?? DEFAULT_OFFICE_PRICING.hourlyRate,
+    hours: hours.length ? hours : DEFAULT_OFFICE_PRICING.hours,
+    sizes: sizes.length ? sizes : DEFAULT_OFFICE_PRICING.sizes,
+    dedicated: dedicated.length ? dedicated : DEFAULT_OFFICE_PRICING.dedicated,
+  }
+}
+const officeSizeOf = (sizes, id) => sizes.find(s => s.id === id) || sizes[0]
 const officePlanOf = (recurrence) => OFFICE_PLANS.find(p => p.id === recurrence?.plan) || null
 const officePlanPrice = (size, plan) => size?.[plan.key] ?? null
-const officePlanRecurrence = (plan, days = []) => ({ type: 'preset', value: plan.id === 'daily' ? 'daily' : 'weekly', days, plan: plan.id })
+// A 'daily' office plan trimmed below its full Mon–Fri set is sent as 'weekly'
+// so the API honors the chosen days (it ignores `days` on the 'daily' preset).
+const officePlanRecurrence = (plan, days = []) => ({ type: 'preset', value: plan.id === 'daily' && days.length >= plan.maxDays ? 'daily' : 'weekly', days, plan: plan.id })
 const officeQuoteMailto = (title, size) =>
   `mailto:help@kynd.sg?subject=${encodeURIComponent(`Office cleaning quote: ${title}`)}&body=${encodeURIComponent(`Hi Kynd team,\n\nI'd like a quote for "${title}"${size ? ` (${size.label})` : ''}.\n\n`)}`
 
@@ -695,9 +738,9 @@ const AxisStepper = ({ value, min, max, onChange }) => (
   </div>
 )
 
-const HousePicker = ({ options, selectedSlug, homeSize, setHomeSize, cleaners, setCleaners, onSelect, onContinue }) => {
+const HousePicker = ({ options, selectedSlug, homeSize, setHomeSize, cleaners, setCleaners, onSelect, onContinue, sizes = DEFAULT_HOME_SIZES }) => {
   const current = options.find(o => o.svc.slug === selectedSlug)
-  const size = HOME_SIZES.find(([label]) => label === homeSize)
+  const size = sizes.find(([label]) => label === homeSize)
   const pickSize = ([label, hours]) => {
     setHomeSize(label)
     const match = options.find(o => o.hours >= hours) || options[options.length - 1]
@@ -707,7 +750,7 @@ const HousePicker = ({ options, selectedSlug, homeSize, setHomeSize, cleaners, s
     <div className="pt-1">
       <p className="text-sm font-bold text-charcoal mb-2">Size of your home</p>
       <div className="grid grid-cols-5 gap-2">
-        {HOME_SIZES.map(s => (
+        {sizes.map(s => (
           <AxisPill key={s[0]} selected={homeSize === s[0]} onClick={() => pickSize(s)}>{s[0]}</AxisPill>
         ))}
       </div>
@@ -747,18 +790,18 @@ const HousePicker = ({ options, selectedSlug, homeSize, setHomeSize, cleaners, s
 // cleaners) but the size feeds the recurring plan table further down instead
 // of suggesting hours — office contracts are priced by premises size, not by
 // how long a single visit takes.
-const OfficePicker = ({ officeSize, setOfficeSize, hours, setHours, cleaners, setCleaners, onContinue }) => (
+const OfficePicker = ({ officeSize, setOfficeSize, hours, setHours, cleaners, setCleaners, onContinue, sizes, hourOptions }) => (
   <div className="pt-1">
     <p className="text-sm font-bold text-charcoal mb-2">Size of your office</p>
     <div className="grid grid-cols-2 gap-2">
-      {OFFICE_SIZES.map(s => (
+      {sizes.map(s => (
         <AxisPill key={s.id} selected={officeSize === s.id} onClick={() => setOfficeSize(s.id)}>{s.label}</AxisPill>
       ))}
     </div>
 
     <p className="text-sm font-bold text-charcoal mt-5 mb-2">Hours per visit</p>
     <div className="grid grid-cols-5 gap-2">
-      {OFFICE_HOURS.map(h => (
+      {hourOptions.map(h => (
         <AxisPill key={h} selected={hours === h} onClick={() => setHours(h)}>{formatHrs(h)}</AxisPill>
       ))}
     </div>
@@ -980,25 +1023,29 @@ const HouseRecurringPanel = ({ oneTimePrice, recurrence, setRecurrence, date, se
   const days = planDays(recurrence, date)
   const { slots, loading, error: slotsError } = useSlots(true, date, serviceName, city, duration)
 
-  // Switching plans keeps whichever chosen days the new plan allows, and seeds
-  // its defaults when none carry over.
+  // Plans that name their days ("Mon to Fri", "every day") select them all;
+  // open plans (weekly / every 2 weeks) keep whichever chosen days still fit.
   const choosePlan = (next) => {
     if (next.id === plan.id) return
-    let kept = (recurrence.days || [])
-      .filter(d => (next.allowedDays || WEEK_DAYS.map(([, x]) => x)).includes(d))
-      .slice(0, next.maxDays)
-    if (!kept.length && next.defaultDays) kept = next.defaultDays
+    const kept = next.defaultDays
+      ? [...next.defaultDays]
+      : (recurrence.days || [])
+          .filter(d => (next.allowedDays || WEEK_DAYS.map(([, x]) => x)).includes(d))
+          .slice(0, next.maxDays)
     if (date && kept.length && !kept.includes(weekdayOf(date))) { setDate(''); setTime('') }
     setRecurrence(planRecurrence(next, kept))
   }
 
+  // Rebuilding through planRecurrence keeps `value` honest: a dedicated plan
+  // trimmed below its full set must send 'weekly', since the API ignores
+  // `days` on the 'daily' preset.
   const toggleDay = (d) => {
     const current = recurrence.days || []
     if (current.includes(d)) {
       if (date && weekdayOf(date) === d) { setDate(''); setTime('') }
-      setRecurrence({ ...recurrence, days: current.filter(x => x !== d) })
+      setRecurrence(planRecurrence(plan, current.filter(x => x !== d)))
     } else if (current.length < plan.maxDays) {
-      setRecurrence({ ...recurrence, days: [...current, d] })
+      setRecurrence(planRecurrence(plan, [...current, d]))
     }
   }
 
@@ -1008,7 +1055,7 @@ const HouseRecurringPanel = ({ oneTimePrice, recurrence, setRecurrence, date, se
     const wd = weekdayOf(iso)
     const current = recurrence.days || []
     if (!current.includes(wd) && current.length < plan.maxDays) {
-      setRecurrence({ ...recurrence, days: [...current, wd] })
+      setRecurrence(planRecurrence(plan, [...current, wd]))
     }
     setDate(iso)
     setTime('')
@@ -1100,19 +1147,20 @@ const HouseRecurringPanel = ({ oneTimePrice, recurrence, setRecurrence, date, se
 // the plan price comes straight from the office-size table instead of a %
 // off the one-time rate, and a plan/size with no fixed rate is a "Contact us"
 // quote link rather than a selectable card.
-const OfficeRecurringPanel = ({ oneTimePrice, officeSize, recurrence, setRecurrence, date, setDate, time, setTime, minDate, onOneTime, onContinue, error, serviceName, city, duration }) => {
+const OfficeRecurringPanel = ({ officeSize, sizes, dedicated, recurrence, setRecurrence, date, setDate, time, setTime, minDate, onContinue, error, serviceName, city, duration }) => {
   const plan = officePlanOf(recurrence) || OFFICE_PLANS[0]
-  const size = officeSizeOf(officeSize)
+  const size = officeSizeOf(sizes, officeSize)
   const days = planDays(recurrence, date)
   const price = officePlanPrice(size, plan)
   const { slots, loading, error: slotsError } = useSlots(true, date, serviceName, city, duration)
 
   const choosePlan = (next) => {
     if (next.id === plan.id) return
-    let kept = (recurrence.days || [])
-      .filter(d => (next.allowedDays || []).includes(d))
-      .slice(0, next.maxDays)
-    if (!kept.length && next.defaultDays) kept = next.defaultDays
+    const kept = next.defaultDays
+      ? [...next.defaultDays]
+      : (recurrence.days || [])
+          .filter(d => (next.allowedDays || []).includes(d))
+          .slice(0, next.maxDays)
     if (date && kept.length && !kept.includes(weekdayOf(date))) { setDate(''); setTime('') }
     setRecurrence(officePlanRecurrence(next, kept))
   }
@@ -1121,9 +1169,9 @@ const OfficeRecurringPanel = ({ oneTimePrice, officeSize, recurrence, setRecurre
     const current = recurrence.days || []
     if (current.includes(d)) {
       if (date && weekdayOf(date) === d) { setDate(''); setTime('') }
-      setRecurrence({ ...recurrence, days: current.filter(x => x !== d) })
+      setRecurrence(officePlanRecurrence(plan, current.filter(x => x !== d)))
     } else if (current.length < plan.maxDays) {
-      setRecurrence({ ...recurrence, days: [...current, d] })
+      setRecurrence(officePlanRecurrence(plan, [...current, d]))
     }
   }
 
@@ -1132,7 +1180,7 @@ const OfficeRecurringPanel = ({ oneTimePrice, officeSize, recurrence, setRecurre
     const wd = weekdayOf(iso)
     const current = recurrence.days || []
     if (!current.includes(wd) && current.length < plan.maxDays) {
-      setRecurrence({ ...recurrence, days: [...current, wd] })
+      setRecurrence(officePlanRecurrence(plan, [...current, wd]))
     }
     setDate(iso)
     setTime('')
@@ -1149,7 +1197,6 @@ const OfficeRecurringPanel = ({ oneTimePrice, officeSize, recurrence, setRecurre
     <div className="mt-5">
       <h4 className="font-heading text-base sm:text-lg font-bold text-charcoal">How often?</h4>
       <div className="mt-3 space-y-3">
-        <PlanCard selected={false} onClick={onOneTime} title="One-time" subtitle="A single clean" price={oneTimePrice} />
         {OFFICE_PLANS.map(p => {
           const pPrice = officePlanPrice(size, p)
           return pPrice === null ? (
@@ -1175,7 +1222,7 @@ const OfficeRecurringPanel = ({ oneTimePrice, officeSize, recurrence, setRecurre
             />
           )
         })}
-        {OFFICE_DEDICATED_PLANS.map(p => (
+        {dedicated.map(p => (
           <a
             key={p.id}
             href={officeQuoteMailto(p.title, null)}
@@ -1255,39 +1302,194 @@ const OfficeRecurringPanel = ({ oneTimePrice, officeSize, recurrence, setRecurre
 }
 
 /* ---------- How soon? ---------- */
-const HowSoonPanel = ({ open, setOpen, summary, goToAddons, schedule, setSchedule, date, setDate, time, setTime, recurrence, setRecurrence, customTimes, setCustomTimes, customUnit, setCustomUnit, arrivalTime, errors, submitAttempt, serviceName, city, duration, houseMode, officeMode, officeSize, oneTimePrice, wellnessMode }) => {
-  const [showModal, setShowModal] = useState(false)
-  const [pickDate, setPickDate] = useState('')
-  const [selectedSlot, setSelectedSlot] = useState('')
-  const { slots, setSlots, loading: loadingSlots, error: slotsError, setError: setSlotsError } = useSlots(showModal, pickDate, serviceName, city, duration)
-  const minDate = useMemo(() => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Singapore' }).format(new Date()), [])
+// A one-off scheduled visit, inline in "When?": the same calendar + slot grid
+// the recurring panels use, so picking a time never leaves the page.
+const ScheduledPanel = ({ date, setDate, time, setTime, minDate, onContinue, error, serviceName, city, duration }) => {
+  const { slots, loading, error: slotsError } = useSlots(true, date, serviceName, city, duration)
+  return (
+    <div className="mt-5">
+      <h4 className="mb-3 font-heading text-base sm:text-lg font-bold text-charcoal">Visit</h4>
+      <MonthCalendar
+        value={date}
+        minDate={minDate}
+        canPick={(iso) => iso >= minDate}
+        isRepeat={() => false}
+        onPick={(iso) => { setDate(iso); setTime('') }}
+      />
+      <SlotGrid loading={loading} error={slotsError} date={date} slots={slots} selected={time} onSelect={setTime} />
+      {error && (!date || !time) && <p className="text-xs text-red-600 mt-2">{error}</p>}
 
-  useEffect(() => {
-    if (datetimeError && !(houseMode && schedule === 'recurring') && !(officeMode && schedule === 'recurring') && !wellnessMode) setShowModal(true)
-  }, [submitAttempt])
+      <button
+        type="button"
+        onClick={onContinue}
+        disabled={!date || !time}
+        className="mt-5 w-full rounded-full bg-terracotta hover:bg-charcoal disabled:opacity-50 text-white font-semibold py-2.5 text-sm transition"
+      >
+        Continue
+      </button>
+    </div>
+  )
+}
 
-  useEffect(() => {
-    if (!showModal) return
-    const prev = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    return () => { document.body.style.overflow = prev }
-  }, [showModal])
+// Visit spacing in days for the generic cadences — mirrors the API's
+// recurrence.ts UNIT_DAYS; only used for the calendar's repeat-visit highlight.
+const GENERIC_UNIT_DAYS = { day: 1, week: 7, month: 30 }
 
-  const openModal = (type) => {
-    setSchedule(type)
-    const initialDate = date || minDate
-    setPickDate(initialDate)
-    setSelectedSlot(time || '')
-    setSlots([])
-    setSlotsError(null)
-    setShowModal(true)
+// Recurring visits for services without a dedicated plan picker: cadence
+// chips, repeat weekdays on the weekly cadence, then the shared
+// calendar + slot grid.
+const GenericRecurringPanel = ({ recurrence, setRecurrence, customTimes, setCustomTimes, customUnit, setCustomUnit, date, setDate, time, setTime, minDate, onContinue, error, serviceName, city, duration }) => {
+  const { slots, loading, error: slotsError } = useSlots(true, date, serviceName, city, duration)
+  const isWeekly = recurrence.type === 'preset' && recurrence.value === 'weekly'
+  const days = weeklyDays(recurrence.days, date)
+  const startDay = weekdayOf(date)
+
+  // The first visit's weekday is always a visit day, so its chip stays on.
+  const toggleDay = (d) => {
+    if (d === startDay) return
+    const current = recurrence.days || []
+    setRecurrence({ ...recurrence, days: current.includes(d) ? current.filter(x => x !== d) : [...current, d] })
+  }
+  const pickDate = (iso) => {
+    setDate(iso)
+    setTime('')
+    if (isWeekly) setRecurrence({ ...recurrence, days: weeklyDays(recurrence.days, iso) })
+  }
+  const isRepeat = (iso) => {
+    if (!date || iso <= date) return false
+    if (isWeekly && days.length) return days.includes(weekdayOf(iso))
+    const step = recurrence.type === 'custom'
+      ? Math.max(1, Math.round((GENERIC_UNIT_DAYS[recurrence.unit] || 7) / (recurrence.times || 1)))
+      : recurrence.value === 'daily' ? 1 : recurrence.value === 'monthly' ? 30 : 7
+    return Math.round((Date.parse(`${iso}T00:00:00Z`) - Date.parse(`${date}T00:00:00Z`)) / 86400000) % step === 0
   }
 
-  const closeModal = () => setShowModal(false)
+  return (
+    <div className="mt-5">
+      <h4 className="font-heading text-base sm:text-lg font-bold text-charcoal">How often?</h4>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {['Daily', 'Weekly', 'Monthly'].map((c) => {
+          const key = c.toLowerCase()
+          return (
+            <button
+              key={c}
+              type="button"
+              onClick={() => setRecurrence(
+                key === 'weekly' && recurrence.value === 'weekly'
+                  ? recurrence
+                  : { type: 'preset', value: key, ...(key === 'weekly' ? { days: [] } : {}) }
+              )}
+              className={`rounded-full px-4 py-2 text-sm font-medium border transition ${
+                recurrence.type === 'preset' && recurrence.value === key
+                  ? 'bg-accent-100 border-terracotta text-terracotta'
+                  : 'bg-white border-lightstone text-charcoal'
+              }`}
+            >
+              {c}
+            </button>
+          )
+        })}
+        <button
+          type="button"
+          onClick={() => setRecurrence({ type: 'custom', times: customTimes, unit: customUnit })}
+          className={`rounded-full px-4 py-2 text-sm font-medium border transition ${
+            recurrence.type === 'custom'
+              ? 'bg-accent-100 border-terracotta text-terracotta'
+              : 'bg-white border-lightstone text-charcoal'
+          }`}
+        >
+          Custom
+        </button>
+      </div>
 
-  // House and office cleaning pick their cadence inline instead of in the
-  // modal; seed the default plan if the modal had left a mismatched
-  // recurrence behind.
+      {recurrence.type === 'custom' && (
+        <div className="mt-4 flex items-center gap-2">
+          <input
+            type="number"
+            min={1}
+            max={31}
+            value={customTimes}
+            onChange={(e) => {
+              const n = Math.max(1, Math.min(31, Number(e.target.value) || 1))
+              setCustomTimes(n)
+              setRecurrence({ type: 'custom', times: n, unit: customUnit })
+            }}
+            className="w-16 rounded-lg border border-lightstone px-2 py-1.5 text-sm text-center"
+          />
+          <span className="text-xs text-warmgrey">time(s) per</span>
+          <select
+            value={customUnit}
+            onChange={(e) => {
+              const u = e.target.value
+              setCustomUnit(u)
+              setRecurrence({ type: 'custom', times: customTimes, unit: u })
+            }}
+            className="rounded-lg border border-lightstone px-2 py-1.5 text-sm bg-white"
+          >
+            <option value="day">day</option>
+            <option value="week">week</option>
+            <option value="month">month</option>
+          </select>
+        </div>
+      )}
+
+      {isWeekly && (
+        <>
+          <h4 className="mt-6 font-heading text-base sm:text-lg font-bold text-charcoal">Which days?</h4>
+          <div className="mt-3 grid grid-cols-7 gap-1.5 sm:gap-2">
+            {WEEK_DAYS.map(([label, d]) => {
+              const on = days.includes(d)
+              const locked = d === startDay
+              return (
+                <button
+                  key={label}
+                  type="button"
+                  onClick={() => toggleDay(d)}
+                  disabled={locked}
+                  aria-pressed={on}
+                  title={locked ? 'Your start date falls on this day' : undefined}
+                  className={`rounded-2xl border py-2.5 text-xs sm:text-sm font-semibold transition ${
+                    on
+                      ? 'bg-accent-100 border-terracotta text-terracotta'
+                      : 'bg-white border-lightstone text-charcoal hover:border-terracotta/50'
+                  } ${locked ? 'cursor-default' : ''}`}
+                >
+                  {label.slice(0, 2)}
+                </button>
+              )
+            })}
+          </div>
+        </>
+      )}
+
+      <h4 className="mt-6 mb-3 font-heading text-base sm:text-lg font-bold text-charcoal">First visit</h4>
+      <MonthCalendar
+        value={date}
+        minDate={minDate}
+        canPick={(iso) => iso >= minDate}
+        isRepeat={isRepeat}
+        onPick={pickDate}
+      />
+      <SlotGrid loading={loading} error={slotsError} date={date} slots={slots} selected={time} onSelect={setTime} />
+      {error && (!date || !time) && <p className="text-xs text-red-600 mt-2">{error}</p>}
+
+      <button
+        type="button"
+        onClick={onContinue}
+        disabled={!date || !time}
+        className="mt-5 w-full rounded-full bg-terracotta hover:bg-charcoal disabled:opacity-50 text-white font-semibold py-2.5 text-sm transition"
+      >
+        Continue
+      </button>
+    </div>
+  )
+}
+
+const HowSoonPanel = ({ open, setOpen, summary, goToAddons, schedule, setSchedule, date, setDate, time, setTime, recurrence, setRecurrence, customTimes, setCustomTimes, customUnit, setCustomUnit, arrivalTime, errors, serviceName, city, duration, houseMode, officeMode, officeSize, officePricing, oneTimePrice, wellnessMode }) => {
+  const minDate = useMemo(() => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Singapore' }).format(new Date()), [])
+
+  // House and office cleaning pick their cadence through plan cards; seed the
+  // default plan if another mode left a mismatched recurrence behind.
   const selectRecurring = () => {
     if (houseMode) {
       setSchedule('recurring')
@@ -1299,7 +1501,7 @@ const HowSoonPanel = ({ open, setOpen, summary, goToAddons, schedule, setSchedul
       if (!officePlanOf(recurrence)) setRecurrence(officePlanRecurrence(OFFICE_PLANS[0], recurrence.days || []))
       return
     }
-    openModal('recurring')
+    setSchedule('recurring')
   }
 
   // Wellness sessions: a non-recurring schedule is the "once" card.
@@ -1325,38 +1527,7 @@ const HowSoonPanel = ({ open, setOpen, summary, goToAddons, schedule, setSchedul
     }
   }
 
-  const confirmSlot = () => {
-    if (!pickDate || !selectedSlot) return
-    setDate(pickDate)
-    setTime(selectedSlot)
-    if (isWeekly) setRecurrence({ ...recurrence, days: weeklyDays(recurrence.days, pickDate) })
-    setShowModal(false)
-    goToAddons()
-  }
-
-  const onDateChange = (d) => {
-    setPickDate(d)
-    setSelectedSlot('')
-  }
-
-  const isWeekly = schedule === 'recurring' && recurrence.type === 'preset' && recurrence.value === 'weekly'
-  const startDay = weekdayOf(pickDate)
-  const pickedDays = weeklyDays(recurrence.days, pickDate)
-  const toggleDay = (d) => {
-    if (d === startDay) return
-    const current = recurrence.days || []
-    setRecurrence({ ...recurrence, days: current.includes(d) ? current.filter(x => x !== d) : [...current, d] })
-  }
-
-  const selectedLabel = date && time
-    ? new Date(`${date}T${time}`).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Singapore' })
-    : null
-
   const datetimeError = !!errors?.datetime && (!date || !time)
-  const inputBase = "w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2"
-  const inputClass = datetimeError && (!date || !time)
-    ? `${inputBase} border-red-500 focus:border-red-500 focus:ring-red-500/20`
-    : `${inputBase} border-lightstone focus:border-terracotta focus:ring-terracotta/25`
 
   return (
     <SectionCard
@@ -1393,7 +1564,7 @@ const HowSoonPanel = ({ open, setOpen, summary, goToAddons, schedule, setSchedul
         />
         <Pill
           selected={schedule === 'scheduled'}
-          onClick={() => openModal('scheduled')}
+          onClick={() => setSchedule('scheduled')}
           title="Scheduled"
           subtitle="pick a time"
           error={datetimeError && schedule === 'scheduled'}
@@ -1407,6 +1578,21 @@ const HowSoonPanel = ({ open, setOpen, summary, goToAddons, schedule, setSchedul
         />
       </div>
 
+      {schedule === 'scheduled' && (
+        <ScheduledPanel
+          date={date}
+          setDate={setDate}
+          time={time}
+          setTime={setTime}
+          minDate={minDate}
+          onContinue={goToAddons}
+          error={errors?.datetime}
+          serviceName={serviceName}
+          city={city}
+          duration={duration}
+        />
+      )}
+
       {houseMode && schedule === 'recurring' && (
         <HouseRecurringPanel
           oneTimePrice={oneTimePrice}
@@ -1417,7 +1603,7 @@ const HowSoonPanel = ({ open, setOpen, summary, goToAddons, schedule, setSchedul
           time={time}
           setTime={setTime}
           minDate={minDate}
-          onOneTime={() => openModal('scheduled')}
+          onOneTime={() => setSchedule('scheduled')}
           onContinue={goToAddons}
           error={errors?.datetime}
           serviceName={serviceName}
@@ -1428,8 +1614,9 @@ const HowSoonPanel = ({ open, setOpen, summary, goToAddons, schedule, setSchedul
 
       {officeMode && schedule === 'recurring' && (
         <OfficeRecurringPanel
-          oneTimePrice={oneTimePrice}
           officeSize={officeSize}
+          sizes={officePricing.sizes}
+          dedicated={officePricing.dedicated}
           recurrence={recurrence}
           setRecurrence={setRecurrence}
           date={date}
@@ -1437,7 +1624,6 @@ const HowSoonPanel = ({ open, setOpen, summary, goToAddons, schedule, setSchedul
           time={time}
           setTime={setTime}
           minDate={minDate}
-          onOneTime={() => openModal('scheduled')}
           onContinue={goToAddons}
           error={errors?.datetime}
           serviceName={serviceName}
@@ -1446,187 +1632,27 @@ const HowSoonPanel = ({ open, setOpen, summary, goToAddons, schedule, setSchedul
         />
       )}
 
-      {schedule !== 'instant' && selectedLabel && !(houseMode && schedule === 'recurring') && !(officeMode && schedule === 'recurring') && !wellnessMode && (
-        <div className="mt-4 rounded-2xl bg-warmlinen p-3 sm:p-4">
-          <p className="text-sm font-medium text-charcoal">
-            {schedule === 'recurring' ? 'First visit' : 'Selected'}: {selectedLabel}
-          </p>
-        </div>
+      {!houseMode && !officeMode && schedule === 'recurring' && (
+        <GenericRecurringPanel
+          recurrence={recurrence}
+          setRecurrence={setRecurrence}
+          customTimes={customTimes}
+          setCustomTimes={setCustomTimes}
+          customUnit={customUnit}
+          setCustomUnit={setCustomUnit}
+          date={date}
+          setDate={setDate}
+          time={time}
+          setTime={setTime}
+          minDate={minDate}
+          onContinue={goToAddons}
+          error={errors?.datetime}
+          serviceName={serviceName}
+          city={city}
+          duration={duration}
+        />
       )}
-
       </>
-      )}
-      {showModal && createPortal(
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-3 sm:p-4 overflow-y-auto overscroll-contain" onClick={closeModal}>
-          <div onClick={(e) => e.stopPropagation()} className="w-full max-w-sm max-h-[calc(100dvh-1.5rem)] my-auto rounded-2xl bg-white shadow-xl flex flex-col overflow-hidden">
-            <div className="flex items-start justify-between shrink-0 px-4 sm:px-5 pt-4 sm:pt-5">
-              <div>
-                <h3 className="font-bold text-charcoal">{schedule === 'recurring' ? 'Recurring' : 'Schedule booking'}</h3>
-                <p className="text-xs text-warmgrey mt-0.5">Pick a date &amp; time.</p>
-              </div>
-              <button type="button" onClick={closeModal} className="text-warmgrey/70 hover:text-charcoal">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 sm:px-5 pb-1">
-            <label className="block mt-4">
-              <span className="block text-xs font-semibold text-charcoal mb-1.5">Date</span>
-              <input
-                type="date"
-                min={minDate}
-                value={pickDate}
-                onChange={(e) => onDateChange(e.target.value)}
-                onClick={openPicker}
-                className={`${inputClass} cursor-pointer`}
-              />
-              {datetimeError && (!date || !time) && (
-                <p className="text-xs text-red-600 mt-1">{errors.datetime}</p>
-              )}
-            </label>
-
-            {loadingSlots && <p className="mt-4 text-sm text-warmgrey">Loading slots…</p>}
-
-            {slotsError && <p className="mt-4 text-xs text-red-600">{slotsError}</p>}
-
-            {!loadingSlots && !slotsError && pickDate && (
-              <>
-                {slots.length === 0 ? (
-                  <p className="mt-4 text-sm text-warmgrey">No available slots for this date. Try another.</p>
-                ) : (
-                  <>
-                    <p className="text-xs font-bold text-warmgrey uppercase tracking-wide mt-4 mb-2">Preferred slots</p>
-                    <div className="grid grid-cols-3 gap-2">
-                      {slots.map((slot) => (
-                        <button
-                          key={slot}
-                          type="button"
-                          onClick={() => setSelectedSlot(slot)}
-                          className={`rounded-full px-2 py-2 text-xs font-semibold border transition ${
-                            selectedSlot === slot
-                              ? 'bg-terracotta border-terracotta text-white'
-                              : 'bg-white border-lightstone text-charcoal hover:border-terracotta'
-                          }`}
-                        >
-                          {slot}
-                        </button>
-                      ))}
-                    </div>
-                  </>
-                )}
-              </>
-            )}
-            {schedule === 'recurring' && (
-              <>
-                <p className="text-xs font-bold text-warmgrey uppercase tracking-wide mt-4 mb-2">Cadence</p>
-                <div className="flex flex-wrap gap-2">
-                  {['Daily', 'Weekly', 'Monthly'].map((c) => {
-                    const key = c.toLowerCase().replace('-', '')
-                    return (
-                      <button
-                        key={c}
-                        type="button"
-                        onClick={() => setRecurrence(
-                          key === 'weekly' && recurrence.value === 'weekly'
-                            ? recurrence
-                            : { type: 'preset', value: key, ...(key === 'weekly' ? { days: [] } : {}) }
-                        )}
-                        className={`rounded-full px-4 py-2 text-sm font-medium border transition ${
-                          recurrence.type === 'preset' && recurrence.value === key
-                            ? 'bg-accent-100 border-terracotta text-terracotta'
-                            : 'bg-white border-lightstone text-charcoal'
-                        }`}
-                      >
-                        {c}
-                      </button>
-                    )
-                  })}
-                  <button
-                    type="button"
-                    onClick={() => setRecurrence({ type: 'custom', times: customTimes, unit: customUnit })}
-                    className={`rounded-full px-4 py-2 text-sm font-medium border transition ${
-                      recurrence.type === 'custom'
-                        ? 'bg-accent-100 border-terracotta text-terracotta'
-                        : 'bg-white border-lightstone text-charcoal'
-                    }`}
-                  >
-                    Custom
-                  </button>
-                </div>
-
-                {isWeekly && (
-                  <>
-                    <p className="text-xs font-bold text-warmgrey uppercase tracking-wide mt-4 mb-2">Repeat on</p>
-                    <div className="grid grid-cols-7 gap-1.5">
-                      {WEEK_DAYS.map(([label, d]) => {
-                        const on = pickedDays.includes(d)
-                        const locked = d === startDay
-                        return (
-                          <button
-                            key={label}
-                            type="button"
-                            onClick={() => toggleDay(d)}
-                            disabled={locked}
-                            aria-pressed={on}
-                            title={locked ? 'Your start date falls on this day' : undefined}
-                            className={`rounded-full py-2 text-xs font-semibold border transition ${
-                              on
-                                ? 'bg-terracotta border-terracotta text-white'
-                                : 'bg-white border-lightstone text-charcoal hover:border-terracotta'
-                            } ${locked ? 'cursor-default' : ''}`}
-                          >
-                            {label}
-                          </button>
-                        )
-                      })}
-                    </div>
-                    <p className="mt-2 text-xs text-warmgrey">
-                      {startDay !== null
-                        ? `Every ${dayNames(pickedDays)} at the time you pick, starting on your chosen date. Its day is always included.`
-                        : 'Pick a start date first.'}
-                    </p>
-                  </>
-                )}
-
-                {recurrence.type === 'custom' && (
-                  <div className="mt-4 flex items-center gap-2">
-                    <input
-                      type="number"
-                      min={1}
-                      max={31}
-                      value={customTimes}
-                      onChange={(e) => {
-                        const n = Math.max(1, Math.min(31, Number(e.target.value) || 1))
-                        setCustomTimes(n)
-                        setRecurrence({ type: 'custom', times: n, unit: customUnit })
-                      }}
-                      className="w-16 rounded-lg border border-lightstone px-2 py-1.5 text-sm text-center"
-                    />
-                    <span className="text-xs text-warmgrey">time(s) per</span>
-                    <select
-                      value={customUnit}
-                      onChange={(e) => {
-                        const u = e.target.value
-                        setCustomUnit(u)
-                        setRecurrence({ type: 'custom', times: customTimes, unit: u })
-                      }}
-                      className="rounded-lg border border-lightstone px-2 py-1.5 text-sm bg-white"
-                    >
-                      <option value="day">day</option>
-                      <option value="week">week</option>
-                      <option value="month">month</option>
-                    </select>
-                  </div>
-                )}
-              </>
-            )}
-            </div>
-            <div className="shrink-0 flex gap-2 px-4 sm:px-5 py-4 border-t border-lightstone bg-white">
-              <button type="button" onClick={closeModal} className="flex-1 rounded-full bg-warmlinen hover:bg-lightstone text-charcoal font-semibold py-2.5 text-sm">Back</button>
-              <button type="button" onClick={confirmSlot} disabled={!selectedSlot} className="flex-1 rounded-full bg-terracotta hover:bg-charcoal disabled:opacity-50 text-white font-semibold py-2.5 text-sm">Confirm</button>
-            </div>
-          </div>
-        </div>,
-        document.body
       )}
     </SectionCard>
   )
@@ -1636,7 +1662,7 @@ const HowSoonPanel = ({ open, setOpen, summary, goToAddons, schedule, setSchedul
 const AddressPaymentPanel = ({
   availableCities,
   name, setName, phone, setPhone,
-  address, setAddress, city, setCity,
+  address, setAddress, city,
   area, setArea, pincode, setPincode,
   notes, setNotes,
   pay, setPay,
@@ -1719,20 +1745,12 @@ const AddressPaymentPanel = ({
             </div>
           </Field>
           <Field label="City" error={errors?.city}>
-            <div className="relative">
-              <select
-                className={fieldSelectClass('city')}
-                value={city}
-                onChange={(e) => { setCity(e.target.value); setArea(''); setPincode('') }}
-                required
-              >
-                <option value="">Select city</option>
-                {availableCities.map(c => (
-                  <option key={c.id} value={c.name}>{c.name}</option>
-                ))}
-              </select>
-              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-warmgrey pointer-events-none" />
-            </div>
+            <input
+              className={inputCls}
+              value={city || 'Singapore'}
+              readOnly
+              tabIndex={-1}
+            />
           </Field>
           <Field label="Country">
             <input
@@ -1866,7 +1884,7 @@ const AddressPaymentPanel = ({
 
 export default function ServiceDetail() {
   const { slug } = useParams()
-  const { services, loading } = useServices()
+  const { services, loading, reload } = useServices()
   const { bookings, addBooking, loaded: bookingsLoaded } = useBookings()
   const { token, user } = useAuth()
   const navigate = useNavigate()
@@ -1884,7 +1902,6 @@ export default function ServiceDetail() {
   }
   const goToPayment = () => setOpenSections({ variant: false, how: false, addons: false, payment: true })
   const [errors, setErrors] = useState({})
-  const [submitAttempt, setSubmitAttempt] = useState(0)
   const [selectedOffer, setSelectedOffer] = useState(() => getStoredOffer())
   const hasBooked = user && bookingsLoaded && bookings.length > 0
   useEffect(() => {
@@ -1913,8 +1930,8 @@ export default function ServiceDetail() {
   const [recurrence, setRecurrence] = useState({ type: 'preset', value: 'weekly' })
   const [homeSize, setHomeSize] = useState(null)
   const [cleaners, setCleaners] = useState(1)
-  const [officeSize, setOfficeSize] = useState(OFFICE_SIZES[0].id)
-  const [officeHours, setOfficeHours] = useState(OFFICE_HOURS[1])
+  const [officeSize, setOfficeSize] = useState(DEFAULT_OFFICE_PRICING.sizes[0].id)
+  const [officeHours, setOfficeHours] = useState(DEFAULT_OFFICE_PRICING.hours[1])
   const [customTimes, setCustomTimes] = useState(3)
   const [customUnit, setCustomUnit] = useState('week')
   const [name, setName] = useState('')
@@ -1988,7 +2005,26 @@ export default function ServiceDetail() {
     return slugs.map(s => services.find(svc => svc.slug === s)).filter(Boolean)
   }, [stateSlugs, services, slug])
   const primary = selectedServices[0]
-  const multiSelect = isMultiSelectGroup(primary?.subcategory)
+  // An explicit "Booking style" set on the subcategory in Superadmin overrides
+  // the name-based inference below; null/'auto' keeps the legacy rules.
+  const explicit = primary?.bookingBehavior && primary.bookingBehavior !== 'auto' ? primary.bookingBehavior : null
+  const multiSelect = explicit ? explicit === 'multi_select' : isMultiSelectGroup(primary?.subcategory)
+  // The house/office cleaning pickers only exist under the cleaning
+  // categories ("Cleaning", "Office Cleaning") — a "One-Time Cleaning" name
+  // or an explicit cleaning booking style anywhere else must not turn them
+  // on. /cleaning/i matches both category names.
+  const cleaningCategory = /cleaning/i.test(primary?.category || '')
+
+  // A slug the shared cache can't resolve may be a stale empty load (the
+  // catalog is fetched once at boot and a failure is swallowed) — retry the
+  // fetch once per slug before giving up and bouncing to /services.
+  const retriedFor = useRef(null)
+  const [exhaustedSlug, setExhaustedSlug] = useState(null)
+  useEffect(() => {
+    if (loading || primary || retriedFor.current === slug) return
+    retriedFor.current = slug
+    Promise.resolve(reload()).finally(() => setExhaustedSlug(slug))
+  }, [loading, primary, slug, reload])
 
   // Sibling services in the same subcategory, offered as options on this page.
   // Only for a single-service booking — the multi-select flow already has its
@@ -2005,12 +2041,13 @@ export default function ServiceDetail() {
 
   // Most subcategories vary by length of visit; others vary by unit size or
   // treatment, where the duration is not a distinguishing label.
-  const roomMode = MOVE_OUT_RE.test(primary?.subcategory || '')
+  const roomMode = explicit ? explicit === 'room_type' : MOVE_OUT_RE.test(primary?.subcategory || '')
   const durationMode = useMemo(() => {
+    if (explicit) return explicit === 'duration_list'
     if (!variants.length || roomMode) return false
     const minutes = variants.map(v => parseDurationMinutes(v.duration))
     return minutes.every(Boolean) && new Set(minutes).size === minutes.length
-  }, [variants, roomMode])
+  }, [variants, roomMode, explicit])
 
   const sortedVariants = useMemo(() => {
     const list = [...variants]
@@ -2022,7 +2059,7 @@ export default function ServiceDetail() {
 
   // Options spanning more than one kind of offering get a heading per group.
   const groupedVariants = useMemo(() => {
-    if (durationMode || sortedVariants.length === 0) return null
+    if (explicit === 'simple_list' || durationMode || sortedVariants.length === 0) return null
     const groups = new Map()
     for (const v of sortedVariants) {
       const label = variantGroupLabel(v.name)
@@ -2043,23 +2080,44 @@ export default function ServiceDetail() {
     return [mins ? formatHours(mins) : null, meta].filter(Boolean).join(' · ')
   }
 
-  // House cleaning sells by the hour: the "One-Time Cleaning" variants become
-  // the hours options of the size/hours/cleaners picker, priced per cleaner.
+  // House cleaning sells by the hour: flagged services are the hours options
+  // of the size/hours/cleaners picker, priced per cleaner. With no flagged
+  // siblings (or under the legacy 'auto' behaviour) the "One-Time Cleaning"
+  // name rule fills in, so unflagged old data keeps working.
   const houseOptions = useMemo(() => {
     if (multiSelect || selectedServices.length !== 1) return []
-    const list = variants
-      .filter(v => HOUSE_RE.test(v.name))
+    if (!cleaningCategory) return []
+    if (explicit && explicit !== 'house_cleaning') return []
+    const flagged = variants.filter(v => v.isPickerOption)
+    const source = flagged.length ? flagged : variants.filter(v => HOUSE_RE.test(v.name))
+    const list = source
       .map(v => ({ svc: v, hours: (parseDurationMinutes(v.duration) || 0) / 60 }))
       .filter(o => o.hours > 0)
       .sort((a, b) => a.hours - b.hours)
     return list.length > 1 ? list : []
-  }, [variants, multiSelect, selectedServices.length])
+  }, [variants, multiSelect, selectedServices.length, explicit, cleaningCategory])
   const houseMode = houseOptions.length > 0
   // Office cleaning gets its own size/plan picker and recurring panel,
   // mirroring house cleaning's UX with contract pricing from the ops sheet.
-  const officeMode = !houseMode && selectedServices.length === 1 && /office cleaning/i.test(primary?.category || '')
+  const officeMode = !houseMode && selectedServices.length === 1 && cleaningCategory &&
+    (explicit ? explicit === 'office_cleaning' : /office cleaning/i.test(primary?.category || ''))
   // Wellness sessions book by duration and cadence, not an instant dispatch.
-  const wellnessMode = !houseMode && !officeMode && selectedServices.length === 1 && /wellness/i.test(primary?.category || '')
+  const wellnessMode = !houseMode && !officeMode && selectedServices.length === 1 &&
+    (explicit ? explicit === 'wellness_session' : /wellness/i.test(primary?.category || ''))
+
+  // The subcategory's office_pricing (Superadmin > Subcategory > Office
+  // pricing) overrides the built-in tables field-by-field.
+  const officePricing = useMemo(() => officePricingOf(primary), [primary])
+  // DB-provided tables can carry different size ids/hour options than the
+  // defaults the state seeds from — snap a stale pick back into range.
+  useEffect(() => {
+    if (!officePricing.sizes.some(s => s.id === officeSize)) {
+      setOfficeSize(officePricing.sizes[0]?.id)
+    }
+    if (!officePricing.hours.includes(officeHours)) {
+      setOfficeHours(officePricing.hours[1] ?? officePricing.hours[0])
+    }
+  }, [officePricing])
 
   useEffect(() => {
     if (wellnessMode && schedule === 'instant') setSchedule('scheduled')
@@ -2068,27 +2126,26 @@ export default function ServiceDetail() {
   // Landing on a sibling that isn't an hours option (a single session, bundle
   // or weekly-plan row) re-anchors to the hours option with the same length.
   useEffect(() => {
-    if (!houseMode || !primary || HOUSE_RE.test(primary.name)) return
+    if (!houseMode || !primary || houseOptions.some(o => o.svc.slug === primary.slug)) return
     const hours = (parseDurationMinutes(primary.duration) || 0) / 60
     const target = houseOptions.find(o => o.hours === hours) || houseOptions[0]
     navigate(`/services/${target.svc.slug}`, { replace: true, state: { skipScrollTop: true } })
   }, [houseMode, primary])
 
   const hasVariants = sortedVariants.length > 0
+  // The office picker's content comes from the subcategory's office pricing,
+  // not sibling services — it must render even for a single-service
+  // subcategory, where there are no variants to gate on.
+  const showPickerCard = hasVariants || officeMode
   // Once the catalog has loaded, the choice of variant comes before everything
   // else — it sets the price the rest of the form is built on.
   useEffect(() => {
-    if (hasVariants) setOpenSections({ variant: true, how: false, addons: false, payment: false })
-  }, [hasVariants])
+    if (showPickerCard) setOpenSections({ variant: true, how: false, addons: false, payment: false })
+  }, [showPickerCard])
 
+  // Picking a variant only swaps the service in place — the card stays open
+  // so the customer can compare options; the Continue button advances.
   const selectVariant = (svc) => {
-    if (svc.slug !== primary.slug) navigate(`/services/${svc.slug}`, { replace: true, state: { skipScrollTop: true } })
-    goToHow()
-  }
-
-  // The weekly pickers take two taps to express one choice, so picking an axis
-  // must not collapse the card the way a single-tap row does.
-  const selectVariantStay = (svc) => {
     if (svc.slug !== primary.slug) navigate(`/services/${svc.slug}`, { replace: true, state: { skipScrollTop: true } })
   }
 
@@ -2200,13 +2257,22 @@ export default function ServiceDetail() {
     )
   }
 
-  if (!primary) return <Navigate to="/services" replace />
+  if (!primary) {
+    if (exhaustedSlug !== slug) {
+      return (
+        <div className="min-h-screen flex items-center justify-center">
+          <div className="text-warmgrey">Loading...</div>
+        </div>
+      )
+    }
+    return <Navigate to="/services" replace />
+  }
 
   // Office cleaning's one-time price is an hourly day rate per cleaner —
   // there's no real catalog row backing it since the contract table above is
   // what's actually priced.
   const basePrice = officeMode
-    ? OFFICE_HOURLY_RATE * officeHours * cleaners
+    ? officePricing.hourlyRate * officeHours * cleaners
     : selectedServices.reduce((sum, s) => sum + (s.price || parsePrice(s.pricingFrom)), 0) * (houseMode ? cleaners : 1)
   const addOnTotal = addons.reduce((sum, a) => sum + (selectedAddons[addonKey(a)] ? Number(a.customer_price) : 0), 0)
   // Recurring visits are priced per visit at the plan's tiered discount —
@@ -2218,7 +2284,7 @@ export default function ServiceDetail() {
   // back it into a "per visit" number using the same visits/month basis the
   // house cleaning plans use, so the rest of the pricing UI (which is all
   // framed per visit) still adds up to that monthly figure.
-  const officeMonthlyPrice = officeMode ? officePlanPrice(officeSizeOf(officeSize), officePlan) : null
+  const officeMonthlyPrice = officeMode ? officePlanPrice(officeSizeOf(officePricing.sizes, officeSize), officePlan) : null
   const officeVisitsPerMonth = (recurringDayCount || officePlan.defaultDays?.length || (officePlan.id === 'threeWeek' ? 3 : 5)) * 52 / 12
   const effectiveDiscount = houseMode && housePlan
     ? planDiscount(housePlan, recurringDayCount || housePlan.defaultDays?.length || 1)
@@ -2293,7 +2359,6 @@ export default function ServiceDetail() {
     if (Object.keys(nextErrors).length) {
       setErrors(nextErrors)
       setOpenSections(prev => ({ ...prev, variant: false, how: !!nextErrors.datetime, addons: false, payment: !nextErrors.datetime }))
-      setSubmitAttempt(c => c + 1)
       return
     }
     setErrors({})
@@ -2314,7 +2379,7 @@ export default function ServiceDetail() {
         catalogId: s.catalogId || s.id || null,
         qty: houseMode || officeMode ? cleaners : 1,
         ...(houseMode ? { homeSize, cleaners } : {}),
-        ...(officeMode ? { officeSize, officeHours, cleaners } : {}),
+        ...(officeMode ? { officeSize, officeSizeLabel: officeSizeOf(officePricing.sizes, officeSize).label, officeHours, cleaners } : {}),
       })),
       total: discountedPrice,
       discount: totalDiscount,
@@ -2427,14 +2492,18 @@ export default function ServiceDetail() {
       : `Recurring (${cadence})`
 
   const variantTitle = houseMode ? 'Your home' : officeMode ? 'Your office' : wellnessMode ? 'How long?' : durationMode ? 'Duration' : roomMode ? 'Unit type' : primary.subcategory || 'Options'
+  // Service names are variant labels ("One-Time Cleaning 2.0 hr",
+  // "2BR Move-Out (600-799 sqft)") — the subcategory the customer picked is
+  // the real offering and makes the proper page title.
+  const heroTitle = primary.subcategory || primary.name
   const primaryWeekly = parseWeekly(primary.name)
   const primaryHours = (parseDurationMinutes(primary.duration) || 0) / 60
-  const variantSummary = !hasVariants
+  const variantSummary = !showPickerCard
     ? ''
     : houseMode
       ? `${[homeSize, primaryHours ? formatHrs(primaryHours) : null, `${cleaners} cleaner${cleaners > 1 ? 's' : ''}`].filter(Boolean).join(' · ')}`
       : officeMode
-        ? `${[officeSizeOf(officeSize).label, formatHrs(officeHours), `${cleaners} cleaner${cleaners > 1 ? 's' : ''}`].filter(Boolean).join(' · ')}`
+        ? `${[officeSizeOf(officePricing.sizes, officeSize).label, formatHrs(officeHours), `${cleaners} cleaner${cleaners > 1 ? 's' : ''}`].filter(Boolean).join(' · ')}`
         : multiSelect && selectedServices.length > 1
           ? `${selectedServices.length} selected`
           : `${primaryWeekly ? `${primaryWeekly.hours} hr × ${primaryWeekly.times}/week` : variantLabel(primary)} selected`
@@ -2468,7 +2537,7 @@ export default function ServiceDetail() {
     ? 'Just once'
     : recurrence.type === 'custom'
       ? `${recurrence.times}× per ${recurrence.unit}`
-      : officeMode && officePlan?.id === 'daily'
+      : officeMode && officePlan?.id === 'daily' && visitDays.length >= officePlan.maxDays
         ? 'Every weekday'
         : officeMode && officePlan?.id === 'threeWeek'
           ? `3x a week${visitDays.length ? ` (${dayNames(visitDays)})` : ''}`
@@ -2482,11 +2551,9 @@ export default function ServiceDetail() {
               ? 'Every month'
               : housePlan?.id === 'weekdays' && visitDays.length >= 5
                 ? 'Every weekday'
-                : housePlan?.id === 'daily'
-                  ? 'Every day'
-                  : visitDays.length === 1
-                    ? `Every ${FULL_DAYS[visitDays[0]]}`
-                    : `Weekly${visitDays.length ? ` (${dayNames(visitDays)})` : ''}`
+                : visitDays.length === 1
+                  ? `Every ${FULL_DAYS[visitDays[0]]}`
+                  : `Weekly${visitDays.length ? ` (${dayNames(visitDays)})` : ''}`
 
   const whenLabel = schedule === 'recurring' ? (wellnessMode ? 'First session' : 'First visit') : 'When'
   const whenValue = schedule === 'instant'
@@ -2503,7 +2570,7 @@ export default function ServiceDetail() {
     serviceLines[0] += ` · ${[homeSize, `${cleaners} cleaner${cleaners > 1 ? 's' : ''}`].filter(Boolean).join(' · ')}`
   }
   if (officeMode && serviceLines.length) {
-    serviceLines[0] += ` · ${[officeSizeOf(officeSize).label, `${cleaners} cleaner${cleaners > 1 ? 's' : ''}`].filter(Boolean).join(' · ')}`
+    serviceLines[0] += ` · ${[officeSizeOf(officePricing.sizes, officeSize).label, `${cleaners} cleaner${cleaners > 1 ? 's' : ''}`].filter(Boolean).join(' · ')}`
   }
 
   const detailRows = [
@@ -2537,7 +2604,7 @@ export default function ServiceDetail() {
   return (
     <div className="pb-28">
       <Seo
-        title={primary.name}
+        title={heroTitle}
         description={taglineForService(primary.name) || `Book ${primary.name} with verified Kynd Pros in Singapore.`}
         path={`/services/${slug}`}
         image={primary.img || primary.groupImg || undefined}
@@ -2556,7 +2623,7 @@ export default function ServiceDetail() {
           ]),
         ]}
       />
-      <ServiceHero svc={primary} />
+      <ServiceHero svc={primary} title={heroTitle} />
       <Inclusions svc={primary} />
 
       <section className="py-6 sm:py-8 bg-warmlinen">
@@ -2580,7 +2647,7 @@ export default function ServiceDetail() {
           )}
 
           <form id="booking-form" onSubmit={onSubmit} className="space-y-4">
-            {hasVariants && (
+            {showPickerCard && (
               <SectionCard
                 title={variantTitle}
                 summary={variantSummary}
@@ -2595,8 +2662,9 @@ export default function ServiceDetail() {
                     setHomeSize={setHomeSize}
                     cleaners={cleaners}
                     setCleaners={setCleaners}
-                    onSelect={selectVariantStay}
+                    onSelect={selectVariant}
                     onContinue={goToHow}
+                    sizes={toHomeSizeTuples(primary.homeSizes)}
                   />
                 ) : officeMode ? (
                   <OfficePicker
@@ -2607,15 +2675,26 @@ export default function ServiceDetail() {
                     cleaners={cleaners}
                     setCleaners={setCleaners}
                     onContinue={goToHow}
+                    sizes={officePricing.sizes}
+                    hourOptions={officePricing.hours}
                   />
                 ) : wellnessMode ? (
-                  <div className="grid grid-cols-3 gap-2">
-                    {sortedVariants.map(v => (
-                      <AxisPill key={v.slug} selected={isPicked(v)} onClick={() => selectVariant(v)}>
-                        {Math.round(parseDurationMinutes(v.duration) || 0)} min
-                      </AxisPill>
-                    ))}
-                  </div>
+                  <>
+                    <div className="grid grid-cols-3 gap-2">
+                      {sortedVariants.map(v => (
+                        <AxisPill key={v.slug} selected={isPicked(v)} onClick={() => selectVariant(v)}>
+                          {Math.round(parseDurationMinutes(v.duration) || 0)} min
+                        </AxisPill>
+                      ))}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={goToHow}
+                      className="mt-5 w-full rounded-full bg-terracotta hover:bg-charcoal text-white font-semibold py-2.5 text-sm transition"
+                    >
+                      Continue
+                    </button>
+                  </>
                 ) : (
                 <>
                 {multiSelect && (
@@ -2626,7 +2705,7 @@ export default function ServiceDetail() {
                     <div key={label}>
                       <p className="pt-3 pb-1 text-[11px] font-bold uppercase tracking-widest text-warmgrey">{label}</p>
                       {label === 'Weekly plans' ? (
-                        <WeeklyPicker items={items} selectedSlug={primary.slug} onSelect={selectVariantStay} />
+                        <WeeklyPicker items={items} selectedSlug={primary.slug} onSelect={selectVariant} />
                       ) : (
                         <div className="divide-y divide-lightstone">
                           {items.map(v => (
@@ -2659,6 +2738,13 @@ export default function ServiceDetail() {
                     ))}
                   </div>
                 )}
+                <button
+                  type="button"
+                  onClick={goToHow}
+                  className="mt-5 w-full rounded-full bg-terracotta hover:bg-charcoal text-white font-semibold py-2.5 text-sm transition"
+                >
+                  Continue
+                </button>
                 </>
                 )}
               </SectionCard>
@@ -2683,13 +2769,13 @@ export default function ServiceDetail() {
               setCustomUnit={setCustomUnit}
               arrivalTime={arrivalTime}
               errors={errors}
-              submitAttempt={submitAttempt}
               serviceName={primary.name}
               city={city}
               duration={serviceDuration}
               houseMode={houseMode}
               officeMode={officeMode}
               officeSize={officeSize}
+              officePricing={officePricing}
               oneTimePrice={basePrice}
               wellnessMode={wellnessMode}
             />
@@ -2746,7 +2832,7 @@ export default function ServiceDetail() {
                 name={name} setName={setName}
                 phone={phone} setPhone={setPhone}
                 address={address} setAddress={setAddress}
-                city={city} setCity={setCity}
+                city={city}
                 area={area} setArea={setArea}
                 pincode={pincode} setPincode={setPincode}
                 notes={notes} setNotes={setNotes}

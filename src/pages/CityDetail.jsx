@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import StoreButtons from '../components/StoreButtons'
 import CitiesGrid from '../components/CitiesGrid'
 import { iconForService } from '../lib/serviceIcon'
+import { slugify } from '../lib/catalogCategories'
 import { API_BASE, serviceImageUrl, staticAssetUrl } from '../lib/api'
 import Seo from '../components/Seo'
 import { breadcrumbSchema } from '../lib/schema'
@@ -151,7 +152,7 @@ const ServicesInCity = ({ city }) => {
           )
           .map(service => ({
             id: service.id,
-            slug: service.name.toLowerCase().replace(/\s+/g, '-'),
+            slug: slugify(service.name),
             name: service.name,
             img: serviceImageUrl(service.image),
             price: parseFloat(service.price),

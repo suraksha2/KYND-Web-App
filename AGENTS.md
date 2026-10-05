@@ -119,6 +119,24 @@ slot grid. The duration list there is replaced by `HousePicker` (home size →
 suggested hours, hours = the "One-Time Cleaning" variants, cleaners stepper —
 each extra cleaner is one more priced worker, `qty` on the order item).
 
+The house/office cleaning pickers only activate under a category whose name
+matches `/cleaning/i` ("Cleaning", "Office Cleaning") — `cleaningCategory` in
+`ServiceDetail.jsx` gates the `One-Time Cleaning` name rule, `is_picker_option`
+flags and explicit `house_cleaning`/`office_cleaning` booking styles alike, so
+they can't fire under e.g. Beauty Services. Superadmin mirrors this: the
+cleaning booking styles and the Home sizes editor are hidden for
+non-cleaning categories (`isCleaningCategory` in `CatalogServices.tsx`), and
+`src/lib/bookingPreview.ts` applies the same gate in its preview.
+
+**Office cleaning** pricing comes from `catalog_subcategories.office_pricing`
+(JSON: `hourlyRate`, `hours[]`, `sizes[{id,label,threeWeek,daily}]` — a null
+price is a "By quote"/Contact-us cell — and `dedicated[]` quote-only rows),
+editable via Superadmin > Subcategory > Office pricing and served as
+`subcategory_office_pricing` on `/api/catalog/services`. `ServiceDetail.jsx`
+falls back to `DEFAULT_OFFICE_PRICING` per field when the column is
+NULL/malformed; the plan cards (`OFFICE_PLANS`) stay in code since they carry
+booking behaviour, not just labels.
+
 **Wellness @ Home** services use `SessionPlanPanel` in the same page instead of
 the schedule pills: duration variants render as minute pills ("How long?"),
 then plan cards (One-time / Monthly / Every 2 weeks / Weekly at 0/5/10/15% per

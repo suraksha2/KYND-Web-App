@@ -113,6 +113,7 @@ export default function Services() {
   const [loading, setLoading] = useState(true)
   const [moments, setMoments] = useState(defaultMoments)
   const [copiedOffer, setCopiedOffer] = useState(null)
+  const [savedOffer, setSavedOffer] = useState(null)
 
   // The open category/subcategory live in the URL, so back/refresh/share work.
   const activeSlug = searchParams.get('category')
@@ -219,15 +220,21 @@ export default function Services() {
       try {
         const response = await fetch(`${API_BASE}/service-subcategories`)
         const result = await response.json()
-        if (result.data && result.data.length > 0) {
-          setMoments(result.data.map(m => ({
+        const data = result.data
+        if (!Array.isArray(data) || data.length === 0) return
+        // A moment only surfaces here once services are linked to it in
+        // Superadmin — tags is the list of its linked service names.
+        setMoments(
+          data
+            .filter(m => Array.isArray(m.tags) && m.tags.length > 0)
+            .map(m => ({
             slug: m.slug || m.id,
             image: m.image ? serviceImageUrl(m.image) : null,
             label: m.label,
             title: m.title,
             tags: Array.isArray(m.tags) ? m.tags : []
-          })))
-        }
+          }))
+        )
       } catch (error) {
         console.error('Failed to fetch service subcategories:', error)
       }
@@ -363,17 +370,26 @@ export default function Services() {
                       return
                     }
                     storeOffer(offer)
-                    navigate('/services')
+                    setSavedOffer(offer.id)
+                    setTimeout(() => setSavedOffer(null), 5000)
+                    document.getElementById('services')?.scrollIntoView({ behavior: 'smooth' })
                   }}
                   className="mt-8 w-full rounded-2xl bg-white/15 hover:bg-white/25 text-white font-semibold py-3 text-sm transition"
                 >
-                  {copiedOffer === offer.id ? 'Copied!' : offer.action}
+                  {copiedOffer === offer.id ? 'Copied!' : savedOffer === offer.id ? 'Saved!' : offer.action}
                 </button>
               </div>
             ))}
           </div>
+
+          {savedOffer && (
+            <p className="mt-4 text-sm font-medium text-terracotta">
+              Offer saved — please select a service above and it'll be applied at checkout.
+            </p>
+          )}
         </div>
 
+        {moments.length > 0 && (
         <div className="mt-16 md:mt-20">
           <h3 className="font-heading text-3xl md:text-4xl font-extrabold text-charcoal leading-tight">
             Sometimes you don't need a service.<br />
@@ -411,6 +427,7 @@ export default function Services() {
             ))}
           </div>
         </div>
+        )}
 
         <div className="mt-16 md:mt-20">
           <h3 className="font-heading text-3xl md:text-4xl font-extrabold text-charcoal leading-tight">

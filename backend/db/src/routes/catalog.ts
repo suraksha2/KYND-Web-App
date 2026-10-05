@@ -228,7 +228,7 @@ router.get('/subcategories', async (req, res) => {
     // `placements` lists the other categories a subcategory is also shown
     // under, each with its position there; category_id stays the home one.
     const [rows] = await pool.query(
-      `SELECT sc.id, sc.category_id, sc.name, sc.description, sc.is_addon, sc.image, sc.sort_order,
+      `SELECT sc.id, sc.category_id, sc.name, sc.description, sc.is_addon, sc.home_sizes, sc.booking_behavior, sc.office_pricing, sc.image, sc.hero_image, sc.hero_image_focus, sc.sort_order,
               sc.created_at, sc.updated_at,
               c.name AS category,
               COUNT(s.id) AS service_count,
@@ -251,6 +251,8 @@ router.get('/subcategories', async (req, res) => {
       ...sc,
       service_count: Number(sc.service_count),
       is_addon: Boolean(sc.is_addon),
+      home_sizes: safeJson(sc.home_sizes, null),
+      office_pricing: safeJson(sc.office_pricing, null),
       // "5:2,6:1" -> [{category_id: 5, sort_order: 2}, ...]. GROUP_CONCAT rather
       // than JSON_ARRAYAGG, which XAMPP's MariaDB 10.4 lacks.
       placements: sc.placements
@@ -280,23 +282,111 @@ router.get('/subcategories/:id', async (req, res) => {
     if (!subcategories.length) {
       return res.status(404).json({ error: 'Subcategory not found.' });
     }
-    return res.status(200).json({ data: subcategories[0] });
+    const subcategory = {
+      ...subcategories[0],
+      home_sizes: safeJson(subcategories[0].home_sizes, null),
+      office_pricing: safeJson(subcategories[0].office_pricing, null),
+      is_addon: Boolean(subcategories[0].is_addon),
+    };
+    return res.status(200).json({ data: subcategory });
   } catch (err) {
     console.error('[GET /api/catalog/subcategories/:id]', err);
     return res.status(500).json({ error: 'Failed to fetch subcategory.' });
   }
 });
 
+// null/empty clears the override (storefront falls back to its built-in
+// Studio/1BR/2BR/3BR/4BR+ defaults); anything else must be a non-empty array.
+function homeSizesJson(value: any): string | null {
+  if (!Array.isArray(value) || value.length === 0) return null;
+  return JSON.stringify(value);
+}
+
+const officeNum = (v: any): number | null => {
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : null;
+};
+
+// Same contract as home_sizes: NULL clears the override (the storefront
+// falls back to its built-in office pricing tables). Anything stored must
+// be a plain object, and only the fields ServiceDetail.jsx reads are kept —
+// an empty/fully-invalid blob stores NULL rather than wedging the picker.
+function officePricingJson(value: any): string | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const sizes = (Array.isArray(value.sizes) ? value.sizes : [])
+    .filter((s: any) => s && typeof s === 'object' && typeof s.label === 'string' && s.label.trim())
+    .map((s: any, i: number) => ({
+      id: typeof s.id === 'string' && s.id ? s.id : `s${i}`,
+      label: s.label.trim(),
+      threeWeek: officeNum(s.threeWeek),
+      daily: officeNum(s.daily),
+    }));
+  const hours = (Array.isArray(value.hours) ? value.hours : [])
+    .map(Number)
+    .filter((n: number) => Number.isFinite(n) && n > 0);
+  const dedicated = (Array.isArray(value.dedicated) ? value.dedicated : [])
+    .filter((d: any) => d && typeof d === 'object' && typeof d.title === 'string' && d.title.trim())
+    .map((d: any, i: number) => ({
+      id: typeof d.id === 'string' && d.id ? d.id : `d${i}`,
+      title: d.title.trim(),
+      subtitle: typeof d.subtitle === 'string' ? d.subtitle : '',
+      range: typeof d.range === 'string' ? d.range : '',
+    }));
+  const hourlyRate = officeNum(value.hourlyRate);
+  if (!sizes.length && !dedicated.length && !hours.length && hourlyRate === null) return null;
+  return JSON.stringify({ hourlyRate, hours, sizes, dedicated });
+}
+
+// The pickers ServiceDetail.jsx can be forced into via this column. Anything
+// else (including 'auto') stores NULL, which means "infer from names", the
+// legacy behaviour — so an unrecognised value can't wedge the storefront.
+const BOOKING_BEHAVIORS = new Set([
+  'simple_list',
+  'duration_list',
+  'multi_select',
+  'room_type',
+  'house_cleaning',
+  'office_cleaning',
+  'wellness_session',
+]);
+function bookingBehavior(value: any): string | null {
+  return typeof value === 'string' && BOOKING_BEHAVIORS.has(value) ? value : null;
+}
+
+// CSS object-position keyword pairs for the hero image's focal point (see
+// migrations/017-subcategory-hero-focus.sql). Anything else stores NULL,
+// which ServiceHero treats as "center center".
+const HERO_IMAGE_FOCUS_VALUES = new Set([
+  'left top', 'center top', 'right top',
+  'left center', 'center', 'right center',
+  'left bottom', 'center bottom', 'right bottom',
+]);
+function heroImageFocus(value: any): string | null {
+  return typeof value === 'string' && HERO_IMAGE_FOCUS_VALUES.has(value) ? value : null;
+}
+
 router.post('/subcategories', async (req, res) => {
   try {
-    const { category_id, name, description, is_addon, image, sort_order } = req.body;
+    const { category_id, name, description, is_addon, image, hero_image, hero_image_focus, sort_order, home_sizes, booking_behavior, office_pricing } = req.body;
     if (!category_id || !name?.trim()) {
       return res.status(400).json({ error: 'category_id and name are required.' });
     }
 
     const [result] = await pool.query(
-      'INSERT INTO catalog_subcategories (category_id, name, description, is_addon, image, sort_order) VALUES (?, ?, ?, ?, ?, ?)',
-      [category_id, name.trim(), description?.trim() || null, is_addon ? 1 : 0, image?.trim() || null, Number(sort_order) || 0]
+      'INSERT INTO catalog_subcategories (category_id, name, description, is_addon, home_sizes, booking_behavior, office_pricing, image, hero_image, hero_image_focus, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [
+        category_id,
+        name.trim(),
+        description?.trim() || null,
+        is_addon ? 1 : 0,
+        homeSizesJson(home_sizes),
+        bookingBehavior(booking_behavior),
+        officePricingJson(office_pricing),
+        image?.trim() || null,
+        hero_image?.trim() || null,
+        heroImageFocus(hero_image_focus),
+        Number(sort_order) || 0,
+      ]
     );
 
     return res.status(201).json({ id: Number((result as any).insertId) });
@@ -311,21 +401,26 @@ router.post('/subcategories', async (req, res) => {
 
 router.put('/subcategories/:id', async (req, res) => {
   try {
-    const { category_id, name, description, is_addon, image, sort_order } = req.body;
+    const { category_id, name, description, is_addon, image, hero_image, hero_image_focus, sort_order, home_sizes, booking_behavior, office_pricing } = req.body;
     if (!category_id || !name?.trim()) {
       return res.status(400).json({ error: 'category_id and name are required.' });
     }
 
     const [result] = await pool.query(
       `UPDATE catalog_subcategories
-       SET category_id = ?, name = ?, description = ?, is_addon = ?, image = ?, sort_order = ?
+       SET category_id = ?, name = ?, description = ?, is_addon = ?, home_sizes = ?, booking_behavior = ?, office_pricing = ?, image = ?, hero_image = ?, hero_image_focus = ?, sort_order = ?
        WHERE id = ?`,
       [
         category_id,
         name.trim(),
         description?.trim() || null,
         is_addon ? 1 : 0,
+        homeSizesJson(home_sizes),
+        bookingBehavior(booking_behavior),
+        officePricingJson(office_pricing),
         image?.trim() || null,
+        hero_image?.trim() || null,
+        heroImageFocus(hero_image_focus),
         Number(sort_order) || 0,
         req.params.id,
       ]
@@ -377,10 +472,13 @@ router.get('/services', async (req, res) => {
     // to a different dollar on some rows).
     const [rows] = await pool.query(
       `SELECT s.id, s.name, s.description, s.image, s.duration, s.worker_count, s.rate_type, s.status,
-              s.default_partner_cost, s.markup_pct_override,
+              s.is_picker_option, s.default_partner_cost, s.markup_pct_override,
               c.id as category_id, c.name as category, c.image as category_image,
               sc.id as subcategory_id, sc.name as subcategory, sc.is_addon as subcategory_is_addon,
-              sc.image as subcategory_image,
+              sc.image as subcategory_image, sc.hero_image as subcategory_hero_image,
+              sc.hero_image_focus as subcategory_hero_image_focus, sc.home_sizes as subcategory_home_sizes,
+              sc.booking_behavior as subcategory_booking_behavior,
+              sc.office_pricing as subcategory_office_pricing,
               pr.strategy as pricing_strategy, pr.params as pricing_params
        FROM catalog_services s
        JOIN catalog_categories c ON s.category_id = c.id
@@ -395,6 +493,9 @@ router.get('/services', async (req, res) => {
       ...s,
       pricing_params: safeJson(s.pricing_params, {}),
       subcategory_is_addon: Boolean(s.subcategory_is_addon),
+      subcategory_home_sizes: safeJson(s.subcategory_home_sizes, null),
+      subcategory_office_pricing: safeJson(s.subcategory_office_pricing, null),
+      is_picker_option: Boolean(s.is_picker_option),
     }));
     return res.status(200).json({ data });
   } catch (err) {
@@ -406,7 +507,11 @@ router.get('/services', async (req, res) => {
 router.get('/services/:id', async (req, res) => {
   try {
     const [serviceRows] = await pool.query(
-      `SELECT s.*, c.name as category, c.variant_schema, sc.name as subcategory
+      `SELECT s.*, c.name as category, c.variant_schema, sc.name as subcategory,
+              sc.booking_behavior as subcategory_booking_behavior,
+              sc.office_pricing as subcategory_office_pricing,
+              sc.hero_image as subcategory_hero_image,
+              sc.hero_image_focus as subcategory_hero_image_focus
        FROM catalog_services s
        JOIN catalog_categories c ON s.category_id = c.id
        LEFT JOIN catalog_subcategories sc ON s.subcategory_id = sc.id
@@ -429,7 +534,12 @@ router.get('/services/:id', async (req, res) => {
     );
     const [variantRows] = await pool.query('SELECT * FROM service_variant_attributes WHERE service_id = ?', [serviceId]);
 
-    const service = { ...services[0], variant_schema: safeJson(services[0].variant_schema, []) };
+    const service = {
+      ...services[0],
+      variant_schema: safeJson(services[0].variant_schema, []),
+      subcategory_office_pricing: safeJson(services[0].subcategory_office_pricing, null),
+      is_picker_option: Boolean(services[0].is_picker_option),
+    };
     const parsedPricing = (pricingRows as any[]).map((r) => ({ ...r, params: safeJson(r.params, {}) }));
     const parsedModes = (modeRows as any[]).map((m) => ({ ...m, blackout_dates: safeJson(m.blackout_dates, []) }));
 
@@ -459,6 +569,7 @@ router.post('/services', async (req, res) => {
     worker_count,
     rate_type,
     status,
+    is_picker_option,
     default_partner_cost,
     markup_pct_override,
     pricing_rules = [],
@@ -475,8 +586,8 @@ router.post('/services', async (req, res) => {
 
   try {
     const [insertResult] = await connection.query(
-      `INSERT INTO catalog_services (category_id, subcategory_id, name, description, image, duration, worker_count, rate_type, status, default_partner_cost, markup_pct_override)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO catalog_services (category_id, subcategory_id, name, description, image, duration, worker_count, rate_type, status, is_picker_option, default_partner_cost, markup_pct_override)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         category_id,
         subcategory_id ?? null,
@@ -487,6 +598,7 @@ router.post('/services', async (req, res) => {
         workerCount(worker_count),
         rateType(rate_type),
         status || 'pending_rates',
+        is_picker_option ? 1 : 0,
         default_partner_cost ?? null,
         markup_pct_override ?? null,
       ]
@@ -547,6 +659,7 @@ router.put('/services/:id', async (req, res) => {
     worker_count,
     rate_type,
     status,
+    is_picker_option,
     default_partner_cost,
     markup_pct_override,
     pricing_rules = [],
@@ -564,7 +677,7 @@ router.put('/services/:id', async (req, res) => {
   try {
     const [updateResult] = await connection.query(
       `UPDATE catalog_services
-       SET category_id = ?, subcategory_id = ?, name = ?, description = ?, image = ?, duration = ?, worker_count = ?, rate_type = ?, status = ?, default_partner_cost = ?, markup_pct_override = ?
+       SET category_id = ?, subcategory_id = ?, name = ?, description = ?, image = ?, duration = ?, worker_count = ?, rate_type = ?, status = ?, is_picker_option = ?, default_partner_cost = ?, markup_pct_override = ?
        WHERE id = ?`,
       [
         category_id,
@@ -576,6 +689,7 @@ router.put('/services/:id', async (req, res) => {
         workerCount(worker_count),
         rateType(rate_type),
         status || 'pending_rates',
+        is_picker_option ? 1 : 0,
         default_partner_cost ?? null,
         markup_pct_override ?? null,
         serviceId,

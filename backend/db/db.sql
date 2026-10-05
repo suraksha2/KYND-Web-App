@@ -425,7 +425,34 @@ CREATE TABLE IF NOT EXISTS catalog_subcategories (
   -- Services in this group are sold as add-ons to another booking, not on
   -- their own: hidden from the service grid, listed in the Add-ons panel.
   is_addon TINYINT(1) NOT NULL DEFAULT 0,
+  -- Home-size suggestions (label/hours/description) for the storefront's
+  -- house-cleaning size/hours/cleaners picker (src/pages/ServiceDetail.jsx,
+  -- HousePicker) — only read when this subcategory has 2+ services named
+  -- "One-Time Cleaning X hr". NULL/empty falls back to the storefront's
+  -- built-in Studio/1BR/2BR/3BR/4BR+ defaults, so this is opt-in.
+  home_sizes JSON,
+  -- Which booking picker the storefront renders for this subcategory's
+  -- services (see migrations/014-picker-flags.sql). NULL means 'auto': keep
+  -- inferring it from service/category names, the legacy behaviour. An
+  -- explicit value ('simple_list', 'duration_list', 'multi_select',
+  -- 'room_type', 'house_cleaning', 'office_cleaning', 'wellness_session')
+  -- forces that picker regardless of names.
+  booking_behavior VARCHAR(32) NULL,
+  -- Office-cleaning contract pricing for the storefront's office picker
+  -- (src/pages/ServiceDetail.jsx, OfficePicker + OfficeRecurringPanel):
+  -- {hourlyRate, hours[], sizes[{id,label,threeWeek,daily}], dedicated[]}.
+  -- NULL/empty falls back to the storefront's built-in tables; only read
+  -- when the picker resolves to 'office_cleaning'.
+  office_pricing JSON,
   image VARCHAR(255),
+  -- Optional ServiceDetail banner, shared by every service under this
+  -- subcategory. The hero falls back to the committed people artwork, then
+  -- the service's own `image`, then this subcategory/category tile.
+  hero_image VARCHAR(255),
+  -- CSS object-position keyword pair ("center top", "left center", ...) so the
+  -- banner's object-cover crop (which changes shape between mobile and
+  -- desktop) keeps the photo's subject in frame. NULL means "center center".
+  hero_image_focus VARCHAR(20),
   sort_order INT NOT NULL DEFAULT 0,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -459,6 +486,11 @@ CREATE TABLE IF NOT EXISTS catalog_services (
   worker_count TINYINT UNSIGNED,
   rate_type VARCHAR(32),
   status ENUM('live', 'pending_rates', 'paused') DEFAULT 'pending_rates',
+  -- In a subcategory whose booking_behavior is 'house_cleaning', flagged
+  -- services are the picker's "Hours per visit" options; unflagged siblings
+  -- stay hidden (they still re-anchor to the closest option if visited
+  -- directly). Ignored by every other picker.
+  is_picker_option TINYINT(1) NOT NULL DEFAULT 0,
   default_partner_cost DECIMAL(10,2),
   markup_pct_override DECIMAL(5,2),
   net_margin DECIMAL(10,2),
@@ -670,6 +702,65 @@ SET @stmt := IF(
     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'catalog_subcategories'
       AND COLUMN_NAME = 'is_addon') = 0,
   'ALTER TABLE catalog_subcategories ADD COLUMN is_addon TINYINT(1) NOT NULL DEFAULT 0 AFTER description',
+  'DO 0');
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- Migration: admin-editable home sizes for the house-cleaning picker (see
+-- migrations/013-subcategory-home-sizes.sql).
+SET @stmt := IF(
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'catalog_subcategories'
+      AND COLUMN_NAME = 'home_sizes') = 0,
+  'ALTER TABLE catalog_subcategories ADD COLUMN home_sizes JSON NULL AFTER is_addon',
+  'DO 0');
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- Migration: explicit booking behavior + picker-option flag (see
+-- migrations/014-picker-flags.sql).
+SET @stmt := IF(
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'catalog_subcategories'
+      AND COLUMN_NAME = 'booking_behavior') = 0,
+  'ALTER TABLE catalog_subcategories ADD COLUMN booking_behavior VARCHAR(32) NULL AFTER home_sizes',
+  'DO 0');
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @stmt := IF(
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'catalog_services'
+      AND COLUMN_NAME = 'is_picker_option') = 0,
+  'ALTER TABLE catalog_services ADD COLUMN is_picker_option TINYINT(1) NOT NULL DEFAULT 0 AFTER status',
+  'DO 0');
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- Migration: admin-editable office-cleaning pricing tables (see
+-- migrations/015-office-pricing.sql).
+SET @stmt := IF(
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'catalog_subcategories'
+      AND COLUMN_NAME = 'office_pricing') = 0,
+  'ALTER TABLE catalog_subcategories ADD COLUMN office_pricing JSON NULL AFTER booking_behavior',
+  'DO 0');
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- Migration: per-subcategory hero banner for ServiceDetail, shared by every
+-- service under it (see migrations/016-subcategory-hero-image.sql).
+SET @stmt := IF(
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'catalog_subcategories'
+      AND COLUMN_NAME = 'hero_image') = 0,
+  'ALTER TABLE catalog_subcategories ADD COLUMN hero_image VARCHAR(255) NULL AFTER image',
+  'DO 0');
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- Migration: hero image focal point, so object-cover crops consistently
+-- without losing the subject on every screen size (see
+-- migrations/017-subcategory-hero-focus.sql).
+SET @stmt := IF(
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'catalog_subcategories'
+      AND COLUMN_NAME = 'hero_image_focus') = 0,
+  'ALTER TABLE catalog_subcategories ADD COLUMN hero_image_focus VARCHAR(20) NULL AFTER hero_image',
   'DO 0');
 PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 

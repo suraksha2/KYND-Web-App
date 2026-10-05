@@ -79,7 +79,7 @@ export default function Footer() {
           </div>
         </div>
 
-        <div className="mt-12 pt-8 border-t border-white/10 grid grid-cols-1 md:grid-cols-2 gap-8 text-sm">
+        <div className="mt-12 pt-8 border-t border-white/10 hidden md:grid md:grid-cols-2 gap-8 text-sm">
           <div>
             <h4 className="text-white font-semibold mb-3">All services</h4>
             <ul className="grid grid-cols-2 gap-y-1.5 text-warmgrey">

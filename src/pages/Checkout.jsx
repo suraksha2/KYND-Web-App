@@ -42,14 +42,11 @@ export default function Checkout() {
   const [pay, setPay] = useState('card')
   const [submitting, setSubmitting] = useState(false)
   const [payError, setPayError] = useState(null)
-  const [loadingCities, setLoadingCities] = useState(true)
-  const [citiesError, setCitiesError] = useState(null)
 
   // A returning customer's details, from their most recent booking.
   const lastContact = useLastBookingDetails()
   const [autofilled, setAutofilled] = useState(false)
   const prefilled = useRef(false)
-  const cityTouched = useRef(false)
 
   useEffect(() => {
     if (!lastContact || prefilled.current) return
@@ -74,7 +71,7 @@ export default function Checkout() {
     const match = cities.find(c => c.name.toLowerCase() === lastContact.city.toLowerCase())
     if (!match) return
     addressPrefilled.current = true
-    if (!cityTouched.current) setCity(match.name)
+    setCity(match.name)
     if (lastContact.area && (match.areas || []).includes(lastContact.area)) {
       setSelectedArea(prev => prev || lastContact.area)
     }
@@ -114,10 +111,7 @@ export default function Checkout() {
           setCity(prev => prev || transformedCities[0].name)
         }
       } catch (error) {
-        setCitiesError(error.message)
         console.error('Error fetching cities:', error)
-      } finally {
-        setLoadingCities(false)
       }
     }
 
@@ -131,13 +125,6 @@ export default function Checkout() {
   const handleAreaChange = (e) => {
     const value = e.target.value
     setSelectedArea(value)
-  }
-
-  const handleCityChange = (e) => {
-    cityTouched.current = true
-    setCity(e.target.value)
-    setSelectedArea('')
-    setPincode('')
   }
 
   if (items.length === 0) return <Navigate to="/cart" replace />
@@ -341,19 +328,7 @@ export default function Checkout() {
                     </select>
                   </Field>
                   <Field label="City">
-                    {loadingCities ? (
-                      <select className={inputCls} disabled>
-                        <option>Loading cities...</option>
-                      </select>
-                    ) : citiesError ? (
-                      <select className={inputCls} disabled>
-                        <option>Error loading cities</option>
-                      </select>
-                    ) : (
-                      <select className={inputCls} value={city} onChange={handleCityChange}>
-                        {cities.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
-                      </select>
-                    )}
+                    <input className={inputCls} value={city || 'Singapore'} readOnly tabIndex={-1} />
                   </Field>
                 </div>
                 <Field label="Country"><input className={inputCls} value="Singapore" readOnly tabIndex={-1} /></Field>
