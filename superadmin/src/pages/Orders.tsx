@@ -1,11 +1,12 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   Search, Eye, X, CheckCircle, XCircle, CalendarClock,
-  ShoppingCart, DollarSign, Clock, Ban,
+  ShoppingCart, DollarSign, Clock, Ban, AlertTriangle,
   MapPin, Phone, Package, User, CreditCard, Calendar,
 } from "lucide-react";
 import clsx from "clsx";
 import { apiFetch } from "@/lib/api";
+import { parseSgt } from "@/lib/sgt";
 
 const statusCfg: Record<string, { cls: string; dot: string; label: string }> = {
   Upcoming:  { cls: "bg-accent-50 text-terracotta ring-1 ring-terracotta/20",        dot: "bg-terracotta",    label: "Upcoming"  },
@@ -28,6 +29,27 @@ const TABS = [
   { label: "Cancelled", filter: "Cancelled" },
 ];
 
+// A slot this far past due counts as missed — same grace the dispatch cron
+// uses before sending the admin WhatsApp alert.
+const MISSED_GRACE_MS = 60 * 60 * 1000;
+
+// When the provider was expected to act: the earliest still-open visit of a
+// recurring plan, else the booked slot (or placed time for ASAP jobs).
+function dueAtOf(order: any): Date | null {
+  if (order.schedule === "recurring" && Array.isArray(order.occurrences)) {
+    const upcoming = order.occurrences
+      .filter((o: any) => o.status === "upcoming")
+      .map((o: any) => parseSgt(o.scheduled_at))
+      .filter((d: Date | null): d is Date => !!d)
+      .sort((a: Date, b: Date) => a.getTime() - b.getTime());
+    return upcoming[0] ?? null;
+  }
+  return parseSgt(order.scheduled_at) ?? parseSgt(order.placed_at ?? order.date);
+}
+
+const isMissed = (b: any) =>
+  b.status === "Upcoming" && !!b.dueAt && Date.now() - b.dueAt.getTime() >= MISSED_GRACE_MS;
+
 export default function BookingsPage() {
   const [bookings, setBookings]         = useState<any[]>([]);
   const [loading, setLoading]           = useState(true);
@@ -36,15 +58,21 @@ export default function BookingsPage() {
   const [selected, setSelected]         = useState<any | null>(null);
   const [menuOpenId, setMenuOpenId]     = useState<string | null>(null);
   const [updatingId, setUpdatingId]     = useState<string | null>(null);
+  const [tick, setTick]                 = useState(0);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     fetchBookings();
+    // Re-check "missed" every minute while the page stays open.
+    const timer = setInterval(() => setTick(n => n + 1), 60000);
     function handleClickOutside(e: MouseEvent) {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpenId(null);
     }
     document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      clearInterval(timer);
+    };
   }, []);
 
   async function fetchBookings() {
@@ -77,16 +105,16 @@ export default function BookingsPage() {
             items:    allItems,
             payment:  order.payment || "—",
             schedule: order.schedule || "—",
+            dueAt:    dueAtOf(order),
             provider: order.providerName || "Unassigned",
             providerRating: order.providerRating || null,
             amount:   Number(order.amount || order.total || 0),
             status,
-            date: (order.date || order.placed_at)
-              ? new Date(order.date || order.placed_at).toLocaleString("en-IN", {
-                  month: "short", day: "numeric", year: "numeric",
-                  hour: "2-digit", minute: "2-digit",
-                })
-              : "—",
+            date: parseSgt(order.date || order.placed_at)?.toLocaleString("en-IN", {
+              month: "short", day: "numeric", year: "numeric",
+              hour: "2-digit", minute: "2-digit",
+              timeZone: "Asia/Singapore",
+            }) ?? "—",
           };
         });
         setBookings(mapped);
@@ -130,6 +158,12 @@ export default function BookingsPage() {
     return matchSearch && matchTab;
   });
 
+  // Slots that have passed with the job still unmarked — most overdue first.
+  const missedJobs = useMemo(
+    () => bookings.filter(isMissed).sort((a, b) => a.dueAt.getTime() - b.dueAt.getTime()),
+    [bookings, tick]
+  );
+
   // Summary counts
   const counts = {
     total:     bookings.length,
@@ -141,6 +175,28 @@ export default function BookingsPage() {
 
   return (
     <div className="relative space-y-5 pb-6">
+
+      {/* Missed jobs alert — slots that passed without being marked done */}
+      {missedJobs.length > 0 && (
+        <div className="rounded-2xl border border-dustyrose/50 bg-dustyrose/10 px-5 py-4 flex items-center gap-3">
+          <AlertTriangle size={22} className="text-rosewood shrink-0" />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-bold text-rosewood">
+              {missedJobs.length} missed {missedJobs.length === 1 ? "job" : "jobs"} — slot passed and still not marked done
+            </p>
+            <p className="text-xs text-rosewood/80 truncate mt-0.5">
+              {missedJobs.slice(0, 3).map(b => `${b.id} · ${b.customer} · ${b.provider}`).join("   •   ")}
+              {missedJobs.length > 3 ? `   •   +${missedJobs.length - 3} more` : ""}
+            </p>
+          </div>
+          <button
+            onClick={() => setActiveTab(1)}
+            className="shrink-0 rounded-xl bg-terracotta hover:bg-accent-600 text-white text-xs font-semibold px-4 py-2 transition-colors"
+          >
+            Review upcoming
+          </button>
+        </div>
+      )}
 
       {/* Stat cards */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
@@ -265,6 +321,11 @@ export default function BookingsPage() {
                           <span className={clsx("w-1.5 h-1.5 rounded-full", st.dot)} />
                           {st.label}
                         </span>
+                        {isMissed(b) && (
+                          <p className="mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-dustyrose/15 text-rosewood text-[10px] font-bold uppercase tracking-wide">
+                            <AlertTriangle size={10} /> Missed
+                          </p>
+                        )}
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
                         <div className="flex items-center gap-1">

@@ -138,11 +138,11 @@ router.get('/', async (req, res) => {
       [city]
     );
 
-    const serviceLower = service.toLowerCase();
+    const serviceLower = service.trim().toLowerCase();
     const matched = providers.filter((p: any) => {
       try {
         const list = typeof p.services === 'string' ? JSON.parse(p.services) : p.services;
-        return Array.isArray(list) && list.some((s: string) => String(s).toLowerCase() === serviceLower);
+        return Array.isArray(list) && list.some((s: string) => String(s).trim().toLowerCase() === serviceLower);
       } catch {
         return false;
       }

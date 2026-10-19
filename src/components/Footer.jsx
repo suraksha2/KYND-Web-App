@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useServices } from '../context/ServicesContext'
 import { API_BASE } from '../lib/api'
 import { SITE_URL } from '../lib/site'
@@ -8,6 +8,19 @@ import KyndWordmark from './KyndWordmark'
 export default function Footer() {
   const { services } = useServices()
   const [cities, setCities] = useState([])
+
+  // Services grouped under their catalog category, in first-seen order, so
+  // the sitemap reads "Home Cleaning > its services" rather than one flat
+  // wall of names.
+  const servicesByCategory = useMemo(() => {
+    const groups = new Map()
+    for (const s of services) {
+      const key = s.category || 'Other services'
+      if (!groups.has(key)) groups.set(key, [])
+      groups.get(key).push(s)
+    }
+    return [...groups.entries()]
+  }, [services])
 
   useEffect(() => {
     const fetchCities = async () => {
@@ -79,26 +92,33 @@ export default function Footer() {
           </div>
         </div>
 
-        <div className="mt-12 pt-8 border-t border-white/10 hidden md:grid md:grid-cols-2 gap-8 text-sm">
-          <div>
-            <h4 className="text-white font-semibold mb-3">All services</h4>
-            <ul className="grid grid-cols-2 gap-y-1.5 text-warmgrey">
-              {services.map(s => (
-                <li key={s.id}>
-                  <Link to={`/services/${s.slug}`} className="hover:text-white">{s.name}</Link>
-                </li>
-              ))}
-            </ul>
-          </div>
-          <div>
-            <h4 className="text-white font-semibold mb-3">All cities</h4>
-            <ul className="grid grid-cols-2 gap-y-1.5 text-warmgrey">
-              {cities.map(c => (
-                <li key={c.slug}>
-                  <Link to={`/cities/${c.slug}`} className="hover:text-white">{c.name}</Link>
-                </li>
-              ))}
-            </ul>
+        {/* CSS columns balance the total height; a long list is allowed to
+            split across columns (heading stays glued to its first items so
+            it never dangles at a column bottom). */}
+        <div className="mt-12 pt-8 border-t border-white/10 hidden md:block text-sm">
+          <div className="columns-3 xl:columns-4 gap-10">
+            {servicesByCategory.map(([category, list]) => (
+              <div key={category} className="mb-8">
+                <h4 className="text-white font-semibold mb-3 break-after-avoid">{category}</h4>
+                <ul className="space-y-1.5 text-warmgrey">
+                  {list.map(s => (
+                    <li key={s.id} className="break-inside-avoid">
+                      <Link to={`/services/${s.slug}`} className="hover:text-white">{s.name}</Link>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+            <div className="mb-8">
+              <h4 className="text-white font-semibold mb-3 break-after-avoid">All cities</h4>
+              <ul className="space-y-1.5 text-warmgrey">
+                {cities.map(c => (
+                  <li key={c.slug} className="break-inside-avoid">
+                    <Link to={`/cities/${c.slug}`} className="hover:text-white">{c.name}</Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
           </div>
         </div>
 

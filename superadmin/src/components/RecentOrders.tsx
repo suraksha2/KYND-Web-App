@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import clsx from "clsx";
 import { ArrowUpRight } from "lucide-react";
 import { apiFetch } from "@/lib/api";
+import { parseSgt } from "@/lib/sgt";
 
 const statusConfig: Record<string, { label: string; cls: string; dot: string }> = {
   completed:   { label: "Completed",  cls: "bg-sage/10 text-sage ring-1 ring-sage/20",                              dot: "bg-sage" },
@@ -51,9 +52,9 @@ export default function RecentOrders() {
             service: serviceName,
             amount: `S$${Number(order.amount || order.total || 0).toLocaleString()}`,
             status: order.status,
-            date: (order.date || order.placed_at)
-              ? new Date(order.date || order.placed_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
-              : "N/A",
+            date: parseSgt(order.date || order.placed_at)?.toLocaleDateString("en-US", {
+              month: "short", day: "numeric", year: "numeric", timeZone: "Asia/Singapore",
+            }) ?? "N/A",
           };
         });
         setOrders(mappedOrders);

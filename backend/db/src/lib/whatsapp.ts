@@ -20,10 +20,9 @@ interface BookingDetails {
   payment: string;
 }
 
-export async function sendProviderAssignmentWhatsApp(
-  providerPhone: string,
-  providerName: string,
-  booking: BookingDetails
+async function sendWhatsAppText(
+  rawPhone: string,
+  body: string
 ): Promise<{ success: boolean; error?: string }> {
   const token = process.env.WHATSAPP_ACCESS_TOKEN;
 
@@ -33,10 +32,45 @@ export async function sendProviderAssignmentWhatsApp(
   }
 
   // Normalize phone: strip non-digits, ensure country code
-  let phone = providerPhone.replace(/\D/g, '');
-  if (!phone.startsWith('91') && phone.length === 10) {
+  let phone = rawPhone.replace(/\D/g, '');
+  if (!phone.startsWith('91') && !phone.startsWith('65') && phone.length === 10) {
     phone = '91' + phone;
   }
+
+  try {
+    const response = await fetch(WHATSAPP_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        to: phone,
+        type: 'text',
+        text: { body },
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      console.error('[WhatsApp] API error:', data);
+      return { success: false, error: data?.error?.message || 'WhatsApp API error' };
+    }
+
+    return { success: true };
+  } catch (err) {
+    console.error('[WhatsApp] Fetch error:', err);
+    return { success: false, error: 'Failed to send WhatsApp message' };
+  }
+}
+
+export async function sendProviderAssignmentWhatsApp(
+  providerPhone: string,
+  providerName: string,
+  booking: BookingDetails
+): Promise<{ success: boolean; error?: string }> {
 
   const scheduleInfo =
     booking.schedule === 'instant'
@@ -80,31 +114,52 @@ export async function sendProviderAssignmentWhatsApp(
     `Payment: ${booking.payment}\n\n` +
     `Please reach the customer on time. Thank you! 🙏`;
 
-  try {
-    const response = await fetch(WHATSAPP_API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        messaging_product: 'whatsapp',
-        to: phone,
-        type: 'text',
-        text: { body: messageText },
-      }),
-    });
+  return sendWhatsAppText(providerPhone, messageText);
+}
 
-    const data = await response.json();
+export interface MissedJobAlert {
+  bookingId: string;
+  serviceName: string;
+  visitSeq?: number | null;
+  dueAt: string; // SGT wall-clock string
+  minsLate: number;
+  providerName: string | null;
+  contactName: string;
+  contactArea: string | null;
+  contactCity: string;
+}
 
-    if (!response.ok) {
-      console.error('[WhatsApp] API error:', data);
-      return { success: false, error: data?.error?.message || 'WhatsApp API error' };
-    }
+/**
+ * One consolidated alert to the admin listing every job that blew its slot
+ * without being marked done. A single message keeps the alert readable when a
+ * run finds several missed visits at once.
+ */
+export async function sendMissedJobsWhatsApp(
+  adminPhone: string,
+  jobs: MissedJobAlert[]
+): Promise<{ success: boolean; error?: string }> {
+  const lines = jobs.map((job, i) => {
+    const late =
+      job.minsLate < 60
+        ? `${job.minsLate} min late`
+        : `${Math.floor(job.minsLate / 60)}h${job.minsLate % 60 ? ` ${job.minsLate % 60}m` : ''} late`;
+    const when = parseSgt(job.dueAt)?.toLocaleString('en-SG', {
+      day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit',
+      timeZone: 'Asia/Singapore',
+    }) ?? job.dueAt;
+    const where = [job.contactArea, job.contactCity].filter(Boolean).join(', ');
+    return (
+      `${i + 1}. ${job.bookingId} · ${job.serviceName}` +
+      (job.visitSeq ? ` (visit #${job.visitSeq})` : '') +
+      `\n   ${job.contactName}, ${where} — due ${when} · ${late}` +
+      `\n   Provider: ${job.providerName || 'Unassigned'}`
+    );
+  });
 
-    return { success: true };
-  } catch (err) {
-    console.error('[WhatsApp] Fetch error:', err);
-    return { success: false, error: 'Failed to send WhatsApp message' };
-  }
+  const messageText =
+    `🚨 *Missed job alert — ${jobs.length} ${jobs.length === 1 ? 'job is' : 'jobs are'} overdue and not marked done*\n\n` +
+    lines.join('\n\n') +
+    `\n\nPlease follow up with the provider or reschedule the visit.`;
+
+  return sendWhatsAppText(adminPhone, messageText);
 }

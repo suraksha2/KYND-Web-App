@@ -44,6 +44,17 @@ ENV VITE_API_BASE=${VITE_API_BASE}
 ENV VITE_BASE=${APP_BASE}/provider/
 RUN npm run build
 
+FROM node:20-alpine AS vendor
+ARG APP_BASE=
+ARG VITE_API_BASE=/api
+WORKDIR /app
+COPY vendor/package.json vendor/package-lock.json ./
+RUN npm ci
+COPY vendor/ ./
+ENV VITE_API_BASE=${VITE_API_BASE}
+ENV VITE_BASE=${APP_BASE}/vendor/
+RUN npm run build
+
 FROM node:20-alpine AS superadmin
 ARG APP_BASE=
 ARG VITE_API_BASE=/api
@@ -63,6 +74,7 @@ RUN sed -i 's/\r$//' /entrypoint-gateway.sh && chmod +x /entrypoint-gateway.sh
 COPY --from=storefront /app/dist /usr/share/nginx/html${APP_BASE}/
 COPY --from=admin /app/dist /usr/share/nginx/html${APP_BASE}/admin
 COPY --from=provider /app/dist /usr/share/nginx/html${APP_BASE}/provider
+COPY --from=vendor /app/dist /usr/share/nginx/html${APP_BASE}/vendor
 COPY --from=superadmin /app/dist /usr/share/nginx/html${APP_BASE}/superadmin
 EXPOSE 80
 ENTRYPOINT ["/entrypoint-gateway.sh"]

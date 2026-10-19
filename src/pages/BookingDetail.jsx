@@ -61,9 +61,11 @@ function StatusBanner({ booking }) {
     const hasCompleted = booking.occurrences.some(o => o.status === 'completed')
     const hasCancelled = booking.occurrences.some(o => o.status === 'cancelled')
     
-    if (hasCancelled) { cls = 'bg-red-50 text-red-700 border-red-100'; Icon = XCircle; label = 'Cancelled' }
-    else if (hasUpcoming) { cls = 'bg-indigo-50 text-indigo-700 border-indigo-100'; Icon = Repeat; label = `Recurring · ${booking.cadence}` }
+    {/* A skipped/cancelled visit does not end the series — only report it
+        "Cancelled" once nothing is left upcoming or completed. */}
+    if (hasUpcoming) { cls = 'bg-indigo-50 text-indigo-700 border-indigo-100'; Icon = Repeat; label = `Recurring · ${booking.cadence}` }
     else if (hasCompleted) { cls = 'bg-sage/10 text-sage border-sage/20'; Icon = CheckCircle2; label = 'All visits completed' }
+    else if (hasCancelled) { cls = 'bg-red-50 text-red-700 border-red-100'; Icon = XCircle; label = 'Cancelled' }
   } else {
     // For non-recurring bookings, use the main booking status
     if (booking.status === 'cancelled') { cls = 'bg-red-50 text-red-700 border-red-100'; Icon = XCircle; label = cancelledByLabel(booking.cancelledBy) }
@@ -81,7 +83,7 @@ function StatusBanner({ booking }) {
 export default function BookingDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { getBooking, cancelBooking, rescheduleBooking } = useBookings()
+  const { getBooking, cancelBooking, rescheduleBooking, rescheduleOccurrence, skipOccurrence } = useBookings()
   const { user } = useAuth()
   const booking = getBooking(id)
 
@@ -93,6 +95,13 @@ export default function BookingDetail() {
   const [cancelError, setCancelError] = useState(null)
   const [imgFailed, setImgFailed] = useState({})
 
+  // Per-visit "move" modal for a recurring booking's series.
+  const [moveVisit, setMoveVisit] = useState(null)
+  const [visitAt, setVisitAt] = useState('')
+  const [movingVisit, setMovingVisit] = useState(false)
+  const [moveError, setMoveError] = useState(null)
+  const [skippingVisitId, setSkippingVisitId] = useState(null)
+
   const minDt = useMemo(() => toLocalInput(new Date(Date.now() + 60 * 60 * 1000).toISOString()), [])
 
   if (!booking) return <Navigate to="/bookings" replace />
@@ -103,6 +112,29 @@ export default function BookingDetail() {
     if (!newAt) return
     rescheduleBooking(booking.bookingId, new Date(newAt).toISOString())
     setShowReschedule(false)
+  }
+
+  const openMoveVisit = (v) => {
+    setMoveVisit(v)
+    setVisitAt(toLocalInput(v.scheduledAt))
+    setMoveError(null)
+    setMovingVisit(false)
+  }
+  const onConfirmMoveVisit = async () => {
+    if (!visitAt || !moveVisit) return
+    setMovingVisit(true)
+    setMoveError(null)
+    const result = await rescheduleOccurrence(booking.bookingId, moveVisit.id, new Date(visitAt).toISOString())
+    setMovingVisit(false)
+    if (result?.ok) setMoveVisit(null)
+    else setMoveError(result?.error || 'Failed to move visit. Please try again.')
+  }
+  const onSkipVisit = async (v) => {
+    if (!window.confirm(`Skip visit #${v.seq}? We'll add another visit to keep your plan length.`)) return
+    setSkippingVisitId(v.id)
+    const result = await skipOccurrence(booking.bookingId, v.id)
+    setSkippingVisitId(null)
+    if (!result?.ok) alert(result?.error || 'Failed to skip visit. Please try again.')
   }
   const onConfirmCancel = async () => {
     setCancelling(true)
@@ -211,9 +243,25 @@ export default function BookingDetail() {
                     <span className="text-warmgrey mr-2">#{v.seq}</span>
                     {v.scheduledAt ? new Date(v.scheduledAt).toLocaleString('en-SG', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', ...sgt }) : '—'}
                   </span>
-                  <span className={`text-[11px] font-semibold uppercase shrink-0 ${v.status === 'completed' ? 'text-emerald-700' : v.status === 'cancelled' ? 'text-red-600' : 'text-amber-700'}`}>
-                    {v.status}
-                  </span>
+                  <div className="flex items-center gap-3 shrink-0">
+                    {v.status === 'upcoming' && (
+                      <>
+                        <button onClick={() => openMoveVisit(v)} className="text-xs font-semibold text-terracotta hover:underline">
+                          Move
+                        </button>
+                        <button
+                          onClick={() => onSkipVisit(v)}
+                          disabled={skippingVisitId === v.id}
+                          className="text-xs font-semibold text-warmgrey hover:text-red-600 disabled:opacity-50"
+                        >
+                          {skippingVisitId === v.id ? 'Skipping…' : 'Skip'}
+                        </button>
+                      </>
+                    )}
+                    <span className={`text-[11px] font-semibold uppercase ${v.status === 'completed' ? 'text-emerald-700' : v.status === 'cancelled' ? 'text-red-600' : 'text-amber-700'}`}>
+                      {v.status}
+                    </span>
+                  </div>
                 </li>
               ))}
             </ol>
@@ -302,7 +350,7 @@ export default function BookingDetail() {
           <div className="mt-5">
             <button
               onClick={() => navigate(`/chat/${booking.id}`)}
-              className="inline-flex items-center gap-2 rounded-full bg-terracotta hover:bg-accent-600 text-white font-semibold py-3 px-5 text-sm transition-colors"
+              className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-terracotta hover:bg-accent-600 text-white font-semibold py-3 px-5 text-sm transition-colors"
             >
               <MessageCircle className="w-4 h-4" />
               Message your partner
@@ -337,6 +385,40 @@ export default function BookingDetail() {
             <div className="mt-5 flex gap-2">
               <button onClick={() => setShowReschedule(false)} className="flex-1 rounded-full bg-warmlinen hover:bg-lightstone text-charcoal font-semibold py-2.5 text-sm">Back</button>
               <button onClick={onConfirmReschedule} disabled={!newAt} className="flex-1 rounded-full bg-terracotta hover:bg-charcoal disabled:opacity-50 text-white font-semibold py-2.5 text-sm">Confirm</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Move single visit modal (recurring bookings) */}
+      {moveVisit && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={() => setMoveVisit(null)}>
+          <div onClick={(e) => e.stopPropagation()} className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl">
+            <div className="flex items-start justify-between">
+              <div>
+                <h3 className="font-bold text-charcoal">Move visit #{moveVisit.seq}</h3>
+                <p className="text-xs text-warmgrey mt-0.5">Pick a new date & time for just this visit.</p>
+              </div>
+              <button onClick={() => setMoveVisit(null)} className="text-warmgrey/70 hover:text-charcoal"><X className="w-4 h-4" /></button>
+            </div>
+            <label className="block mt-4">
+              <span className="block text-xs font-semibold text-charcoal mb-1.5">New date & time</span>
+              <input
+                type="datetime-local"
+                step={1800}
+                min={minDt}
+                value={visitAt}
+                onChange={(e) => setVisitAt(e.target.value)}
+                onClick={openPicker}
+                className="w-full rounded-lg border border-lightstone px-3 py-2 text-sm focus:outline-none focus:border-terracotta focus:ring-2 focus:ring-terracotta/25"
+              />
+            </label>
+            {moveError && <p className="mt-2 text-xs text-red-600">{moveError}</p>}
+            <div className="mt-5 flex gap-2">
+              <button onClick={() => setMoveVisit(null)} className="flex-1 rounded-full bg-warmlinen hover:bg-lightstone text-charcoal font-semibold py-2.5 text-sm">Back</button>
+              <button onClick={onConfirmMoveVisit} disabled={!visitAt || movingVisit} className="flex-1 rounded-full bg-terracotta hover:bg-charcoal disabled:opacity-50 text-white font-semibold py-2.5 text-sm">
+                {movingVisit ? 'Saving…' : 'Confirm'}
+              </button>
             </div>
           </div>
         </div>

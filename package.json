@@ -5,9 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev:all": "concurrently -k --names web,admin,provider,superadmin,api --prefix-colors blue,green,magenta,cyan,yellow \"npm run dev\" \"npm run dev --prefix admin\" \"npm run dev --prefix provider\" \"npm run dev --prefix superadmin\" \"npm run dev --prefix backend/db\"",
-    "install:all": "npm install && npm install --prefix admin && npm install --prefix provider && npm install --prefix superadmin && npm install --prefix backend/db",
-    "build:all": "npm run build && npm run build --prefix admin && npm run build --prefix provider && npm run build --prefix superadmin && npm run build --prefix backend/db",
+    "dev:all": "concurrently -k --names web,admin,provider,vendor,superadmin,api --prefix-colors blue,green,magenta,red,cyan,yellow \"npm run dev\" \"npm run dev --prefix admin\" \"npm run dev --prefix provider\" \"npm run dev --prefix vendor\" \"npm run dev --prefix superadmin\" \"npm run dev --prefix backend/db\"",
+    "install:all": "npm install && npm install --prefix admin && npm install --prefix provider && npm install --prefix vendor && npm install --prefix superadmin && npm install --prefix backend/db",
+    "build:all": "npm run build && npm run build --prefix admin && npm run build --prefix provider && npm run build --prefix vendor && npm run build --prefix superadmin && npm run build --prefix backend/db",
     "docker:all": "docker compose --env-file .env.docker up -d --build",
     "docker:build": "docker compose --env-file .env.docker build",
     "docker:down": "docker compose --env-file .env.docker down",

@@ -1,10 +1,11 @@
-import { useState, useRef, useEffect, useMemo } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Link, NavLink, useNavigate } from 'react-router-dom'
 import { ChevronDown, User, LogOut, ShoppingBag as Package, UserCircle, Bell } from 'lucide-react'
 // import { useCart } from '../context/CartContext'
 import { useAuth } from '../context/AuthContext'
-import { useServices } from '../context/ServicesContext'
 import { API_BASE } from '../lib/api'
+import { fetchCatalogCategories } from '../lib/catalogCategories'
+import { iconForService } from '../lib/serviceIcon'
 import KyndWordmark from './KyndWordmark'
 
 function AuthButton({ compact = false }) {
@@ -128,6 +129,7 @@ function NavDropdown({ label, children, align = 'left' }) {
       </button>
       {open && (
         <div
+          onClick={() => setOpen(false)}
           className={`absolute top-full pt-3 ${align === 'right' ? 'right-0' : 'left-1/2 -translate-x-1/2'} z-30`}
         >
           <div className="bg-white rounded-2xl shadow-[0_25px_50px_-12px_rgba(74,46,31,0.25)] ring-1 ring-black/5 p-4 min-w-[640px]">
@@ -139,18 +141,45 @@ function NavDropdown({ label, children, align = 'left' }) {
   )
 }
 
-const ServicesMenu = ({ services }) => (
+/* One row per category. Deep-links into the home page's services section,
+   which reads ?category= from the URL and shows that category's
+   subcategories (the #services hash scrolls it into view). */
+const CategoryLink = ({ c }) => {
+  const [imgFailed, setImgFailed] = useState(false)
+  const Icon = iconForService(c.name)
+  const showImage = c.img && !imgFailed
+  return (
+    <Link
+      to={`/?category=${c.slug}#services`}
+      className="group flex items-center gap-3 rounded-xl px-2 py-2 hover:bg-accent-50 transition"
+    >
+      <div className="relative w-10 h-10 shrink-0 rounded-lg bg-warmlinen grid place-items-center overflow-hidden">
+        {showImage ? (
+          <img
+            src={c.img}
+            alt=""
+            loading="lazy"
+            onError={() => setImgFailed(true)}
+            className="absolute inset-0 w-full h-full object-cover"
+          />
+        ) : (
+          <Icon className="w-5 h-5 text-terracotta" strokeWidth={1.75} />
+        )}
+      </div>
+      <div className="min-w-0">
+        <div className="text-sm font-semibold text-charcoal group-hover:text-terracotta truncate">{c.name}</div>
+        <div className="text-xs text-warmgrey">
+          {c.subcategoryCount > 0 ? `${c.subcategoryCount} options` : 'Coming soon'}
+        </div>
+      </div>
+    </Link>
+  )
+}
+
+const ServicesMenu = ({ categories }) => (
   <div>
-    <div className="grid grid-cols-3 gap-x-6 gap-y-2 max-h-[60vh] overflow-y-auto">
-      {services.map(s => (
-        <Link
-          key={s.id}
-          to={`/services/${s.slug}`}
-          className="text-sm text-charcoal hover:text-terracotta hover:bg-accent-50 rounded-md px-2 py-1.5 transition"
-        >
-          {s.name}
-        </Link>
-      ))}
+    <div className="grid grid-cols-2 gap-x-4 gap-y-1 max-h-[60vh] overflow-y-auto">
+      {categories.map(c => <CategoryLink key={c.id} c={c} />)}
     </div>
     <div className="mt-3 pt-3 border-t border-lightstone">
       <Link to="/services" className="text-sm font-semibold text-terracotta hover:text-charcoal">
@@ -183,9 +212,7 @@ const CitiesMenu = ({ cities }) => (
 
 export default function Header() {
   const [cities, setCities] = useState([])
-  const { services } = useServices()
-  // Add-on services are sold from a booking's Add-ons panel, not browsed.
-  const bookableServices = useMemo(() => services.filter(s => !s.isAddon), [services])
+  const [categories, setCategories] = useState([])
 
   useEffect(() => {
     const fetchCities = async () => {
@@ -205,7 +232,16 @@ export default function Header() {
       }
     }
 
+    const fetchCategories = async () => {
+      try {
+        setCategories(await fetchCatalogCategories())
+      } catch (error) {
+        console.error('Error fetching categories:', error)
+      }
+    }
+
     fetchCities()
+    fetchCategories()
   }, [])
 
   return (
@@ -241,8 +277,11 @@ export default function Header() {
             <NavLink to="/" end className={({ isActive }) => `hover:text-terracotta transition ${isActive ? 'text-terracotta' : ''}`}>
               Why us
             </NavLink>
-            <NavDropdown label="Services"><ServicesMenu services={bookableServices} /></NavDropdown>
+            <NavDropdown label="Services"><ServicesMenu categories={categories} /></NavDropdown>
             <NavDropdown label="Cities"><CitiesMenu cities={cities} /></NavDropdown>
+            <NavLink to="/partners" className={({ isActive }) => `hover:text-terracotta transition ${isActive ? 'text-terracotta' : ''}`}>
+              Partners
+            </NavLink>
           </div>
 
           {/* Logo */}

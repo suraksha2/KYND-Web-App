@@ -4,10 +4,11 @@ import { sendProviderAssignmentWhatsApp } from '../lib/whatsapp';
 import { hasAdminAccess } from '../lib/auth';
 import { getSession } from '../http/session';
 import { normalizeRecurrence } from '../lib/recurrence';
-import { createOccurrences, withOccurrences } from '../lib/occurrences';
+import { createOccurrences, withOccurrences, topUpOccurrences } from '../lib/occurrences';
 import { sgtDateTime, parseSgt } from '../lib/sgt';
 import { priceOrder, PricingError } from '../lib/pricing';
 import { verifyCardPaymentForBooking, PaymentVerificationError } from '../lib/paymentVerification';
+import { fanOutOffersForBooking } from '../lib/offers';
 
 const router = Router();
 
@@ -164,6 +165,27 @@ async function findAvailableProvider(
   }
 
   return best;
+}
+
+// Other visits on the same SGT date that could collide with a provider's
+// slot — one-off bookings plus every other series' occurrences — shaped like
+// `findAvailableProvider`'s `existing` rows so `isFreeAt` can reuse the same
+// overlap check.
+async function providerConflictsOnDate(
+  providerId: number,
+  sgtDate: string,
+  excludeOccurrenceId: number
+): Promise<any[]> {
+  const [rows]: any = await pool.query(
+    `SELECT provider_id, scheduled_at, items FROM bookings
+      WHERE provider_id = ? AND status != 'cancelled' AND DATE(scheduled_at) = ?
+     UNION ALL
+     SELECT o.provider_id, o.scheduled_at, b.items FROM booking_occurrences o
+       JOIN bookings b ON b.id = o.booking_id
+      WHERE o.provider_id = ? AND o.status = 'upcoming' AND o.id != ? AND DATE(o.scheduled_at) = ?`,
+    [providerId, sgtDate, providerId, excludeOccurrenceId, sgtDate]
+  );
+  return rows;
 }
 
 router.post('/', async (req, res) => {
@@ -375,6 +397,31 @@ router.post('/', async (req, res) => {
     // completed on its own. The dispatcher tops the series up from here.
     if (plan) {
       await createOccurrences(bookingDbId, provider?.id ?? null, plan);
+    }
+
+    // Broadcast to any vendor Partner OS accounts eligible to serve this
+    // booking (same city, live listing for one of the booked services). Runs
+    // alongside the marketplace auto-assignment above, not instead of it —
+    // first vendor to accept gets the job; a failure here must never fail
+    // the booking itself.
+    try {
+      const visitStart = firstVisit && !Number.isNaN(firstVisit.getTime()) ? firstVisit : new Date();
+      const totalDurationMin = itemList.reduce(
+        (sum, it) => sum + parseDurationMinutes(it.duration) * (Number(it.qty) || 1),
+        0
+      ) || durationMin;
+      await fanOutOffersForBooking({
+        bookingDbId,
+        catalogIds: [...new Set(itemList.map((it: any) => Number(it.catalogId)).filter(Boolean))],
+        serviceLabel: itemList.map((it: any) => it.name).join(', '),
+        city: contact.city,
+        area: contact.area || null,
+        windowStart: visitStart,
+        windowEnd: new Date(visitStart.getTime() + totalDurationMin * 60000),
+        price: total,
+      });
+    } catch (err) {
+      console.error('[POST /api/bookings] offer fan-out failed', err);
     }
 
     return res.status(201).json({
@@ -599,11 +646,19 @@ router.put('/:id', async (req, res) => {
     }
 
     const [existingRows]: any = await pool.query(
-      'SELECT provider_id FROM bookings WHERE id = ?',
+      'SELECT provider_id, vendor_id FROM bookings WHERE id = ?',
       [bookingId]
     );
     if (!existingRows?.length) {
       return res.status(404).json({ error: 'Booking not found.' });
+    }
+    if (existingRows[0].vendor_id) {
+      // A vendor Partner OS account already accepted this as their own job —
+      // assigning a marketplace provider on top would dispatch the same visit
+      // to two different parties in parallel.
+      return res.status(409).json({
+        error: 'This booking has already been claimed by a vendor partner and cannot be reassigned through the marketplace.',
+      });
     }
     const previousProviderId = existingRows[0].provider_id;
     if (Number(previousProviderId) === Number(provider_id)) {
@@ -630,6 +685,152 @@ router.put('/:id', async (req, res) => {
   } catch (error) {
     console.error('[PUT /api/bookings/[id]]', error);
     return res.status(500).json({ error: 'Failed to assign provider to booking' });
+  }
+});
+
+// PATCH move or skip a single visit of a recurring booking's series. The
+// parent `PATCH /:id` route only ever touches `bookings.scheduled_at` (the
+// first visit) and does not reach `booking_occurrences`, so a customer
+// managing an in-progress series needs this to retime or skip one visit
+// without disturbing the rest of the plan.
+router.patch('/:id/occurrences/:occId', async (req, res) => {
+  try {
+    const { scheduledAt, status } = req.body;
+    const bookingDbId = Number(req.params.id);
+    const occId = Number(req.params.occId);
+    if (!Number.isInteger(bookingDbId) || !Number.isInteger(occId)) {
+      return res.status(400).json({ error: 'Invalid booking or visit id.' });
+    }
+
+    const session = await getSession(req);
+    if (!session) {
+      return res.status(401).json({ error: 'Authentication required.' });
+    }
+
+    const [bookingRows]: any = await pool.query(
+      'SELECT id, user_id, schedule, items, history FROM bookings WHERE id = ?',
+      [bookingDbId]
+    );
+    if (!bookingRows?.length) {
+      return res.status(404).json({ error: 'Booking not found.' });
+    }
+    const booking = bookingRows[0];
+    if (!hasAdminAccess(session.role) && Number(booking.user_id) !== Number(session.id)) {
+      return res.status(403).json({ error: 'You can only modify your own bookings.' });
+    }
+    if (booking.schedule !== 'recurring') {
+      return res.status(400).json({ error: 'Only recurring bookings have individual visits.' });
+    }
+
+    const [occRows]: any = await pool.query(
+      `SELECT id, seq, status, provider_id, scheduled_at
+         FROM booking_occurrences WHERE id = ? AND booking_id = ?`,
+      [occId, bookingDbId]
+    );
+    if (!occRows?.length) {
+      return res.status(404).json({ error: 'Visit not found.' });
+    }
+    const occurrence = occRows[0];
+    if (occurrence.status !== 'upcoming') {
+      return res.status(409).json({ error: 'Only an upcoming visit can be changed.' });
+    }
+
+    let history: any[] = [];
+    try {
+      history = typeof booking.history === 'string' ? JSON.parse(booking.history) : (booking.history || []);
+      if (!Array.isArray(history)) history = [];
+    } catch {
+      history = [];
+    }
+
+    // Skip: cancel this one visit; topUpOccurrences adds a replacement at the
+    // end of the series so the plan's length does not shrink.
+    if (status === 'cancelled') {
+      await pool.query(`UPDATE booking_occurrences SET status = 'cancelled' WHERE id = ?`, [occId]);
+      await topUpOccurrences(bookingDbId);
+
+      history.push({
+        at: sgtDateTime(new Date()),
+        type: 'visit_skipped',
+        note: `Visit #${occurrence.seq} on ${sgtDateTime(occurrence.scheduled_at)} was skipped`,
+      });
+      await pool.query('UPDATE bookings SET history = ? WHERE id = ?', [JSON.stringify(history), bookingDbId]);
+
+      return res.status(200).json({ success: true, skipped: true });
+    }
+
+    if (!scheduledAt) {
+      return res.status(400).json({ error: 'scheduledAt or status is required.' });
+    }
+    const newDate = new Date(scheduledAt);
+    if (Number.isNaN(newDate.getTime()) || newDate.getTime() <= Date.now()) {
+      return res.status(400).json({ error: 'New date & time must be in the future.' });
+    }
+
+    // Keep the series chronological: topUpOccurrences steps forward from the
+    // last seq's date, so a visit moved out of order would desync the plan.
+    const [neighbourRows]: any = await pool.query(
+      `SELECT seq, scheduled_at FROM booking_occurrences WHERE booking_id = ? AND seq IN (?, ?)`,
+      [bookingDbId, occurrence.seq - 1, occurrence.seq + 1]
+    );
+    const prev = neighbourRows.find((r: any) => r.seq === occurrence.seq - 1);
+    const next = neighbourRows.find((r: any) => r.seq === occurrence.seq + 1);
+    if (prev && newDate.getTime() <= parseSgt(prev.scheduled_at)!.getTime()) {
+      return res.status(400).json({ error: `New time must be after the previous visit (${sgtDateTime(prev.scheduled_at)}).` });
+    }
+    if (next && newDate.getTime() >= parseSgt(next.scheduled_at)!.getTime()) {
+      return res.status(400).json({ error: `New time must be before the following visit (${sgtDateTime(next.scheduled_at)}).` });
+    }
+
+    const newSgt = sgtDateTime(newDate)!;
+    const newSgtDate = newSgt.split(' ')[0];
+
+    // Re-check the assigned provider is still free at the new time; if not,
+    // unassign the visit so dispatch/admin can find someone else instead of
+    // silently leaving a double-booked provider.
+    let providerId: number | null = occurrence.provider_id;
+    if (providerId) {
+      const [providerRows]: any = await pool.query(
+        'SELECT id, working_hours FROM service_providers WHERE id = ?',
+        [providerId]
+      );
+      const provider = providerRows?.[0];
+      if (provider) {
+        const itemList = typeof booking.items === 'string' ? JSON.parse(booking.items) : booking.items;
+        const durationMin = parseDurationMinutes(itemList?.[0]?.duration);
+        const conflicts = await providerConflictsOnDate(providerId, newSgtDate, occId);
+        const hours = providerWorkingHours(provider);
+        if (!isFreeAt(provider, hours, newDate, durationMin, conflicts)) {
+          providerId = null;
+        }
+      } else {
+        providerId = null;
+      }
+    }
+
+    await pool.query(
+      `UPDATE booking_occurrences
+          SET scheduled_at = ?, provider_id = ?, notified_at = NULL, missed_notified_at = NULL
+        WHERE id = ?`,
+      [newSgt, providerId, occId]
+    );
+
+    history.push({
+      at: sgtDateTime(new Date()),
+      type: 'visit_rescheduled',
+      note: `Visit #${occurrence.seq} moved from ${sgtDateTime(occurrence.scheduled_at)} to ${newSgt}`,
+    });
+    await pool.query('UPDATE bookings SET history = ? WHERE id = ?', [JSON.stringify(history), bookingDbId]);
+
+    return res.status(200).json({
+      success: true,
+      scheduledAt: newSgt,
+      providerId,
+      reassignNeeded: !!(occurrence.provider_id && !providerId),
+    });
+  } catch (error) {
+    console.error('[PATCH /api/bookings/:id/occurrences/:occId]', error);
+    return res.status(500).json({ error: 'Failed to update visit.' });
   }
 });
 

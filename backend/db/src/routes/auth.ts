@@ -328,6 +328,80 @@ router.post('/provider-login', async (req, res) => {
   }
 });
 
+// Dedicated login for vendor Partner OS seats. Credentials live in
+// `vendor_users` (separate from admin/customer `users` and `service_providers`).
+// The issued session carries role='vendor_owner'|'vendor_manager'|'vendor_field'
+// plus vendorId (and providerId for field seats) so /api/vendor/* routes can
+// scope every query to the vendor's own data.
+router.post('/vendor-login', async (req, res) => {
+  try {
+    const body = req.body;
+    const { email, password } = body;
+
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required.' });
+    }
+
+    const normalizedEmail = email.trim().toLowerCase();
+
+    const [rows] = await pool.query(
+      `SELECT vu.id, vu.vendor_id, vu.provider_id, vu.name, vu.email, vu.password_hash,
+              vu.role, vu.status, v.name AS vendor_name, v.categories AS vendor_categories,
+              v.status AS vendor_status
+         FROM vendor_users vu
+         JOIN vendors v ON v.id = vu.vendor_id
+        WHERE vu.email = ?`,
+      [normalizedEmail]
+    );
+
+    const seats = rows as any[];
+    if (!seats || seats.length === 0) {
+      return res.status(401).json({ error: 'Invalid email or password.' });
+    }
+
+    const seat = seats[0];
+
+    if (seat.status !== 'active') {
+      return res.status(403).json({ error: 'This account is inactive. Please contact your Kynd partner manager.' });
+    }
+    if (seat.vendor_status !== 'active') {
+      return res.status(403).json({ error: 'This vendor account is inactive. Please contact Kynd support.' });
+    }
+
+    const isValidPassword = await bcrypt.compare(password, seat.password_hash);
+    if (!isValidPassword) {
+      return res.status(401).json({ error: 'Invalid email or password.' });
+    }
+
+    const role = `vendor_${seat.role}` as const;
+
+    const token = await createSessionToken({
+      id: seat.id,
+      email: seat.email,
+      role,
+      vendorId: seat.vendor_id,
+      providerId: seat.provider_id ?? undefined,
+      name: seat.name,
+    });
+
+    setSessionCookie(res, token);
+
+    return res.json({
+      id: seat.id,
+      name: seat.name,
+      email: seat.email,
+      role,
+      vendorId: seat.vendor_id,
+      vendorName: seat.vendor_name,
+      vendorCategories: seat.vendor_categories,
+      token,
+    });
+  } catch (error) {
+    console.error('Vendor login error:', error);
+    return res.status(500).json({ error: 'Unable to sign in.' });
+  }
+});
+
 router.post('/forgot-password', async (_req, res) => {
   // Email delivery is not configured. Refuse rather than minting unused reset
   // tokens that accumulate in the database.

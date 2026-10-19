@@ -1,9 +1,8 @@
-import { LayoutDashboard, CalendarDays, Wallet, MessageSquare, User, LogOut, X } from 'lucide-react'
+import { LayoutDashboard, CalendarDays, MessageSquare, User, LogOut, X } from 'lucide-react'
 
 export const NAV_ITEMS = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'bookings', label: 'Bookings', icon: CalendarDays },
-  { id: 'earnings', label: 'Earnings', icon: Wallet },
   { id: 'messages', label: 'Messages', icon: MessageSquare },
   { id: 'profile', label: 'Profile', icon: User },
 ]
@@ -98,7 +97,7 @@ export function MobileDrawer({ open, onClose, section, onSelect, user, onLogout 
 export function MobileTabBar({ section, onSelect }) {
   return (
     <nav className="lg:hidden fixed bottom-0 inset-x-0 z-30 border-t border-lightstone bg-white/95 backdrop-blur">
-      <div className="grid grid-cols-5">
+      <div className="grid grid-cols-4">
         {NAV_ITEMS.map((item) => {
           const Icon = item.icon
           const active = section === item.id

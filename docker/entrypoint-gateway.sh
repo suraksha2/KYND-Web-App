@@ -48,6 +48,7 @@ server {
 
     location = ${BASE}/admin { return 301 ${BASE}/admin/; }
     location = ${BASE}/provider { return 301 ${BASE}/provider/; }
+    location = ${BASE}/vendor { return 301 ${BASE}/vendor/; }
     location = ${BASE}/superadmin { return 301 ${BASE}/superadmin/; }
 EOF
 
@@ -64,6 +65,10 @@ cat >> /etc/nginx/conf.d/default.conf <<EOF
 
     location ${BASE}/provider/ {
         try_files \$uri \$uri/ ${BASE}/provider/index.html;
+    }
+
+    location ${BASE}/vendor/ {
+        try_files \$uri \$uri/ ${BASE}/vendor/index.html;
     }
 
     location ${BASE}/superadmin/ {
@@ -89,6 +94,10 @@ cat >> /etc/nginx/conf.d/default.conf <<EOF
     }
 
     location = ${BASE}/provider/index.html {
+        add_header Cache-Control "no-cache";
+    }
+
+    location = ${BASE}/vendor/index.html {
         add_header Cache-Control "no-cache";
     }
 

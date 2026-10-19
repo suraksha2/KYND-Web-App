@@ -73,7 +73,7 @@ export default function Providers() {
 
   const visible = providers.filter((provider) =>
     query
-      ? [provider.name, provider.mobile, provider.city, provider.status]
+      ? [provider.name, provider.mobile, provider.city, provider.status, provider.vendor_name]
           .filter(Boolean)
           .some((value) => String(value).toLowerCase().includes(query))
       : true
@@ -117,8 +117,13 @@ export default function Providers() {
                     {provider.name?.charAt(0) || 'P'}
                   </div>
                   <div className="min-w-0">
-                    <p className="text-sm font-medium text-charcoal truncate">
+                    <p className="text-sm font-medium text-charcoal truncate flex items-center gap-2">
                       {provider.name || 'Unknown'}
+                      {provider.vendor_name && (
+                        <span className="shrink-0 px-2 py-0.5 rounded-lg text-[11px] font-semibold bg-sage/10 text-sage">
+                          {provider.vendor_name}
+                        </span>
+                      )}
                     </p>
                     <p className="text-xs text-warmgrey truncate">
                       {provider.mobile || 'No phone'} · {provider.city || 'No city'}

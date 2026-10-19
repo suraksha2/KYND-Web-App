@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Star, MessageCircle, Calendar, Clock, RotateCcw, Pause, SkipForward, Eye, Plus, Sparkles, X, AlertTriangle } from 'lucide-react'
+import { Star, MessageCircle, Calendar, Clock, RotateCcw, SkipForward, Eye, Plus, Sparkles, X, AlertTriangle } from 'lucide-react'
 import { useBookings } from '../context/BookingsContext'
 import { useAuth } from '../context/AuthContext'
 import { useServices } from '../context/ServicesContext'
@@ -217,7 +217,7 @@ function RecurringCta({ serviceName, count }) {
 }
 
 function UpcomingCard({ booking }) {
-  const { cancelBooking, rescheduleBooking } = useBookings()
+  const { cancelBooking, rescheduleBooking, rescheduleOccurrence, skipOccurrence } = useBookings()
   const navigate = useNavigate()
   const firstItem = booking.items?.[0]
   const providerName = booking.provider?.name || 'A Pro'
@@ -227,6 +227,15 @@ function UpcomingCard({ booking }) {
   // For recurring bookings, check if there are upcoming occurrences
   const hasUpcomingOccurrences = isRecurring && Array.isArray(booking.occurrences) && booking.occurrences.some(o => o.status === 'upcoming')
   const shouldShow = isRecurring ? hasUpcomingOccurrences : booking.status === 'upcoming'
+
+  // The earliest upcoming visit — "Skip next" and "Move next" both act on this one.
+  const nextOcc = isRecurring
+    ? (booking.occurrences || [])
+        .filter(o => o.status === 'upcoming')
+        .map(o => ({ ...o, ts: new Date(o.scheduledAt).getTime() }))
+        .filter(o => !Number.isNaN(o.ts))
+        .sort((a, b) => a.ts - b.ts)[0]
+    : null
   
   if (!shouldShow) return null
 
@@ -244,20 +253,42 @@ function UpcomingCard({ booking }) {
 
   const [showReschedule, setShowReschedule] = useState(false)
   const [newAt, setNewAt] = useState('')
+  const [rescheduleError, setRescheduleError] = useState(null)
+  const [rescheduling, setRescheduling] = useState(false)
   const [showCancel, setShowCancel] = useState(false)
   const [cancelling, setCancelling] = useState(false)
   const [cancelError, setCancelError] = useState(null)
+  const [skipping, setSkipping] = useState(false)
   const minDt = useMemo(() => toLocalInput(new Date(Date.now() + 60 * 60 * 1000).toISOString()), [])
 
   const openReschedule = () => {
-    setNewAt(toLocalInput(booking.scheduledAt) || '')
+    setNewAt(toLocalInput(isRecurring ? nextOcc?.scheduledAt : booking.scheduledAt) || '')
+    setRescheduleError(null)
     setShowReschedule(true)
   }
 
-  const onConfirmReschedule = () => {
+  const onConfirmReschedule = async () => {
     if (!newAt) return
-    rescheduleBooking(booking.bookingId, new Date(newAt).toISOString())
+    if (isRecurring) {
+      if (!nextOcc?.id) return
+      setRescheduling(true)
+      setRescheduleError(null)
+      const result = await rescheduleOccurrence(booking.bookingId, nextOcc.id, new Date(newAt).toISOString())
+      setRescheduling(false)
+      if (!result?.ok) { setRescheduleError(result?.error || 'Failed to move visit.'); return }
+    } else {
+      rescheduleBooking(booking.bookingId, new Date(newAt).toISOString())
+    }
     setShowReschedule(false)
+  }
+
+  const onSkipNext = async () => {
+    if (!nextOcc?.id) return
+    if (!window.confirm('Skip the next visit? We\u2019ll add another visit to keep your plan length.')) return
+    setSkipping(true)
+    const result = await skipOccurrence(booking.bookingId, nextOcc.id)
+    setSkipping(false)
+    if (!result?.ok) alert(result?.error || 'Failed to skip visit.')
   }
 
   const closeCancel = () => {
@@ -295,16 +326,18 @@ function UpcomingCard({ booking }) {
               <Eye className="w-3.5 h-3.5 shrink-0" /> View series
             </Link>
             <button
-              onClick={() => alert('Skip next is not available yet.')}
-              className="inline-flex items-center justify-center gap-1.5 rounded-full bg-white ring-1 ring-lightstone hover:ring-terracotta text-charcoal font-semibold px-2 py-2 text-sm transition"
+              onClick={openReschedule}
+              disabled={!nextOcc?.id}
+              className="inline-flex items-center justify-center gap-1.5 rounded-full bg-white ring-1 ring-lightstone hover:ring-terracotta disabled:opacity-50 disabled:cursor-not-allowed text-charcoal font-semibold px-2 py-2 text-sm transition"
             >
-              <SkipForward className="w-3.5 h-3.5 shrink-0" /> Skip next
+              <RotateCcw className="w-3.5 h-3.5 shrink-0" /> Move next
             </button>
             <button
-              onClick={() => alert('Pause is not available yet.')}
-              className="inline-flex items-center justify-center gap-1.5 rounded-full bg-white ring-1 ring-lightstone hover:ring-terracotta text-charcoal font-semibold px-2 py-2 text-sm transition"
+              onClick={onSkipNext}
+              disabled={!nextOcc?.id || skipping}
+              className="inline-flex items-center justify-center gap-1.5 rounded-full bg-white ring-1 ring-lightstone hover:ring-terracotta disabled:opacity-50 disabled:cursor-not-allowed text-charcoal font-semibold px-2 py-2 text-sm transition"
             >
-              <Pause className="w-3.5 h-3.5 shrink-0" /> Pause
+              <SkipForward className="w-3.5 h-3.5 shrink-0" /> {skipping ? 'Skipping\u2026' : 'Skip next'}
             </button>
           </>
         ) : (
@@ -337,7 +370,7 @@ function UpcomingCard({ booking }) {
           <div onClick={(e) => e.stopPropagation()} className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl">
             <div className="flex items-start justify-between">
               <div>
-                <h3 className="font-bold text-charcoal">Reschedule booking</h3>
+                <h3 className="font-bold text-charcoal">{isRecurring ? 'Move next visit' : 'Reschedule booking'}</h3>
                 <p className="text-xs text-warmgrey mt-0.5">Pick a new date & time.</p>
               </div>
               <button onClick={() => setShowReschedule(false)} className="text-warmgrey/70 hover:text-charcoal"><X className="w-4 h-4" /></button>
@@ -354,9 +387,10 @@ function UpcomingCard({ booking }) {
                 className="w-full rounded-lg border border-lightstone px-3 py-2 text-sm focus:outline-none focus:border-terracotta focus:ring-2 focus:ring-terracotta/25"
               />
             </label>
+            {rescheduleError && <p className="mt-2 text-xs text-red-600">{rescheduleError}</p>}
             <div className="mt-5 flex gap-2">
               <button onClick={() => setShowReschedule(false)} className="flex-1 rounded-full bg-warmlinen hover:bg-lightstone text-charcoal font-semibold py-2.5 text-sm">Back</button>
-              <button onClick={onConfirmReschedule} disabled={!newAt} className="flex-1 rounded-full bg-terracotta hover:bg-charcoal disabled:opacity-50 text-white font-semibold py-2.5 text-sm">Confirm</button>
+              <button onClick={onConfirmReschedule} disabled={!newAt || rescheduling} className="flex-1 rounded-full bg-terracotta hover:bg-charcoal disabled:opacity-50 text-white font-semibold py-2.5 text-sm">{rescheduling ? 'Saving\u2026' : 'Confirm'}</button>
             </div>
           </div>
         </div>
@@ -546,7 +580,7 @@ export default function Bookings() {
               <p className="mt-1 text-sm text-warmgrey">
                 {tab === 'upcoming' ? 'Book a service to see it here.' : 'Completed and cancelled bookings will appear here.'}
               </p>
-              <Link to="/services" className="mt-4 inline-flex rounded-full bg-terracotta hover:bg-charcoal text-white font-semibold px-5 py-2 text-sm">
+              <Link to="/#services" className="mt-4 inline-flex rounded-full bg-terracotta hover:bg-charcoal text-white font-semibold px-5 py-2 text-sm">
                 Browse services
               </Link>
             </div>

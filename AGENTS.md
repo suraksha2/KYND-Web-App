@@ -1,13 +1,14 @@
 # Project notes
 
 Helpr is a multi-app repo: customer storefront (`.`), admin console (`admin/`),
-provider app (`provider/`), superadmin console (`superadmin/`), and an
-Express + TypeScript API (`backend/db/`). Each has its own `package.json` /
-lockfile — there is no workspace root. Root scripts orchestrate them:
+provider app (`provider/`), vendor Partner OS console (`vendor/`), superadmin
+console (`superadmin/`), and an Express + TypeScript API (`backend/db/`). Each
+has its own `package.json` / lockfile — there is no workspace root. Root
+scripts orchestrate them:
 
 ```bash
 npm run install:all   # npm install in every app
-npm run dev:all       # one origin :5173 — / admin /provider /superadmin, API proxied at /api
+npm run dev:all       # one origin :5173 — / admin /provider /vendor /superadmin, API proxied at /api
 npm run build:all     # production build of every app + the API
 npm run docker:all    # same stack on :8080 at domain root (see DEPLOYMENT_DOCKER.md)
 ```
@@ -88,7 +89,7 @@ is written for **MySQL 8**, where:
 - expression defaults need parentheses: `DEFAULT (CURRENT_DATE)`.
 
 `mysql` aborts on the first error, so a mistake leaves a half-created schema that
-surfaces as `500`s from `/api/*`. A clean import creates **25 tables**.
+surfaces as `500`s from `/api/*`. A clean import creates **35 tables**.
 
 `DATETIME` columns hold **Singapore wall-clock time**, but mysql2 hands them back
 as JS `Date`s built in the *process* timezone. Doing date maths on such a value
@@ -158,6 +159,97 @@ session) plus a first-session calendar. "Monthly" sends the `fourweekly` preset
 
   Nothing else sends this message: the auto-assignment in `POST /api/bookings`
   does **not** notify, and `PUT /api/bookings/:id` (admin assign) notifies once.
+
+  The same cron run sweeps for **missed** work via `src/lib/missed.ts`: any
+  occurrence or non-recurring booking still `upcoming` more than
+  `missedGraceMinutes` (default 60) past its slot sends one consolidated
+  WhatsApp to `ADMIN_WHATSAPP_NUMBER`, recorded in `missed_notified_at`
+  (columns on `bookings` and `booking_occurrences`) so it fires once. No
+  `ADMIN_WHATSAPP_NUMBER` → scan skipped, flags untouched. The provider app
+  shows the same set in a pinned urgency banner with a "Mark completed" action,
+  and the superadmin Orders page flags rows whose slot passed (`dueAt` in
+  `Orders.tsx` — recurring bookings compare the earliest open occurrence).
+
+## Vendor Partner OS
+
+`vendor/` is a separate SPA (port 5176, `/vendor` in the gateway) for partner
+companies that run their own team — distinct from `provider/`, which stays the
+single-worker console for individually admin-assigned `service_providers` rows.
+See `VENDOR_DASHBOARD_PLAN.md` for the full multi-phase design; what exists
+today is the Home-screen slice:
+
+- `vendors` / `vendor_users` — one row per partner company and one per login
+  seat (`owner`/`manager`/`field`, only `owner` has a working login flow so
+  far). `service_providers.vendor_id` links a worker to the vendor that owns
+  them; `NULL` keeps the existing admin-assigned marketplace pool untouched.
+- `jobs` is the vendor-side work item (accepted Kynd offer or the vendor's own
+  customer booking) — it owns its own status machine
+  (`accepted → assigned → in_progress → completed → paid`), independent of
+  `bookings.status`. `offers` is the not-yet-accepted Kynd fan-out;
+  `vendor_payouts` and `team_member_certs` back the "pending payout" and
+  "training expiring" alerts.
+- **Offer fan-out**: `fanOutOffersForBooking` (`backend/db/src/lib/offers.ts`),
+  called from `POST /api/bookings` after the existing marketplace
+  auto-assignment, inserts one `offers` row per vendor eligible to serve the
+  booking — active, same city as `contact.city`, and holding a `live` listing
+  for one of the booked services (`vendor_service_categories.subcategory_id`
+  from `catalog_services`, or the legacy free-text `vendor_service_prices`
+  category). All rows from one booking share `expires_at` (`OFFER_EXPIRY_MINUTES`
+  env var, default 30) — broadcast, first accept wins. A fan-out failure is
+  caught and logged, never fails the booking. `POST /vendor/offers/:id/accept`
+  flips sibling offers for the same `booking_id` to `taken` in the same
+  transaction as the accept + job insert. `POST /api/internal/expire-offers`
+  (same `INTERNAL_API_TOKEN` pattern as `dispatch-due`) sweeps overdue `open`
+  offers to `expired`; suggested schedule is every minute.
+- **Leave + availability**: `team_member_leave` holds inclusive SGT date
+  spans per member (`vendor_id` duplicated for scoping). Manage via
+  `POST /api/vendor/team/:id/leave` + `DELETE .../leave/:leaveId` (owner/
+  manager); `GET /api/vendor/team` embeds each member's upcoming `leave[]` +
+  `onLeaveToday`. `GET /api/vendor/team/availability?at=YYYY-MM-DD HH:MM&durationMin=`
+  returns per-member `available` + reasons (leave spans + overlapping open
+  jobs, `memberConflicts` helper). The assign paths — `PATCH /jobs/:id/assign`
+  and `POST /jobs` with `assigneeId` — run the same check and answer `409
+  {conflicts}` instead of silently double-booking; every client resubmits
+  with `force: true` behind an explicit "Assign anyway" confirm (leave is a
+  warning, never a hard block). The schedule grid renders whole-day "On
+  leave" blocks and the pickers label members "— on leave" / "— clash".
+- **Payout pipeline** (`backend/db/src/lib/payouts.ts`): Kynd work settles
+  weekly (Mon–Sun, computed in SQL since DATETIMEs are SGT wall-clock). A
+  payout run groups each vendor's completed `source='kynd'` jobs by the week
+  of `COALESCE(completed_at, paid_at)`; closed weeks become `pending`
+  `vendor_payouts` rows with member jobs stamped via `jobs.payout_id`, while
+  the open week gets a `scheduled` accrual row whose totals refresh from
+  un-stamped jobs (stragglers merge into the open row for their period, or
+  spawn an adjustment row once it's paid). Runs are idempotent (`payout_id
+  IS NULL` only) and serialised by `GET_LOCK`. Triggers: superadmin "Run
+  payout batch" (`POST /api/vendors/payouts/run`) or weekly cron
+  `POST /api/internal/run-payouts` (`INTERNAL_API_TOKEN`). An admin then
+  transfers the money out-of-band (`vendors.payout_details`) and marks the
+  row paid via `PATCH /api/vendors/payouts/:id`, which also flips member
+  jobs to `status='paid'`. Own-customer jobs never enter payouts — the
+  vendor invoices those itself.
+- Vendor side: `GET /api/vendor/payouts` (+ `/payouts/:id` member jobs and
+  `/payouts/:id/statement` PDF via pdfkit in `src/lib/pdfStatement.ts`),
+  owner-only, rendered by `vendor/src/pages/Payouts.jsx`; the Money
+  overview's payout card downloads the same statements. Admin side:
+  `GET /api/vendors/payouts*` behind the normal admin gate, rendered by
+  `superadmin/src/pages/VendorPayouts.tsx`.
+- `POST /api/auth/vendor-login` issues a session with `role` =
+  `vendor_owner`/`vendor_manager`/`vendor_field` plus `vendorId` (and
+  `providerId` for field seats). `backend/db/src/routes/vendor.ts` is
+  allowlisted like `/provider/` in `apiAuthGate` and checks the session itself;
+  every query is scoped to `session.vendorId`. `GET /vendor/home` computes the
+  "Needs attention" alerts (late job / unassigned job / pending payout /
+  expiring cert — picked for variety across types, not just whichever fires
+  most) plus today's jobs, offers-waiting count, and (owner-only) this week's
+  earnings and a 30-day forecast with a simple staffing heads-up.
+- `backend/db/scripts/seed-vendor-demo.mjs` creates a demo vendor + owner login
+  + team + today's jobs + an open offer + a pending payout + an expiring cert
+  for local testing — it is **not** part of `db.sql` (schema only, no seed
+  rows). Run it after importing the schema, then sign in to `/vendor` with the
+  email/password it prints.
+- Jobs/Offers/Team/Schedule/Money/Forecast/Expenses/Invoices/Services pages are
+  routed but render a "Coming soon" placeholder — only Home has a backend.
 
 ## Pre-launch gate
 

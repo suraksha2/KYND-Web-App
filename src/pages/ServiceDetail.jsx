@@ -1018,7 +1018,7 @@ const PlanCard = ({ selected, onClick, title, subtitle, price, save }) => (
 
 // Recurring house cleaning, inline in "When?": cadence, weekdays, first visit
 // and its time. The date and time write straight to the booking.
-const HouseRecurringPanel = ({ oneTimePrice, recurrence, setRecurrence, date, setDate, time, setTime, minDate, onOneTime, onContinue, error, serviceName, city, duration }) => {
+const HouseRecurringPanel = ({ oneTimePrice, recurrence, setRecurrence, date, setDate, time, setTime, minDate, onContinue, error, serviceName, city, duration }) => {
   const plan = housePlanOf(recurrence) || HOUSE_PLANS[0]
   const days = planDays(recurrence, date)
   const { slots, loading, error: slotsError } = useSlots(true, date, serviceName, city, duration)
@@ -1074,7 +1074,6 @@ const HouseRecurringPanel = ({ oneTimePrice, recurrence, setRecurrence, date, se
     <div className="mt-5">
       <h4 className="font-heading text-base sm:text-lg font-bold text-charcoal">How often?</h4>
       <div className="mt-3 space-y-3">
-        <PlanCard selected={false} onClick={onOneTime} title="One-time" subtitle="A single clean" price={oneTimePrice} />
         {HOUSE_PLANS.map(p => (
           <PlanCard key={p.id} selected={p.id === plan.id} onClick={() => choosePlan(p)} title={p.title} subtitle={p.subtitle} price={Math.round(oneTimePrice * (1 - p.pct))} save={`Save ${Math.round(p.pct * 100)}%`} />
         ))}
@@ -1603,7 +1602,6 @@ const HowSoonPanel = ({ open, setOpen, summary, goToAddons, schedule, setSchedul
           time={time}
           setTime={setTime}
           minDate={minDate}
-          onOneTime={() => setSchedule('scheduled')}
           onContinue={goToAddons}
           error={errors?.datetime}
           serviceName={serviceName}

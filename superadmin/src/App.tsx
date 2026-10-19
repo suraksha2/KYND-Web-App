@@ -7,6 +7,9 @@ import Orders from './pages/Orders'
 import Addons from './pages/Addons'
 import CatalogServices from './pages/CatalogServices'
 import Pro from './pages/Pro'
+import Vendors from './pages/Vendors'
+import VendorPayouts from './pages/VendorPayouts'
+import VendorServices from './pages/VendorServices'
 import Analytics from './pages/Analytics'
 import CityServices from './pages/CityServices'
 import ServiceSubcategories from './pages/ServiceSubcategories'
@@ -28,6 +31,9 @@ export default function App() {
         <Route path="/addons" element={<Addons />} />
         <Route path="/help-moments" element={<ServiceSubcategories />} />
         <Route path="/pro" element={<Pro />} />
+        <Route path="/vendors" element={<Vendors />} />
+        <Route path="/vendor-services" element={<VendorServices />} />
+        <Route path="/vendor-payouts" element={<VendorPayouts />} />
         <Route path="/analytics" element={<Analytics />} />
         <Route path="/city-services" element={<CityServices />} />
         <Route path="/settings" element={<Settings />} />

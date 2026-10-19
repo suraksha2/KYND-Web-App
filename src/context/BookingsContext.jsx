@@ -281,6 +281,72 @@ export function BookingsProvider({ children }) {
     }
   }, [bookings, token])
 
+  // Moves a single visit of a recurring booking's series; the rest of the plan
+  // is untouched. Server-first, like cancelBooking, so the UI never claims a
+  // move that did not persist.
+  const rescheduleOccurrence = useCallback(async (bookingId, occurrenceId, newAt) => {
+    const booking = bookings.find(b => b.bookingId === bookingId)
+    if (!booking?.id || !token) return { ok: false, error: 'Not available for this booking.' }
+
+    try {
+      const response = await fetch(`${API_BASE}/bookings/${booking.id}/occurrences/${occurrenceId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        credentials: 'include',
+        body: JSON.stringify({ scheduledAt: newAt })
+      })
+      const json = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        return { ok: false, error: json.error || 'Failed to move visit. Please try again.' }
+      }
+
+      // Re-read the server state so the visit list and history match the backend exactly.
+      const res = await fetch(`${API_BASE}/bookings`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+        credentials: 'include'
+      })
+      const list = await res.json().catch(() => ({}))
+      if (res.ok && Array.isArray(list.data)) setBookings(list.data.map(transformBooking))
+
+      return { ok: true, reassignNeeded: !!json.reassignNeeded }
+    } catch (error) {
+      console.error('Error moving visit:', error)
+      return { ok: false, error: 'Network error. Please check your connection and try again.' }
+    }
+  }, [bookings, token])
+
+  // Cancels just the next/chosen visit of a recurring booking; the backend
+  // tops the series back up so the plan keeps the same number of visits ahead.
+  const skipOccurrence = useCallback(async (bookingId, occurrenceId) => {
+    const booking = bookings.find(b => b.bookingId === bookingId)
+    if (!booking?.id || !token) return { ok: false, error: 'Not available for this booking.' }
+
+    try {
+      const response = await fetch(`${API_BASE}/bookings/${booking.id}/occurrences/${occurrenceId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        credentials: 'include',
+        body: JSON.stringify({ status: 'cancelled' })
+      })
+      const json = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        return { ok: false, error: json.error || 'Failed to skip visit. Please try again.' }
+      }
+
+      const res = await fetch(`${API_BASE}/bookings`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+        credentials: 'include'
+      })
+      const list = await res.json().catch(() => ({}))
+      if (res.ok && Array.isArray(list.data)) setBookings(list.data.map(transformBooking))
+
+      return { ok: true }
+    } catch (error) {
+      console.error('Error skipping visit:', error)
+      return { ok: false, error: 'Network error. Please check your connection and try again.' }
+    }
+  }, [bookings, token])
+
   const getBooking = useCallback((bookingId) => bookings.find(b => b.bookingId === bookingId) || null, [bookings])
 
   // Bucket bookings: finished ones (completed or cancelled) go to Past, which is
@@ -297,11 +363,13 @@ export function BookingsProvider({ children }) {
         const hasCompleted = b.occurrences.some(o => o.status === 'completed')
         const hasCancelled = b.occurrences.some(o => o.status === 'cancelled')
         
-        if (hasCancelled) {
-          past.push(b)
-        } else if (hasUpcoming) {
+        // A skipped/cancelled visit does not end the series — only drop it to
+        // Past once nothing is left upcoming or completed.
+        if (hasUpcoming) {
           upcoming.push(b)
         } else if (hasCompleted) {
+          past.push(b)
+        } else if (hasCancelled) {
           past.push(b)
         } else {
           // Fallback to main booking status
@@ -336,7 +404,7 @@ export function BookingsProvider({ children }) {
     [bookings]
   )
 
-  const value = { bookings, loaded, upcoming, past, activeCount, addBooking, cancelBooking, rescheduleBooking, getBooking }
+  const value = { bookings, loaded, upcoming, past, activeCount, addBooking, cancelBooking, rescheduleBooking, rescheduleOccurrence, skipOccurrence, getBooking }
   return <BookingsContext.Provider value={value}>{children}</BookingsContext.Provider>
 }
 

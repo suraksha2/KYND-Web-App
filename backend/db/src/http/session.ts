@@ -62,6 +62,9 @@ export async function refreshSessionCookie(
     id: session.id,
     email: session.email,
     role: session.role,
+    vendorId: session.vendorId,
+    providerId: session.providerId,
+    name: session.name,
   });
   setSessionCookie(res, token);
 }
@@ -75,6 +78,8 @@ function isPublicApi(pathname: string, method: string): boolean {
 
   // Provider APIs are gated by the route handlers themselves (provider or admin).
   if (pathname.startsWith('/provider/')) return true;
+  // Vendor Partner OS APIs are gated by the route handlers themselves (vendor roles).
+  if (pathname.startsWith('/vendor/')) return true;
   // Providers can send and read messages for their assigned bookings; the route verifies
   // provider_id before allowing access.
   if (pathname.startsWith('/messages/')) return true;
@@ -99,6 +104,9 @@ function isPublicApi(pathname: string, method: string): boolean {
     if (/^\/catalog\/services\/[^/]+\/quote$/.test(pathname)) return true;
     if (/^\/catalog\/services\/[^/]+\/addons$/.test(pathname)) return true;
     if (/^\/availability(\/.+)?$/.test(pathname)) return true;
+    // Approved vendor pricing shown on the storefront, booked directly with
+    // that vendor rather than through the marketplace's matching engine.
+    if (/^\/vendor-services\/live$/.test(pathname)) return true;
   }
 
   // Pre-launch landing page joins the waitlist anonymously (reading the list
@@ -129,11 +137,17 @@ export async function apiAuthGate(req: Request, res: Response, next: NextFunctio
     // Customers can cancel/reschedule their own booking; the route verifies
     // ownership against session.id before touching the row.
     if (req.method === 'PATCH' && /^\/bookings\/[^/]+$/.test(pathname)) return next();
+    // Customers can move/skip a single visit of their own recurring booking;
+    // the route verifies ownership before touching the occurrence.
+    if (req.method === 'PATCH' && /^\/bookings\/[^/]+\/occurrences\/[^/]+$/.test(pathname)) return next();
     // Checkout: create/verify payment intents (handlers also check session).
     if (pathname === '/payments/create-intent' && req.method === 'POST') return next();
     if (req.method === 'GET' && /^\/payments\/[^/]+$/.test(pathname)) return next();
     // Customers submit reviews for their own bookings.
     if (pathname === '/reviews' && req.method === 'POST') return next();
+    // Customers book a vendor's approved listing directly; the route itself
+    // validates the listing is live and the vendor active.
+    if (req.method === 'POST' && /^\/vendor-services\/[^/]+\/book$/.test(pathname)) return next();
     // Customers read and edit their own saved booking defaults; the route scopes
     // every query to session.id.
     if (pathname === '/profile' && (req.method === 'GET' || req.method === 'PUT')) return next();

@@ -15,6 +15,9 @@ import {
   Zap,
   Wrench,
   HeartHandshake,
+  Store,
+  Handshake,
+  Wallet,
 } from "lucide-react";
 import clsx from "clsx";
 import { useEffect, useState } from "react";
@@ -34,6 +37,9 @@ const navItems = [
   { label: "Add-ons", href: "/addons", icon: PackagePlus },
   { label: "Help moments", href: "/help-moments", icon: HeartHandshake },
   { label: "Pro", href: "/pro", icon: Wrench },
+  { label: "Vendors", href: "/vendors", icon: Handshake },
+  { label: "Vendor pricing", href: "/vendor-services", icon: Store },
+  { label: "Vendor payouts", href: "/vendor-payouts", icon: Wallet },
   { label: "Analytics", href: "/analytics", icon: BarChart2 },
   { label: "Serviceable City", href: "/city-services", icon: Building2 },
   { label: "Settings", href: "/settings", icon: Settings },

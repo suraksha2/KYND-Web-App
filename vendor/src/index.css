@@ -1,0 +1,19 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root { min-height: 100%; }
+
+body {
+  font-family: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  color: #2B2926;
+  background: #F5F1EA;
+}
+
+/* Chrome/Edge draw a dropdown-style arrow on <input list="..."> (datalist)
+   fields, making a plain text input look like a <select>. Hide it so these
+   inputs read as free-text with suggestions, not a forced combobox. */
+input[list]::-webkit-calendar-picker-indicator {
+  display: none !important;
+}

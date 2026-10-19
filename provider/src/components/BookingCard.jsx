@@ -1,7 +1,7 @@
 import {
   Loader2, Calendar, Clock, MapPin, Phone, User, IndianRupee, CheckCircle2, XCircle, StickyNote,
 } from 'lucide-react'
-import { STATUS_META, parseItems, formatDateTime, nextVisit, getEffectiveStatus, hasUpcomingOccurrences } from '../utils/bookings'
+import { STATUS_META, URGENCY_META, parseItems, formatDateTime, nextVisit, getEffectiveStatus, hasUpcomingOccurrences, urgencyLevel, timeUntil, bookingDate } from '../utils/bookings'
 import BookingMessaging from './BookingMessaging'
 
 export default function BookingCard({ booking, updating, onUpdate }) {
@@ -12,9 +12,14 @@ export default function BookingCard({ booking, updating, onUpdate }) {
   const when = formatDateTime(booking.scheduled_at) || formatDateTime(booking.placed_at)
   const upcomingVisit = nextVisit(booking)
   const hasUpcoming = hasUpcomingOccurrences(booking)
+  const urgency = urgencyLevel(booking)
+  const umeta = urgency ? URGENCY_META[urgency] : null
+  const UrgencyIcon = umeta?.icon
+  const relative =
+    urgency === 'today' || urgency === 'overdue' ? timeUntil(bookingDate(booking)) : null
 
   return (
-    <div className="bg-white rounded-2xl border border-lightstone shadow-soft overflow-hidden">
+    <div className={`bg-white rounded-2xl border border-lightstone shadow-soft overflow-hidden ${umeta?.ring || ''}`}>
       <div className="p-5 sm:p-6">
         <div className="flex items-start justify-between gap-4 mb-4">
           <div className="min-w-0 flex-1">
@@ -25,10 +30,19 @@ export default function BookingCard({ booking, updating, onUpdate }) {
                 : 'Service'}
             </h3>
           </div>
-          <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold ${meta.className} shrink-0`}>
-            <StatusIcon className="w-4 h-4" />
-            {meta.label}
-          </span>
+          <div className="flex flex-col items-end gap-1.5 shrink-0">
+            <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold ${meta.className}`}>
+              <StatusIcon className="w-4 h-4" />
+              {meta.label}
+            </span>
+            {umeta && (
+              <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold ${umeta.badge}`}>
+                <UrgencyIcon className={`w-4 h-4 ${urgency === 'asap' ? 'animate-pulse' : ''}`} />
+                {umeta.label}
+                {relative ? ` · ${relative}` : ''}
+              </span>
+            )}
+          </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3 text-sm">

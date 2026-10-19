@@ -181,6 +181,12 @@ It is idempotent — a visit already notified is never re-sent, and a send that
 fails stays queued for the next run. A `401` means `INTERNAL_API_TOKEN` is unset
 or shorter than 16 chars, which keeps the endpoint closed by design.
 
+The same run also sweeps for missed work: any visit or one-off booking whose
+slot passed more than `missedGraceMinutes` ago (default 60) while still
+'upcoming' triggers one consolidated WhatsApp to `ADMIN_WHATSAPP_NUMBER`, and
+`missed_notified_at` keeps it from re-alerting. Leave the variable empty to
+disable the alert — the scan is skipped and nothing is marked.
+
 ## 5. Put it on a domain (TLS) — Contabo + https://kyndpro.com/
 
 The containers speak plain HTTP on `8080`. Terminate TLS on the host and proxy

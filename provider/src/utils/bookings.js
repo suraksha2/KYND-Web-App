@@ -1,4 +1,4 @@
-import { CheckCircle2, XCircle, CircleDot } from 'lucide-react'
+import { CheckCircle2, XCircle, CircleDot, Flame, Clock } from 'lucide-react'
 
 export const STATUS_META = {
   upcoming: { label: 'Upcoming', className: 'bg-amber-100 text-amber-800', icon: CircleDot },
@@ -79,10 +79,46 @@ export function getEffectiveStatus(booking) {
   const hasCompleted = booking.occurrences.some(o => o.status === 'completed')
   const hasCancelled = booking.occurrences.some(o => o.status === 'cancelled')
   
-  if (hasCancelled) return 'cancelled'
+  // A skipped/cancelled visit does not end the series — only report
+  // "cancelled" once nothing is left upcoming or completed.
   if (hasUpcoming) return 'upcoming'
   if (hasCompleted) return 'completed'
+  if (hasCancelled) return 'cancelled'
   return booking.status
+}
+
+// Urgency tiers for open work. 'asap' = instant booking, 'overdue' = the next
+// action time is already past, 'today'/'tomorrow' = next visit lands on that
+// calendar day. Null when the job is finished, cancelled, or further out.
+export function urgencyLevel(booking) {
+  if (!hasUpcomingOccurrences(booking) || booking?.cancelled_at) return null
+  if (booking?.schedule === 'instant') return 'asap'
+  const at = bookingDate(booking)
+  if (!at) return null
+  const now = new Date()
+  if (at <= now) return 'overdue'
+  const tomorrow = new Date(now)
+  tomorrow.setDate(tomorrow.getDate() + 1)
+  if (isSameDay(at, now)) return 'today'
+  if (isSameDay(at, tomorrow)) return 'tomorrow'
+  return null
+}
+
+export const URGENCY_META = {
+  asap: { label: 'ASAP', icon: Flame, badge: 'bg-red-600 text-white', ring: 'ring-2 ring-red-300' },
+  overdue: { label: 'Overdue', icon: Flame, badge: 'bg-red-100 text-red-700', ring: 'ring-2 ring-red-200' },
+  today: { label: 'Today', icon: Clock, badge: 'bg-amber-100 text-amber-800', ring: 'ring-2 ring-amber-200' },
+  tomorrow: { label: 'Tomorrow', icon: Clock, badge: 'bg-amber-50 text-amber-700', ring: 'ring-1 ring-amber-200' },
+}
+
+// 'in 45 min' / '2h ago' style relative label for an action time.
+export function timeUntil(at) {
+  if (!at) return null
+  const mins = Math.round((at.getTime() - Date.now()) / 60000)
+  const abs = Math.abs(mins)
+  if (abs < 1) return 'now'
+  const label = abs < 60 ? `${abs} min` : `${Math.floor(abs / 60)}h${abs % 60 ? ` ${abs % 60}m` : ''}`
+  return mins > 0 ? `in ${label}` : `${label} ago`
 }
 
 export function bookingTotal(booking) {
@@ -106,9 +142,6 @@ export function lastSevenDays(bookings) {
       date: day,
       label: day.toLocaleDateString('en-SG', { weekday: 'short', timeZone: 'Asia/Singapore' }),
       count: dayBookings.length,
-      earnings: dayBookings
-        .filter((b) => b.status === 'completed')
-        .reduce((sum, b) => sum + bookingTotal(b), 0),
     })
   }
   return days

@@ -24,7 +24,9 @@ import serviceCategories from './service-categories';
 import serviceProviders from './service-providers';
 import serviceSubcategories from './service-subcategories';
 import services from './services';
-import settings from './settings';
+import vendor from './vendor';
+import vendors from './vendors';
+import vendorServices from './vendor-services';
 import waitlist from './waitlist';
 
 const router = Router();
@@ -53,7 +55,9 @@ router.use('/service-categories', serviceCategories);
 router.use('/service-providers', serviceProviders);
 router.use('/service-subcategories', serviceSubcategories);
 router.use('/services', services);
-router.use('/settings', settings);
+router.use('/vendor', vendor);
+router.use('/vendors', vendors);
+router.use('/vendor-services', vendorServices);
 router.use('/waitlist', waitlist);
 
 export default router;

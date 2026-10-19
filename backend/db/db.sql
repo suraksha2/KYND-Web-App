@@ -114,28 +114,6 @@ CREATE TABLE IF NOT EXISTS city_services (
   FOREIGN KEY (city_id) REFERENCES cities(id) ON DELETE CASCADE
 );
 
--- Products table
-CREATE TABLE IF NOT EXISTS products (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  name VARCHAR(255),
-  category VARCHAR(100),
-  price DECIMAL(10,2),
-  availability VARCHAR(100),
-  status VARCHAR(50)
-);
-
--- Orders table
-CREATE TABLE IF NOT EXISTS orders (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  client_id INT,
-  service_id INT,
-  amount DECIMAL(10,2),
-  status VARCHAR(50),
-  date DATE,
-  FOREIGN KEY (client_id) REFERENCES clients(id),
-  FOREIGN KEY (service_id) REFERENCES services(id)
-);
-
 -- Users table
 CREATE TABLE IF NOT EXISTS users (
   id INT AUTO_INCREMENT PRIMARY KEY,
@@ -194,15 +172,6 @@ SET @stmt := IF(
   'DO 0');
 PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
--- Settings table (optional)
-CREATE TABLE IF NOT EXISTS settings (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  profile_name VARCHAR(255),
-  profile_email VARCHAR(255),
-  profile_role VARCHAR(50),
-  bio TEXT
-);
-
 -- Analytics table (optional)
 CREATE TABLE IF NOT EXISTS analytics (
   id INT AUTO_INCREMENT PRIMARY KEY,
@@ -258,12 +227,16 @@ CREATE TABLE IF NOT EXISTS bookings (
   cancel_reason VARCHAR(255),
   user_id INT,
   provider_id INT,
+  vendor_id INT NULL,
+  vendor_job_id INT NULL,
   assigned_at DATETIME,
+  missed_notified_at DATETIME,
   history JSON,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   KEY idx_bookings_user (user_id),
   KEY idx_bookings_provider (provider_id),
+  KEY idx_bookings_vendor (vendor_id),
   KEY idx_bookings_status_placed (status, placed_at),
   UNIQUE KEY idx_bookings_payment_intent (payment_intent_id),
   FOREIGN KEY (provider_id) REFERENCES service_providers(id) ON DELETE SET NULL,
@@ -327,6 +300,17 @@ SET @stmt := IF(
   'DO 0');
 PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
+-- Migration: `missed_notified_at` records that the admin was already alerted
+-- about a booking whose slot passed without being marked done, so the
+-- dispatch cron does not re-alert every run.
+SET @stmt := IF(
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'bookings'
+      AND COLUMN_NAME = 'missed_notified_at') = 0,
+  'ALTER TABLE bookings ADD COLUMN missed_notified_at DATETIME AFTER assigned_at',
+  'DO 0');
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
 -- Individual visits of a recurring booking. The parent `bookings` row owns the
 -- cadence and the contact/payment details; each occurrence carries its own date,
 -- provider and status so cancelling or rescheduling one visit leaves the rest of
@@ -339,6 +323,7 @@ CREATE TABLE IF NOT EXISTS booking_occurrences (
   provider_id INT,
   status ENUM('upcoming', 'completed', 'cancelled') DEFAULT 'upcoming',
   notified_at DATETIME,
+  missed_notified_at DATETIME,
   completed_at DATETIME,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -354,6 +339,15 @@ SET @stmt := IF(
     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'booking_occurrences'
       AND COLUMN_NAME = 'completed_at') = 0,
   'ALTER TABLE booking_occurrences ADD COLUMN completed_at DATETIME',
+  'DO 0');
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- Migration: same once-only admin alert flag for individual recurring visits.
+SET @stmt := IF(
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'booking_occurrences'
+      AND COLUMN_NAME = 'missed_notified_at') = 0,
+  'ALTER TABLE booking_occurrences ADD COLUMN missed_notified_at DATETIME AFTER notified_at',
   'DO 0');
 PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
@@ -854,4 +848,422 @@ CREATE TABLE IF NOT EXISTS images (
   size_bytes INT UNSIGNED NOT NULL,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY unique_image_filename (filename)
+);
+
+-- ---------------------------------------------------------------------------
+-- Vendor Partner OS: a vendor is a partner company (e.g. a cleaning agency)
+-- that owns a team of workers, takes offers fanned out from Kynd bookings,
+-- and runs its own-customer jobs through the same pipeline. See
+-- VENDOR_DASHBOARD_PLAN.md for the full design; this is the Home-screen slice.
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS vendors (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  contact_email VARCHAR(255) NOT NULL UNIQUE,
+  mobile VARCHAR(20),
+  city VARCHAR(100),
+  categories JSON,
+  status ENUM('active', 'inactive') DEFAULT 'active',
+  payout_details JSON,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+-- Seats on a vendor's Partner OS account. `owner`/`manager` are desk roles;
+-- `field` seats are linked to a `service_providers` row for mobile job access.
+CREATE TABLE IF NOT EXISTS vendor_users (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  vendor_id INT NOT NULL,
+  provider_id INT NULL,
+  name VARCHAR(255) NOT NULL,
+  email VARCHAR(255) NOT NULL UNIQUE,
+  password_hash VARCHAR(255) NOT NULL,
+  role ENUM('owner', 'manager', 'field') NOT NULL DEFAULT 'owner',
+  status ENUM('active', 'invited', 'disabled') DEFAULT 'active',
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  KEY idx_vendor_users_vendor (vendor_id),
+  FOREIGN KEY (vendor_id) REFERENCES vendors(id) ON DELETE CASCADE,
+  FOREIGN KEY (provider_id) REFERENCES service_providers(id) ON DELETE SET NULL
+);
+
+-- Migration: workers can belong to a vendor's own team (vs. the platform's
+-- marketplace gig pool, which stays vendor_id NULL and admin-assigned).
+SET @stmt := IF(
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'service_providers'
+      AND COLUMN_NAME = 'vendor_id') = 0,
+  'ALTER TABLE service_providers ADD COLUMN vendor_id INT NULL AFTER id,
+     ADD CONSTRAINT fk_service_providers_vendor FOREIGN KEY (vendor_id) REFERENCES vendors(id) ON DELETE SET NULL',
+  'DO 0');
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- One row per Kynd booking offered to a vendor. Multiple vendors can be
+-- offered the same booking (broadcast fan-out); first accept wins.
+CREATE TABLE IF NOT EXISTS offers (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  vendor_id INT NOT NULL,
+  booking_id INT NULL,
+  service_label VARCHAR(255) NOT NULL,
+  category VARCHAR(100),
+  area VARCHAR(100),
+  window_start DATETIME NOT NULL,
+  window_end DATETIME,
+  price DECIMAL(10,2) NOT NULL,
+  fee_pct DECIMAL(5,2) NOT NULL DEFAULT 15.00,
+  status ENUM('open', 'accepted', 'declined', 'expired', 'taken') DEFAULT 'open',
+  decline_reason VARCHAR(255),
+  expires_at DATETIME NOT NULL,
+  accepted_at DATETIME,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  KEY idx_offers_vendor_status (vendor_id, status),
+  FOREIGN KEY (vendor_id) REFERENCES vendors(id) ON DELETE CASCADE,
+  FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE SET NULL
+);
+
+-- Vendor-side work item: an accepted Kynd offer or a vendor's own-customer
+-- booking. Owns the vendor job lifecycle independently of `bookings.status`.
+CREATE TABLE IF NOT EXISTS jobs (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  vendor_id INT NOT NULL,
+  offer_id INT NULL,
+  booking_id INT NULL,
+  source ENUM('kynd', 'own') NOT NULL DEFAULT 'own',
+  status ENUM('accepted', 'assigned', 'in_progress', 'completed', 'paid', 'cancelled') DEFAULT 'accepted',
+  issue_type VARCHAR(50) NULL,
+  issue_note VARCHAR(255) NULL,
+  issue_resolved_at DATETIME NULL,
+  assignee_provider_id INT NULL,
+  customer_name VARCHAR(255) NOT NULL,
+  customer_phone VARCHAR(20),
+  customer_address VARCHAR(255),
+  customer_area VARCHAR(100),
+  service_label VARCHAR(255) NOT NULL,
+  category VARCHAR(100),
+  window_start DATETIME NOT NULL,
+  window_end DATETIME,
+  gross DECIMAL(10,2) NOT NULL DEFAULT 0,
+  fee_pct DECIMAL(5,2) NOT NULL DEFAULT 15.00,
+  net DECIMAL(10,2) NOT NULL DEFAULT 0,
+  started_at DATETIME NULL,
+  completed_at DATETIME NULL,
+  paid_at DATETIME NULL,
+  -- Set when a Kynd payout batch settles this job; NULL = not yet paid out.
+  -- The FK to vendor_payouts is added below, after that table is created.
+  payout_id INT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  KEY idx_jobs_vendor_window (vendor_id, window_start),
+  KEY idx_jobs_vendor_status (vendor_id, status),
+  KEY idx_jobs_assignee (assignee_provider_id),
+  KEY idx_jobs_payout (payout_id),
+  FOREIGN KEY (vendor_id) REFERENCES vendors(id) ON DELETE CASCADE,
+  FOREIGN KEY (offer_id) REFERENCES offers(id) ON DELETE SET NULL,
+  FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE SET NULL,
+  FOREIGN KEY (assignee_provider_id) REFERENCES service_providers(id) ON DELETE SET NULL
+);
+
+-- Payout batches run for a vendor (platform fee already netted out).
+CREATE TABLE IF NOT EXISTS vendor_payouts (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  vendor_id INT NOT NULL,
+  period_start DATE NOT NULL,
+  period_end DATE NOT NULL,
+  jobs INT NOT NULL DEFAULT 0,
+  gross DECIMAL(10,2) NOT NULL DEFAULT 0,
+  fee DECIMAL(10,2) NOT NULL DEFAULT 0,
+  net DECIMAL(10,2) NOT NULL DEFAULT 0,
+  status ENUM('scheduled', 'pending', 'paid') DEFAULT 'scheduled',
+  paid_at DATETIME NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_vendor_payouts_vendor (vendor_id, status),
+  FOREIGN KEY (vendor_id) REFERENCES vendors(id) ON DELETE CASCADE
+);
+
+-- Migrations for databases created before payouts existed: jobs.payout_id
+-- (declared in the CREATE TABLE above for fresh installs) and its FK to
+-- vendor_payouts, both guarded for MySQL 8 (no IF NOT EXISTS on ALTER).
+SET @stmt := IF(
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'jobs'
+      AND COLUMN_NAME = 'payout_id') = 0,
+  'ALTER TABLE jobs ADD COLUMN payout_id INT NULL, ADD KEY idx_jobs_payout (payout_id)',
+  'DO 0');
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @stmt := IF(
+  (SELECT COUNT(*) FROM information_schema.TABLE_CONSTRAINTS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'jobs'
+      AND CONSTRAINT_NAME = 'fk_jobs_payout') = 0,
+  'ALTER TABLE jobs ADD CONSTRAINT fk_jobs_payout FOREIGN KEY (payout_id) REFERENCES vendor_payouts(id) ON DELETE SET NULL',
+  'DO 0');
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- Migration: once a vendor accepts a Kynd offer for a booking, that booking's
+-- visit is owned by the vendor's own `jobs` lifecycle instead of the
+-- marketplace `service_providers` pool. These columns let the legacy
+-- marketplace paths (auto-assignment at creation, manual admin assignment,
+-- the dispatch-due cron and the missed-job sweep) recognise a vendor-claimed
+-- booking and stop dispatching/notifying for it in parallel with the vendor's
+-- own team. NULL (the default) is an ordinary marketplace booking untouched
+-- by any vendor — fully backward compatible with existing rows.
+SET @stmt := IF(
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'bookings'
+      AND COLUMN_NAME = 'vendor_id') = 0,
+  'ALTER TABLE bookings
+     ADD COLUMN vendor_id INT NULL AFTER provider_id,
+     ADD COLUMN vendor_job_id INT NULL AFTER vendor_id,
+     ADD KEY idx_bookings_vendor (vendor_id)',
+  'DO 0');
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @stmt := IF(
+  (SELECT COUNT(*) FROM information_schema.TABLE_CONSTRAINTS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'bookings'
+      AND CONSTRAINT_NAME = 'fk_bookings_vendor') = 0,
+  'ALTER TABLE bookings ADD CONSTRAINT fk_bookings_vendor FOREIGN KEY (vendor_id) REFERENCES vendors(id) ON DELETE SET NULL',
+  'DO 0');
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @stmt := IF(
+  (SELECT COUNT(*) FROM information_schema.TABLE_CONSTRAINTS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'bookings'
+      AND CONSTRAINT_NAME = 'fk_bookings_vendor_job') = 0,
+  'ALTER TABLE bookings ADD CONSTRAINT fk_bookings_vendor_job FOREIGN KEY (vendor_job_id) REFERENCES jobs(id) ON DELETE SET NULL',
+  'DO 0');
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- Training/certification records for a vendor's workers, used to flag
+-- upcoming expiries that would block them from being booked.
+CREATE TABLE IF NOT EXISTS team_member_certs (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  provider_id INT NOT NULL,
+  name VARCHAR(255) NOT NULL,
+  issued_at DATE,
+  expires_at DATE NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_team_member_certs_provider (provider_id),
+  FOREIGN KEY (provider_id) REFERENCES service_providers(id) ON DELETE CASCADE
+);
+
+-- Planned leave for a vendor's team member. Dates are inclusive whole days
+-- (SGT). Leave rows surface in the schedule grid and warn — never hard-block —
+-- when assigning a job inside the window. vendor_id duplicates the provider's
+-- ownership so every lookup can stay vendor-scoped.
+CREATE TABLE IF NOT EXISTS team_member_leave (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  vendor_id INT NOT NULL,
+  provider_id INT NOT NULL,
+  start_date DATE NOT NULL,
+  end_date DATE NOT NULL,
+  note VARCHAR(160) NOT NULL DEFAULT '',
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_leave_member (provider_id, start_date),
+  KEY idx_leave_vendor (vendor_id, start_date),
+  FOREIGN KEY (vendor_id) REFERENCES vendors(id) ON DELETE CASCADE,
+  FOREIGN KEY (provider_id) REFERENCES service_providers(id) ON DELETE CASCADE
+);
+
+-- Migration for existing databases.
+SET @has_leave := (
+  SELECT COUNT(*) FROM information_schema.TABLES
+   WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'team_member_leave'
+);
+SET @sql_leave := IF(@has_leave = 0, 'CREATE TABLE team_member_leave (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  vendor_id INT NOT NULL,
+  provider_id INT NOT NULL,
+  start_date DATE NOT NULL,
+  end_date DATE NOT NULL,
+  note VARCHAR(160) NOT NULL DEFAULT '''',
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_leave_member (provider_id, start_date),
+  KEY idx_leave_vendor (vendor_id, start_date),
+  FOREIGN KEY (vendor_id) REFERENCES vendors(id) ON DELETE CASCADE,
+  FOREIGN KEY (provider_id) REFERENCES service_providers(id) ON DELETE CASCADE
+)', 'SELECT 1');
+PREPARE stmt_leave FROM @sql_leave;
+EXECUTE stmt_leave;
+DEALLOCATE PREPARE stmt_leave;
+
+-- A vendor's own category pricing, submitted for superadmin review before it
+-- can appear on the customer storefront. draft (editable, not submitted) ->
+-- under_review (submitted) -> live (approved, bookable) or rejected (back to
+-- the vendor with review_note; editable and resubmittable).
+CREATE TABLE IF NOT EXISTS vendor_service_prices (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  vendor_id INT NOT NULL,
+  category VARCHAR(100) NOT NULL,
+  unit ENUM('hour', 'sqft', 'day', 'job') NOT NULL DEFAULT 'hour',
+  price DECIMAL(10,2) NOT NULL,
+  status ENUM('draft', 'under_review', 'live', 'rejected') DEFAULT 'draft',
+  reviewed_by INT NULL,
+  reviewed_at DATETIME NULL,
+  review_note VARCHAR(255) NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  KEY idx_vendor_service_prices_vendor (vendor_id, status),
+  FOREIGN KEY (vendor_id) REFERENCES vendors(id) ON DELETE CASCADE
+);
+
+-- "Services and hours" (vendor Partner OS): a vendor picks one of Kynd's real
+-- storefront subcategories (catalog_subcategories) to offer, instead of typing
+-- a free-text category like vendor_service_prices above. Each subcategory the
+-- vendor adds gets its own row here (one per vendor+subcategory), its own
+-- open hours, and a price per catalog_services row underneath it in
+-- vendor_service_category_items. Same draft -> under_review -> live/rejected
+-- lifecycle as vendor_service_prices, reviewed by a superadmin.
+-- `hours` is a 7-entry JSON array, one per weekday ({day, open, start, end}),
+-- since each day can be toggled open/closed with its own start/end time
+-- (vendor Services page's inline hours editor).
+CREATE TABLE IF NOT EXISTS vendor_service_categories (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  vendor_id INT NOT NULL,
+  subcategory_id INT NOT NULL,
+  status ENUM('draft', 'under_review', 'live', 'rejected') NOT NULL DEFAULT 'draft',
+  hours JSON NOT NULL,
+  reviewed_by INT NULL,
+  reviewed_at DATETIME NULL,
+  review_note VARCHAR(255) NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY unique_vendor_subcategory (vendor_id, subcategory_id),
+  KEY idx_vendor_service_categories_vendor (vendor_id, status),
+  FOREIGN KEY (vendor_id) REFERENCES vendors(id) ON DELETE CASCADE,
+  FOREIGN KEY (subcategory_id) REFERENCES catalog_subcategories(id) ON DELETE CASCADE
+);
+
+-- One row per catalog_services item the vendor can price within a
+-- vendor_service_categories row. price stays NULL until the vendor fills it
+-- in; a category can only be submitted once every item here has a price.
+CREATE TABLE IF NOT EXISTS vendor_service_category_items (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  vendor_category_id INT NOT NULL,
+  catalog_service_id INT NOT NULL,
+  price DECIMAL(10,2) NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY unique_category_service (vendor_category_id, catalog_service_id),
+  FOREIGN KEY (vendor_category_id) REFERENCES vendor_service_categories(id) ON DELETE CASCADE,
+  FOREIGN KEY (catalog_service_id) REFERENCES catalog_services(id) ON DELETE CASCADE
+);
+
+-- Migration: a booking placed directly against one vendor's approved listing
+-- (as opposed to the marketplace pool) carries that vendor_id so admin/
+-- superadmin can tell the two apart, and so the matching `jobs` row knows
+-- which vendor it belongs to.
+SET @stmt := IF(
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'bookings'
+      AND COLUMN_NAME = 'vendor_id') = 0,
+  'ALTER TABLE bookings
+     ADD COLUMN vendor_id INT NULL AFTER provider_id,
+     ADD CONSTRAINT fk_bookings_vendor FOREIGN KEY (vendor_id) REFERENCES vendors(id) ON DELETE SET NULL',
+  'DO 0');
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- Migration: a worker's pay rate, used by the vendor's Expenses page to work
+-- out real cost (and so margin) per job. Not payroll — just this rate times
+-- the job's hours (pay_mode 'hour') or a flat amount per job (pay_mode 'job').
+SET @stmt := IF(
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'service_providers'
+      AND COLUMN_NAME = 'pay_mode') = 0,
+  "ALTER TABLE service_providers
+     ADD COLUMN pay_mode ENUM('hour','job') NOT NULL DEFAULT 'hour',
+     ADD COLUMN pay_rate DECIMAL(10,2) NOT NULL DEFAULT 0",
+  'DO 0');
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- Migration: "team lead" is purely a display flag on the vendor Team member
+-- profile (badge next to their role) — it doesn't change permissions, which
+-- stay governed by vendor_users.role.
+SET @stmt := IF(
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'service_providers'
+      AND COLUMN_NAME = 'is_team_lead') = 0,
+  'ALTER TABLE service_providers ADD COLUMN is_team_lead TINYINT(1) NOT NULL DEFAULT 0',
+  'DO 0');
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- A vendor's own out-of-pocket costs (supplies, chemicals, transport, etc.),
+-- optionally linked to the job they were for. Feeds the Expenses page and
+-- the Money page's "Profit by service" margin.
+CREATE TABLE IF NOT EXISTS expenses (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  vendor_id INT NOT NULL,
+  job_id INT NULL,
+  category VARCHAR(100) NOT NULL,
+  note VARCHAR(255) NOT NULL,
+  amount DECIMAL(10,2) NOT NULL,
+  expense_date DATE NOT NULL DEFAULT (CURRENT_DATE),
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_expenses_vendor_date (vendor_id, expense_date),
+  FOREIGN KEY (vendor_id) REFERENCES vendors(id) ON DELETE CASCADE,
+  FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE SET NULL
+);
+
+-- Invoices a vendor issues to its own customers for finished 'own' jobs
+-- (Kynd-booked work is paid via platform payouts instead, so it never
+-- appears here). `status` is 'sent' or 'paid' — "overdue" is derived on read
+-- from due_date, never stored, so it can't drift out of date. job_id is
+-- unique so the same job can't be invoiced twice.
+CREATE TABLE IF NOT EXISTS invoices (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  vendor_id INT NOT NULL,
+  job_id INT NULL,
+  customer_name VARCHAR(255) NOT NULL,
+  description VARCHAR(255) NOT NULL,
+  amount DECIMAL(10,2) NOT NULL,
+  status ENUM('sent','paid','cancelled') NOT NULL DEFAULT 'sent',
+  issued_date DATE NOT NULL DEFAULT (CURRENT_DATE),
+  due_date DATE NOT NULL,
+  paid_at DATETIME NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_invoices_job (job_id),
+  KEY idx_invoices_vendor (vendor_id),
+  FOREIGN KEY (vendor_id) REFERENCES vendors(id) ON DELETE CASCADE,
+  FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE SET NULL
+);
+
+-- Job detail page (vendor Partner OS): a per-job checklist seeded from a
+-- built-in template the first time the job is opened (see checklistTemplate()
+-- in routes/vendor.ts), on-site photos (bytes live in `images`, same as
+-- admin-uploaded artwork — job_photos just links a job to one), and a simple
+-- message log standing in for the "Kynd customer chat" thread shown on the
+-- job page. None of this is customer-facing yet; only the vendor side writes
+-- to these tables today.
+CREATE TABLE IF NOT EXISTS job_checklist_items (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  job_id INT NOT NULL,
+  label VARCHAR(255) NOT NULL,
+  position INT NOT NULL DEFAULT 0,
+  done TINYINT(1) NOT NULL DEFAULT 0,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_checklist_job (job_id, position),
+  FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS job_photos (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  job_id INT NOT NULL,
+  image_id INT NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_job_photos_job (job_id),
+  FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE,
+  FOREIGN KEY (image_id) REFERENCES images(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS job_messages (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  job_id INT NOT NULL,
+  sender_type ENUM('vendor', 'customer') NOT NULL DEFAULT 'vendor',
+  sender_id INT NULL,
+  body VARCHAR(2000) NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_job_messages_job (job_id, created_at),
+  FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE
 );

@@ -1,20 +1,20 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   RefreshCw, Loader2, CircleDot, AlertCircle, CalendarCheck,
-  CheckCircle2, Wallet, TrendingUp, Mail, User, LogOut,
+  CheckCircle2, Flame, Mail, User, LogOut,
 } from 'lucide-react'
 import { useAuth, API_BASE } from '../context/AuthContext'
 import { Sidebar, MobileTabBar } from '../components/Sidebar'
 import MetricCard from '../components/MetricCard'
 import TrendChart from '../components/TrendChart'
 import BookingCard from '../components/BookingCard'
+import UrgencyBanner from '../components/UrgencyBanner'
 import Messages from './Messages'
-import { bookingDate, bookingTotal, formatSgd, isSameDay, lastSevenDays } from '../utils/bookings'
+import { bookingDate, isSameDay, lastSevenDays, urgencyLevel } from '../utils/bookings'
 
 const SECTION_COPY = {
   dashboard: { title: 'Dashboard', subtitle: 'Your work at a glance.' },
   bookings: { title: 'Bookings', subtitle: 'Jobs assigned to you by the Kynd team.' },
-  earnings: { title: 'Earnings', subtitle: 'Payouts from the jobs you have completed.' },
   messages: { title: 'Messages', subtitle: 'Chat with customers about their bookings.' },
   profile: { title: 'Profile', subtitle: 'Your provider account details.' },
 }
@@ -28,6 +28,14 @@ export default function Dashboard() {
   const [filter, setFilter] = useState('all')
   const [updatingId, setUpdatingId] = useState(null)
   const [section, setSection] = useState('dashboard')
+  const [highlightId, setHighlightId] = useState(null)
+  // Re-render every 30s so "N min late" / "in N min" labels keep ticking.
+  const [tick, setTick] = useState(0)
+
+  useEffect(() => {
+    const t = setInterval(() => setTick((n) => n + 1), 30000)
+    return () => clearInterval(t)
+  }, [])
 
 
   const authFetch = (url, options = {}) =>
@@ -91,17 +99,10 @@ export default function Dashboard() {
 
   const days = useMemo(() => lastSevenDays(bookings), [bookings])
 
-  const metrics = useMemo(() => {
-    const today = new Date()
-    const todayCount = bookings.filter((b) => isSameDay(bookingDate(b), today)).length
-    const weekEarnings = days.reduce((sum, d) => sum + d.earnings, 0)
-    const lifetimeEarnings = bookings
-      .filter((b) => b.status === 'completed')
-      .reduce((sum, b) => sum + bookingTotal(b), 0)
-    const finished = counts.completed + counts.cancelled
-    const completionRate = finished > 0 ? Math.round((counts.completed / finished) * 100) : null
-    return { todayCount, weekEarnings, lifetimeEarnings, completionRate }
-  }, [bookings, days, counts])
+  const todayCount = useMemo(
+    () => bookings.filter((b) => isSameDay(bookingDate(b), new Date())).length,
+    [bookings]
+  )
 
   const upcomingSorted = useMemo(() => {
     return bookings
@@ -115,6 +116,45 @@ export default function Dashboard() {
       })
   }, [bookings])
 
+  const urgent = useMemo(() => {
+    const rank = { asap: 0, overdue: 1, today: 2 }
+    return bookings
+      .filter((b) => rank[urgencyLevel(b)] !== undefined)
+      .sort((a, b) => {
+        const ra = rank[urgencyLevel(a)]
+        const rb = rank[urgencyLevel(b)]
+        if (ra !== rb) return ra - rb
+        const da = bookingDate(a)
+        const db = bookingDate(b)
+        if (!da) return 1
+        if (!db) return -1
+        return da - db
+      })
+    // urgencyLevel() compares against Date.now(), so re-run on the ticker too
+  }, [bookings, tick])
+
+  const bannerJobs = useMemo(
+    () =>
+      urgent.filter((b) => {
+        const level = urgencyLevel(b)
+        if (level === 'asap' || level === 'overdue') return true
+        const at = bookingDate(b)
+        return level === 'today' && at && at.getTime() - Date.now() <= 60 * 60000
+      }),
+    [urgent]
+  )
+
+  const urgentBreakdown = useMemo(() => {
+    const parts = []
+    const asap = urgent.filter((b) => urgencyLevel(b) === 'asap').length
+    const overdue = urgent.filter((b) => urgencyLevel(b) === 'overdue').length
+    const today = urgent.filter((b) => urgencyLevel(b) === 'today').length
+    if (asap) parts.push(`${asap} ASAP`)
+    if (overdue) parts.push(`${overdue} overdue`)
+    if (today) parts.push(`${today} today`)
+    return parts.join(' · ')
+  }, [urgent])
+
   const tabs = [
     { id: 'all', label: 'All' },
     { id: 'upcoming', label: 'Upcoming' },
@@ -124,31 +164,40 @@ export default function Dashboard() {
 
   const copy = SECTION_COPY[section] || SECTION_COPY.dashboard
 
+  const openJob = (booking) => {
+    setSection('bookings')
+    setFilter('all')
+    setHighlightId(booking.id)
+    window.setTimeout(() => {
+      document
+        .getElementById(`booking-${booking.id}`)
+        ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }, 60)
+    window.setTimeout(
+      () => setHighlightId((id) => (id === booking.id ? null : id)),
+      3000
+    )
+  }
+
   const metricCards = (
-    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
       <MetricCard
         icon={CalendarCheck}
         label="Today's bookings"
-        value={metrics.todayCount}
+        value={todayCount}
         hint={`${counts.upcoming} upcoming in total`}
+      />
+      <MetricCard
+        icon={Flame}
+        label="Needs attention"
+        value={urgent.length}
+        hint={urgent.length > 0 ? urgentBreakdown : 'Nothing urgent right now'}
       />
       <MetricCard
         icon={CheckCircle2}
         label="Completed"
         value={counts.completed}
         hint={`of ${counts.all} assigned`}
-      />
-      <MetricCard
-        icon={Wallet}
-        label="Earnings (this week)"
-        value={formatSgd(metrics.weekEarnings)}
-        hint={`${formatSgd(metrics.lifetimeEarnings)} all time`}
-      />
-      <MetricCard
-        icon={TrendingUp}
-        label="Completion rate"
-        value={metrics.completionRate === null ? '—' : `${metrics.completionRate}%`}
-        hint={metrics.completionRate === null ? 'No finished jobs yet' : `${counts.cancelled} cancelled`}
       />
     </div>
   )
@@ -178,12 +227,19 @@ export default function Dashboard() {
     return (
       <div className="space-y-4">
         {list.map((b) => (
-          <BookingCard
+          <div
             key={b.id}
-            booking={b}
-            updating={updatingId === b.id}
-            onUpdate={updateStatus}
-          />
+            id={`booking-${b.id}`}
+            className={`rounded-2xl scroll-mt-40 transition-shadow ${
+              highlightId === b.id ? 'ring-2 ring-terracotta shadow-soft' : ''
+            }`}
+          >
+            <BookingCard
+              booking={b}
+              updating={updatingId === b.id}
+              onUpdate={updateStatus}
+            />
+          </div>
         ))}
       </div>
     )
@@ -228,6 +284,17 @@ export default function Dashboard() {
               <span className="hidden sm:inline">Refresh</span>
             </button>
           </div>
+          {!loading && bannerJobs.length > 0 && (
+            <div className="px-4 sm:px-6 lg:px-8 pb-4">
+              <UrgencyBanner
+                booking={bannerJobs[0]}
+                extraCount={bannerJobs.length - 1}
+                onOpen={openJob}
+                onComplete={(b) => updateStatus(b.id, 'completed')}
+                completing={updatingId === bannerJobs[0].id}
+              />
+            </div>
+          )}
         </header>
 
         <main className="px-4 sm:px-6 lg:px-8 py-6 pb-24 lg:pb-10 space-y-6">
@@ -240,7 +307,35 @@ export default function Dashboard() {
 
           {section === 'dashboard' && (
             <>
+              {!loading && urgent.length > 0 && (
+                <div className="rounded-2xl border border-red-200 bg-red-50 px-5 py-4 flex items-center gap-3 text-sm text-red-800">
+                  <Flame className="w-5 h-5 shrink-0 text-red-600 animate-pulse" />
+                  <p>
+                    <span className="font-semibold">
+                      {urgent.length} {urgent.length === 1 ? 'task needs' : 'tasks need'} attention now
+                    </span>
+                    <span className="text-red-700/80"> — {urgentBreakdown}</span>
+                  </p>
+                </div>
+              )}
               {metricCards}
+              {urgent.length > 0 && (
+                <section className="space-y-4">
+                  <div className="flex items-center justify-between gap-4">
+                    <h2 className="font-heading text-lg font-bold text-charcoal flex items-center gap-2">
+                      <Flame className="w-5 h-5 text-red-600" />
+                      Needs attention
+                    </h2>
+                    <button
+                      onClick={() => setSection('bookings')}
+                      className="text-sm font-semibold text-terracotta hover:text-accent-600 focus:outline-none focus:ring-2 focus:ring-terracotta/40 rounded-lg px-2 py-1"
+                    >
+                      View all
+                    </button>
+                  </div>
+                  {renderBookingList(urgent.slice(0, 3), '')}
+                </section>
+              )}
               <div className="hidden lg:block">
                 <TrendChart days={days} />
               </div>
@@ -263,26 +358,6 @@ export default function Dashboard() {
             <>
               {filterTabs}
               {renderBookingList(visible, 'Assigned jobs will show up on this screen.')}
-            </>
-          )}
-
-          {section === 'earnings' && (
-            <>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <MetricCard icon={Wallet} label="This week" value={formatSgd(metrics.weekEarnings)} hint="Completed jobs, last 7 days" />
-                <MetricCard icon={TrendingUp} label="All time" value={formatSgd(metrics.lifetimeEarnings)} hint={`${counts.completed} completed jobs`} />
-                <MetricCard
-                  icon={CheckCircle2}
-                  label="Average per job"
-                  value={counts.completed > 0 ? formatSgd(metrics.lifetimeEarnings / counts.completed) : '—'}
-                  hint={counts.completed > 0 ? 'Across completed jobs' : 'No completed jobs yet'}
-                />
-              </div>
-              <TrendChart days={days} />
-              {renderBookingList(
-                bookings.filter((b) => b.status === 'completed'),
-                'Completed jobs and their payouts will appear here.'
-              )}
             </>
           )}
 
@@ -316,10 +391,6 @@ export default function Dashboard() {
                   <div className="flex items-center justify-between">
                     <dt className="text-warmgrey">Completed</dt>
                     <dd className="font-semibold text-charcoal">{counts.completed}</dd>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <dt className="text-warmgrey">All-time earnings</dt>
-                    <dd className="font-semibold text-charcoal">{formatSgd(metrics.lifetimeEarnings)}</dd>
                   </div>
                 </dl>
                 <button

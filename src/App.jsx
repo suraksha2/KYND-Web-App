@@ -27,6 +27,7 @@ import Account from './pages/Account'
 import Bookings from './pages/Bookings'
 import BookingDetail from './pages/BookingDetail'
 import SubcategoryDetail from './pages/SubcategoryDetail'
+import Partners from './pages/Partners'
 
 // Cart feature removed — AuthCartSync no longer required
 // function AuthCartSync() { ... }
@@ -69,6 +70,7 @@ export default function App() {
         <Route path="/services/:slug" element={<ServiceDetail />} />
         <Route path="/cities" element={<Cities />} />
         <Route path="/cities/:slug" element={<CityDetail />} />
+        <Route path="/partners" element={<Partners />} />
         <Route path="/frequently-asked-questions" element={<FAQ />} />
         <Route path="/about" element={<About />} />
         <Route path="/support" element={<Support />} />

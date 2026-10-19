@@ -139,6 +139,9 @@ export async function findDueOccurrences(withinHours: number): Promise<DueOccurr
       WHERE o.status = 'upcoming'
         AND o.notified_at IS NULL
         AND b.status != 'cancelled'
+        -- A vendor who accepted a Kynd offer for this booking owns it via
+        -- their own job now; the marketplace dispatcher must not also notify.
+        AND b.vendor_id IS NULL
         AND o.scheduled_at <= DATE_ADD(NOW(), INTERVAL ? HOUR)
         -- If the dispatcher was down for a day, do not belatedly announce a
         -- visit whose slot has already passed.

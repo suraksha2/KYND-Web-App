@@ -29,21 +29,24 @@ router.get('/', async (_req, res) => {
   try {
     const [rows] = await pool.query(
       `SELECT 
-        id,
-        name,
-        email,
-        mobile,
-        services,
-        city,
-        status,
-        rating,
-        total_jobs,
-        avatar,
-        working_hours,
-        joined,
-        created_at
-      FROM service_providers 
-      ORDER BY created_at DESC`
+        sp.id,
+        sp.name,
+        sp.email,
+        sp.mobile,
+        sp.services,
+        sp.city,
+        sp.status,
+        sp.rating,
+        sp.total_jobs,
+        sp.avatar,
+        sp.working_hours,
+        sp.joined,
+        sp.created_at,
+        sp.vendor_id,
+        v.name AS vendor_name
+      FROM service_providers sp
+      LEFT JOIN vendors v ON v.id = sp.vendor_id
+      ORDER BY sp.created_at DESC`
     );
     const data = (rows as any[]).map((row) => ({
       ...row,

@@ -15,11 +15,35 @@ export function hasAdminAccess(role: string | undefined | null): boolean {
   return !!role && (ADMIN_ROLES as readonly string[]).includes(role);
 }
 
+// Seats on a vendor (partner company) Partner OS account. `vendor_owner` sees
+// everything including money; `vendor_manager` is the same minus money
+// screens; `vendor_field` is a worker's own mobile-first view of their jobs.
+export const VENDOR_ROLES = ["vendor_owner", "vendor_manager", "vendor_field"] as const;
+
+export function isVendorRole(role: string | undefined | null): boolean {
+  return !!role && (VENDOR_ROLES as readonly string[]).includes(role);
+}
+
+export function canSeeVendorMoney(role: string | undefined | null): boolean {
+  return role === "vendor_owner";
+}
+
+// Desk seats (owner/manager) manage the team roster; a field seat is a worker
+// viewing their own jobs and has no reason to add/edit teammates.
+export function canManageVendorTeam(role: string | undefined | null): boolean {
+  return role === "vendor_owner" || role === "vendor_manager";
+}
+
 export interface SessionPayload {
   id: number;
   email: string;
   role: string;
   exp: number; // unix seconds
+  // Present only for vendor sessions (vendor_owner/vendor_manager/vendor_field).
+  vendorId?: number;
+  // Present only for vendor_field sessions, linking the seat to its worker row.
+  providerId?: number;
+  name?: string;
 }
 
 function getSecret(): string {
@@ -62,7 +86,7 @@ async function getKey(): Promise<CryptoKey> {
 }
 
 export async function createSessionToken(
-  user: { id: number; email: string; role: string },
+  user: { id: number; email: string; role: string; vendorId?: number; providerId?: number; name?: string },
   maxAgeSeconds: number = SESSION_MAX_AGE_SECONDS
 ): Promise<string> {
   const payload: SessionPayload = {
@@ -70,6 +94,9 @@ export async function createSessionToken(
     email: user.email,
     role: user.role,
     exp: Math.floor(Date.now() / 1000) + maxAgeSeconds,
+    ...(user.vendorId !== undefined ? { vendorId: user.vendorId } : {}),
+    ...(user.providerId !== undefined ? { providerId: user.providerId } : {}),
+    ...(user.name !== undefined ? { name: user.name } : {}),
   };
   const payloadB64 = base64UrlEncode(encoder.encode(JSON.stringify(payload)));
   const key = await getKey();

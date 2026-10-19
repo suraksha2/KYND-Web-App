@@ -1,11 +1,11 @@
-# Full Helpr stack: MySQL + Express API + all four Vite SPAs on one origin.
+# Full Helpr stack: MySQL + Express API + all five Vite SPAs on one origin.
 #
 #   cp docker/env.example .env.docker && edit it
 #   npm run docker:all
 #
 # Host ports: 8080 and 3307 MySQL. Default APP_BASE empty so the stack lives at
-# https://kyndpro.com/ (storefront), /admin, /provider, /superadmin, with /api
-# proxied to the backend. Set APP_BASE=/mykynd for a path-prefix host.
+# https://kyndpro.com/ (storefront), /admin, /provider, /vendor, /superadmin,
+# with /api proxied to the backend. Set APP_BASE=/mykynd for a path-prefix host.
 
 services:
   mysql:
@@ -57,6 +57,8 @@ services:
       ADMIN_SIGNUP_SECRET: ${ADMIN_SIGNUP_SECRET:-}
       WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID:-}
       WHATSAPP_ACCESS_TOKEN: ${WHATSAPP_ACCESS_TOKEN:-}
+      # Recipient of the missed-job alert sent by the dispatch-due cron.
+      ADMIN_WHATSAPP_NUMBER: ${ADMIN_WHATSAPP_NUMBER:-}
       AIRWALLEX_ENV: ${AIRWALLEX_ENV:-prod}
       AIRWALLEX_CLIENT_ID: ${AIRWALLEX_CLIENT_ID:-}
       AIRWALLEX_API_KEY: ${AIRWALLEX_API_KEY:-}

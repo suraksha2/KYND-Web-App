@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import pool from '../lib/mysql';
+import { withOccurrences } from '../lib/occurrences';
 
 const router = Router();
 
@@ -32,7 +33,9 @@ router.get('/', async (_req, res) => {
       LEFT JOIN service_providers sp ON b.provider_id = sp.id
       ORDER BY b.placed_at DESC`
     );
-    return res.status(200).json({ data: rows });
+    // Recurring parents need their visits attached so the console can tell a
+    // missed slot from a booking that is simply dated long ago.
+    return res.status(200).json({ data: await withOccurrences(rows as any[]) });
   } catch (err) {
     console.error("[GET /api/orders]", err);
     return res.status(500).json({ error: "Failed to fetch orders." });
@@ -51,24 +54,6 @@ router.patch('/', async (req, res) => {
   } catch (err) {
     console.error("[PATCH /api/orders]", err);
     return res.status(500).json({ error: "Failed to update order." });
-  }
-});
-
-// Insert a new order
-router.post('/', async (req, res) => {
-  try {
-    const { client_id, service_id, amount, status, date } = req.body;
-    if (!client_id || !service_id || !amount || !status || !date) {
-      return res.status(400).json({ error: "All fields are required." });
-    }
-    const [result] = await pool.query(
-      `INSERT INTO orders (client_id, service_id, amount, status, date) VALUES (?, ?, ?, ?, ?)`,
-      [client_id, service_id, amount, status, date]
-    );
-    return res.status(201).json({ id: (result as any).insertId });
-  } catch (err) {
-    console.error("[POST /api/orders]", err);
-    return res.status(500).json({ error: "Failed to create order." });
   }
 });
 
