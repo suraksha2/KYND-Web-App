@@ -1015,8 +1015,17 @@ SET @stmt := IF(
       AND COLUMN_NAME = 'vendor_id') = 0,
   'ALTER TABLE bookings
      ADD COLUMN vendor_id INT NULL AFTER provider_id,
-     ADD COLUMN vendor_job_id INT NULL AFTER vendor_id,
      ADD KEY idx_bookings_vendor (vendor_id)',
+  'DO 0');
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- Guarded on its own column, not vendor_id: databases that picked up
+-- vendor_id from an earlier import still need vendor_job_id.
+SET @stmt := IF(
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'bookings'
+      AND COLUMN_NAME = 'vendor_job_id') = 0,
+  'ALTER TABLE bookings ADD COLUMN vendor_job_id INT NULL AFTER vendor_id',
   'DO 0');
 PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 

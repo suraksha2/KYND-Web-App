@@ -24,9 +24,9 @@ router.get('/', async (req, res) => {
           b.scheduled_at,
           b.status,
           b.items,
-          sp.id as provider_id,
-          COALESCE(sp.name, 'Service partner') as provider_name,
-          sp.avatar as provider_image,
+          COALESCE(sp.id, vsp.id) as provider_id,
+          COALESCE(sp.name, vsp.name, v.name, 'Service partner') as provider_name,
+          COALESCE(sp.avatar, vsp.avatar) as provider_image,
           (SELECT COUNT(*) FROM messages m
            WHERE m.booking_id = b.id
            AND m.sender_type = 'provider'
@@ -41,8 +41,11 @@ router.get('/', async (req, res) => {
            LIMIT 1) as last_message_at
          FROM bookings b
          LEFT JOIN service_providers sp ON b.provider_id = sp.id
+         LEFT JOIN jobs vj ON b.vendor_job_id = vj.id
+         LEFT JOIN service_providers vsp ON vj.assignee_provider_id = vsp.id
+         LEFT JOIN vendors v ON b.vendor_id = v.id
          WHERE b.user_id = ?
-           AND b.provider_id IS NOT NULL
+           AND (b.provider_id IS NOT NULL OR vj.assignee_provider_id IS NOT NULL)
            AND b.status IN ('upcoming', 'completed')
          ORDER BY COALESCE(
            (SELECT m.created_at FROM messages m WHERE m.booking_id = b.id ORDER BY m.created_at DESC LIMIT 1),
@@ -76,14 +79,15 @@ router.get('/', async (req, res) => {
            LIMIT 1) as last_message_at
          FROM bookings b
          LEFT JOIN users u ON b.user_id = u.id
-         WHERE b.provider_id = ?
+         LEFT JOIN jobs vj ON b.vendor_job_id = vj.id
+         WHERE (b.provider_id = ? OR vj.assignee_provider_id = ?)
            AND b.status IN ('upcoming', 'completed')
          ORDER BY COALESCE(
            (SELECT m.created_at FROM messages m WHERE m.booking_id = b.id ORDER BY m.created_at DESC LIMIT 1),
            b.scheduled_at,
            b.placed_at
          ) DESC`,
-        [session.id]
+        [session.id, session.id]
       );
       conversations = rows;
     } else {
@@ -123,10 +127,11 @@ router.get('/unread-count', async (req, res) => {
         `SELECT COUNT(*) as count
          FROM messages m
          INNER JOIN bookings b ON m.booking_id = b.id
-         WHERE b.provider_id = ?
+         LEFT JOIN jobs vj ON b.vendor_job_id = vj.id
+         WHERE (b.provider_id = ? OR vj.assignee_provider_id = ?)
          AND m.sender_type = 'customer'
          AND m.read_at IS NULL`,
-        [session.id]
+        [session.id, session.id]
       );
       count = rows[0].count;
     } else {
@@ -152,7 +157,10 @@ router.get('/:bookingId', async (req, res) => {
 
     // Verify the user has access to this booking
     const [bookingRows]: any = await pool.query(
-      'SELECT user_id, provider_id FROM bookings WHERE id = ?',
+      `SELECT b.user_id, b.provider_id, j.assignee_provider_id
+         FROM bookings b
+         LEFT JOIN jobs j ON b.vendor_job_id = j.id
+        WHERE b.id = ?`,
       [bookingId]
     );
 
@@ -162,9 +170,13 @@ router.get('/:bookingId', async (req, res) => {
 
     const booking = bookingRows[0];
 
-    // Check access: customer can only see their own bookings, providers their assigned ones
+    // Check access: customer can only see their own bookings, providers their
+    // assigned ones — including vendor jobs claimed via offer accept, where
+    // bookings.provider_id is NULL and the worker hangs off the jobs row.
     const isCustomer = session.role === 'user' && Number(booking.user_id) === Number(session.id);
-    const isProvider = session.role === 'provider' && Number(booking.provider_id) === Number(session.id);
+    const isProvider = session.role === 'provider' &&
+      (Number(booking.provider_id) === Number(session.id) ||
+       Number(booking.assignee_provider_id) === Number(session.id));
     const isAdmin = hasAdminAccess(session.role);
 
     if (!isCustomer && !isProvider && !isAdmin) {
@@ -225,7 +237,10 @@ router.post('/:bookingId', async (req, res) => {
 
     // Verify the user has access to this booking
     const [bookingRows]: any = await pool.query(
-      'SELECT user_id, provider_id, status FROM bookings WHERE id = ?',
+      `SELECT b.user_id, b.provider_id, b.status, j.assignee_provider_id
+         FROM bookings b
+         LEFT JOIN jobs j ON b.vendor_job_id = j.id
+        WHERE b.id = ?`,
       [bookingId]
     );
 
@@ -247,7 +262,9 @@ router.post('/:bookingId', async (req, res) => {
     if (session.role === 'user' && Number(booking.user_id) === Number(session.id)) {
       senderType = 'customer';
       senderId = session.id;
-    } else if (session.role === 'provider' && Number(booking.provider_id) === Number(session.id)) {
+    } else if (session.role === 'provider' &&
+               (Number(booking.provider_id) === Number(session.id) ||
+                Number(booking.assignee_provider_id) === Number(session.id))) {
       senderType = 'provider';
       senderId = session.id;
     } else if (hasAdminAccess(session.role)) {
@@ -297,7 +314,10 @@ router.put('/:bookingId/read', async (req, res) => {
 
     // Verify the user has access to this booking
     const [bookingRows]: any = await pool.query(
-      'SELECT user_id, provider_id FROM bookings WHERE id = ?',
+      `SELECT b.user_id, b.provider_id, j.assignee_provider_id
+         FROM bookings b
+         LEFT JOIN jobs j ON b.vendor_job_id = j.id
+        WHERE b.id = ?`,
       [bookingId]
     );
 
@@ -308,7 +328,9 @@ router.put('/:bookingId/read', async (req, res) => {
     const booking = bookingRows[0];
 
     const isCustomer = session.role === 'user' && Number(booking.user_id) === Number(session.id);
-    const isProvider = session.role === 'provider' && Number(booking.provider_id) === Number(session.id);
+    const isProvider = session.role === 'provider' &&
+      (Number(booking.provider_id) === Number(session.id) ||
+       Number(booking.assignee_provider_id) === Number(session.id));
 
     if (!isCustomer && !isProvider && !hasAdminAccess(session.role)) {
       return res.status(403).json({ error: 'You do not have access to this booking.' });

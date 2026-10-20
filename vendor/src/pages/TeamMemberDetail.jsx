@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Link, useNavigate, useOutletContext, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { AlertCircle, AlertTriangle, ArrowLeft, BadgeCheck, CalendarPlus, Loader2, Pencil, Plus, ShieldCheck } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { vendorFetch } from '../lib/api'
@@ -109,7 +109,6 @@ export default function TeamMemberDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
   const { token } = useAuth()
-  const { profile } = useOutletContext()
 
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -167,7 +166,6 @@ export default function TeamMemberDetail() {
 
   const { member, stats, workingHours, jobs, lateJob, skills, certifications, trainingComplete, leave, canManage } = data
   const jobsCategories = [...new Set((jobsCtx?.services || []).map((s) => s.category).filter(Boolean))]
-  const vendorCategories = profile?.vendor?.categories || []
 
   return (
     <div className="space-y-5 max-w-5xl">
@@ -303,7 +301,12 @@ export default function TeamMemberDetail() {
                   onClick={() => navigate(`/jobs/${j.id}`)}
                   className="flex items-center gap-3 py-3 first:pt-0 last:pb-0 cursor-pointer group"
                 >
-                  <span className={`w-1 self-stretch rounded-full ${j.status === 'in_progress' ? 'bg-terracotta' : 'bg-lightstone'}`} />
+                  <span className={`w-1 self-stretch rounded-full ${
+                    j.status === 'issue' ? 'bg-danger'
+                    : j.status === 'in_progress' ? 'bg-terracotta'
+                    : j.status === 'completed' || j.status === 'paid' ? 'bg-sage'
+                    : 'bg-lightstone'
+                  }`} />
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-semibold text-charcoal truncate group-hover:text-terracotta transition-colors">
                       {j.serviceLabel}
@@ -359,7 +362,6 @@ export default function TeamMemberDetail() {
       {editOpen && (
         <EditTeamMember
           member={{ ...member, services: skills }}
-          categories={vendorCategories}
           onClose={() => setEditOpen(false)}
           onSaved={load}
         />

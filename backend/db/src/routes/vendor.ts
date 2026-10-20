@@ -8,6 +8,7 @@ import { getSession } from '../http/session';
 import { sgtDateTime } from '../lib/sgt';
 import { payoutMemberJobs } from '../lib/payouts';
 import { buildPayoutStatementPdf } from '../lib/pdfStatement';
+import { canonicalSkillTags } from '../lib/providerSkills';
 
 const router = Router();
 
@@ -161,6 +162,26 @@ router.get('/home', async (req, res) => {
       customerArea: j.customer_area,
       assignee: j.assignee_id ? { id: j.assignee_id, name: j.assignee_name } : null,
     }));
+    // Marketplace visits today live only in bookings/occurrences — fold them
+    // in so the list reflects what each member actually has on. They stay
+    // out of the late-job alerts below: there's no "started" state for
+    // them, so every in-progress visit would look perpetually late.
+    const todaySgt = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Singapore' });
+    const mktToday = await marketplaceMemberWork(vendorId, { from: `${todaySgt} 00:00:00`, to: `${todaySgt} 23:59:59` });
+    for (const v of mktToday) {
+      todaysJobs.push({
+        id: v.id,
+        status: v.status,
+        source: 'kynd',
+        serviceLabel: v.serviceLabel,
+        windowStart: v.windowStart,
+        windowEnd: v.windowEnd,
+        customerName: v.customerName,
+        customerArea: v.customerArea,
+        assignee: v.assignee,
+      });
+    }
+    todaysJobs.sort((a, b) => new Date(a.windowStart || 0).getTime() - new Date(b.windowStart || 0).getTime());
     const todayDone = todaysJobs.filter((j) => j.status === 'completed' || j.status === 'paid').length;
     const todayInProgress = todaysJobs.filter((j) => j.status === 'in_progress').length;
     const todayToGo = todaysJobs.length - todayDone - todayInProgress;
@@ -315,8 +336,8 @@ router.get('/home', async (req, res) => {
         `SELECT DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) DAY) AS week_start,
                 DATE_ADD(DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) DAY), INTERVAL 6 DAY) AS week_end`
       );
-      const weekStart = weekBounds.week_start;
-      const weekEnd = weekBounds.week_end;
+      const weekStart = String(weekBounds.week_start).slice(0, 10);
+      const weekEnd = String(weekBounds.week_end).slice(0, 10);
 
       const [[earned]]: any = await pool.query(
         `SELECT COALESCE(SUM(CASE WHEN source = 'kynd' THEN net ELSE 0 END), 0) AS kynd_total,
@@ -342,16 +363,41 @@ router.get('/home', async (req, res) => {
         [vendorId, weekStart]
       );
 
-      const kyndTotal = money(earned.kynd_total);
+      // Marketplace visits hold their money only in bookings/occurrences —
+      // they never reach `jobs` — so each figure below adds them separately.
+      // A visit's value is the booking's `total` (per-visit for recurring —
+      // the cadence discount is priced in at creation); completed visits
+      // count in the week they were done (occurrence completed_at, else the
+      // slot), upcoming ones count as booked pipeline.
+      const nowSgtStr = sgtDateTime(new Date()) || '';
+      const todaySgtStr = nowSgtStr.slice(0, 10);
+      const mktFrom30d = sgtDateTime(new Date(Date.now() - 30 * 86400000)) || '';
+      const mktWork = await marketplaceMemberWork(vendorId, {
+        from: mktFrom30d,
+        to: sgtDateTime(new Date(Date.now() + 31 * 86400000)) || '',
+      });
+      const earnDay = (v: any) => String(v.completedAt || v.windowStart).slice(0, 10);
+      const lastWeekStart = String(sgtDateTime(new Date(new Date(`${weekStart}T00:00:00+08:00`).getTime() - 7 * 86400000)) || '').slice(0, 10);
+      const weekEndNext = String(sgtDateTime(new Date(new Date(`${weekEnd}T00:00:00+08:00`).getTime() + 86400000)) || '').slice(0, 10);
+      const in30dSgt = sgtDateTime(new Date(Date.now() + 30 * 86400000)) || '';
+
+      const sumGross = (list: any[]) => list.reduce((s, v) => s + (v.gross || 0), 0);
+      const mktEarnedWeek = sumGross(mktWork.filter((v) => v.status === 'completed' && earnDay(v) >= weekStart && earnDay(v) <= weekEnd && earnDay(v) <= todaySgtStr));
+      const mktEarnedLastWeek = sumGross(mktWork.filter((v) => v.status === 'completed' && earnDay(v) >= lastWeekStart && earnDay(v) < weekStart));
+      const mktBookedWeek = sumGross(mktWork.filter((v) => v.status !== 'cancelled' && v.status !== 'completed' && v.windowStart > nowSgtStr && v.windowStart <= `${weekEndNext} 00:00:00`));
+      const mktBooked30d = sumGross(mktWork.filter((v) => v.status !== 'cancelled' && v.status !== 'completed' && v.windowStart > nowSgtStr && v.windowStart <= in30dSgt));
+      const mktEarned30d = sumGross(mktWork.filter((v) => v.status === 'completed' && earnDay(v) >= mktFrom30d.slice(0, 10)));
+
+      const kyndTotal = money(Number(earned.kynd_total) + mktEarnedWeek);
       const ownTotal = money(earned.own_total);
       const total = money(kyndTotal + ownTotal);
-      const lastWeekTotal = money(lastWeek.total);
+      const lastWeekTotal = money(Number(lastWeek.total) + mktEarnedLastWeek);
 
       thisWeek = {
         total,
         kyndTotal,
         ownTotal,
-        bookedRestOfWeek: money(booked.total),
+        bookedRestOfWeek: money(Number(booked.total) + mktBookedWeek),
         aheadOfLastWeek: money(total - lastWeekTotal),
         weekStart,
       };
@@ -371,8 +417,8 @@ router.get('/home', async (req, res) => {
             AND COALESCE(completed_at, paid_at) >= DATE_SUB(NOW(), INTERVAL 30 DAY)`,
         [vendorId]
       );
-      const alreadyBooked = money(alreadyBookedRow.total);
-      const avgDaily = Number(paceRow.avg_daily) || 0;
+      const alreadyBooked = money(Number(alreadyBookedRow.total) + mktBooked30d);
+      const avgDaily = (Number(paceRow.avg_daily) || 0) + mktEarned30d / 30;
       // Heuristic: the high end adds a slice of the trailing-30-day booking
       // pace on top of what's already booked, as a rough "if this pace
       // keeps up" estimate. Not a statistical forecast.
@@ -394,21 +440,32 @@ router.get('/home', async (req, res) => {
         );
         const weekStartI = wk.week_start;
         const [[sums]]: any = await pool.query(
-          `SELECT COALESCE(SUM(net), 0) AS amount, COUNT(*) AS jobs_count,
-                  COALESCE(MAX(daily.cnt), 0) AS max_jobs_per_day
+          `SELECT COALESCE(SUM(net), 0) AS amount, COUNT(*) AS jobs_count
              FROM jobs
-             LEFT JOIN (
-               SELECT DATE(window_start) AS d, COUNT(*) AS cnt
-                 FROM jobs
-                WHERE vendor_id = ? AND status NOT IN ('cancelled')
-                  AND window_start >= ? AND window_start < DATE_ADD(?, INTERVAL 7 DAY)
-                GROUP BY DATE(window_start)
-             ) daily ON daily.d = DATE(jobs.window_start)
-            WHERE jobs.vendor_id = ? AND jobs.status NOT IN ('cancelled')
-              AND jobs.window_start >= ? AND jobs.window_start < DATE_ADD(?, INTERVAL 7 DAY)`,
-          [vendorId, weekStartI, weekStartI, vendorId, weekStartI, weekStartI]
+            WHERE vendor_id = ? AND status NOT IN ('cancelled')
+              AND window_start >= ? AND window_start < DATE_ADD(?, INTERVAL 7 DAY)`,
+          [vendorId, weekStartI, weekStartI]
         );
-        const maxJobsPerDay = Number(sums.max_jobs_per_day) || 0;
+        // Daily load = vendor jobs + marketplace visits on the same day —
+        // staffing advice has to see both or it under-counts.
+        const [dayRows]: any = await pool.query(
+          `SELECT DATE(window_start) AS d, COUNT(*) AS cnt
+             FROM jobs
+            WHERE vendor_id = ? AND status NOT IN ('cancelled')
+              AND window_start >= ? AND window_start < DATE_ADD(?, INTERVAL 7 DAY)
+            GROUP BY DATE(window_start)`,
+          [vendorId, weekStartI, weekStartI]
+        );
+        const wsI = String(weekStartI).slice(0, 10);
+        const weI = String(sgtDateTime(new Date(new Date(`${wsI}T00:00:00+08:00`).getTime() + 7 * 86400000)) || '').slice(0, 10);
+        const wkMkt = mktWork.filter((v) => v.status !== 'cancelled' && v.status !== 'completed' && v.windowStart.slice(0, 10) >= wsI && v.windowStart.slice(0, 10) < weI);
+        const perDay = new Map<string, number>();
+        for (const r of dayRows as any[]) perDay.set(String(r.d).slice(0, 10), Number(r.cnt) || 0);
+        for (const v of wkMkt) {
+          const d = v.windowStart.slice(0, 10);
+          perDay.set(d, (perDay.get(d) || 0) + 1);
+        }
+        const maxJobsPerDay = Math.max(0, ...perDay.values());
         const needsMore = maxJobsPerDay > availableTeam;
         if (needsMore && !staffingNote) {
           staffingNote = `Week of ${new Date(weekStartI).toLocaleDateString('en-SG', { day: 'numeric', month: 'short' })} needs ${maxJobsPerDay} cleaners a day. You have ${availableTeam} available.`;
@@ -416,8 +473,8 @@ router.get('/home', async (req, res) => {
         weeks.push({
           label: new Date(weekStartI).toLocaleDateString('en-SG', { day: 'numeric', month: 'short' }),
           weekStart: weekStartI,
-          amount: money(sums.amount),
-          jobsCount: Number(sums.jobs_count) || 0,
+          amount: money(Number(sums.amount) + sumGross(wkMkt)),
+          jobsCount: (Number(sums.jobs_count) || 0) + wkMkt.length,
           needsMore,
         });
       }
@@ -440,11 +497,13 @@ router.get('/home', async (req, res) => {
 });
 
 // Money / Overview page: owner-only earnings breakdown computed from `jobs`
-// (completed/paid work, split Kynd vs own) and `vendor_payouts`. There is no
-// `expenses` or `invoices` table in the schema yet, so unlike the Home
-// screen's forecast this intentionally doesn't fabricate a profit margin or
-// an outstanding-invoices figure — `revenueByCategory` below is real revenue,
-// not profit.
+// (completed/paid work, split Kynd vs own), marketplace bookings/occurrences
+// assigned to the vendor's team (they never become `jobs` rows — same merge
+// as /vendor/home, valued at the booking total where jobs use `net`), and
+// `vendor_payouts`. There is no `expenses` or `invoices` table in the schema
+// yet, so unlike the Home screen's forecast this intentionally doesn't
+// fabricate a profit margin or an outstanding-invoices figure —
+// `revenueByCategory` below is real revenue, not profit.
 router.get('/money', async (req, res) => {
   try {
     const session = await requireVendorSession(req, res);
@@ -486,8 +545,6 @@ router.get('/money', async (req, res) => {
       [weekStart, tomorrow]
     );
     const lastWeekSamePoint = await earnedBetween(lastWeekBounds.start, lastWeekBounds.end);
-    const weekTotal = money(thisWeekEarned.kynd + thisWeekEarned.own);
-    const lastWeekTotal = money(lastWeekSamePoint.kynd + lastWeekSamePoint.own);
 
     const [[monthBoundsRow]]: any = await pool.query(
       `SELECT DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 1 MONTH), '%Y-%m-01') AS last_month_start,
@@ -496,8 +553,33 @@ router.get('/money', async (req, res) => {
     );
     const lastMonthEarned = await earnedBetween(monthBoundsRow.last_month_start, monthBoundsRow.this_month_start);
     const prevMonthEarned = await earnedBetween(monthBoundsRow.prev_month_start, monthBoundsRow.last_month_start);
-    const lastMonthTotal = money(lastMonthEarned.kynd + lastMonthEarned.own);
-    const prevMonthTotal = money(prevMonthEarned.kynd + prevMonthEarned.own);
+
+    // Marketplace visits assigned to the vendor's team never become `jobs`
+    // rows — add them on top of each figure, same as /vendor/home. A visit's
+    // value is the booking total (jobs use `net`); its day is the
+    // occurrence's completed_at, else the scheduled slot. The window covers
+    // the earliest bucket needed (prev month) through the end of the chart.
+    const mktWork = await marketplaceMemberWork(vendorId, {
+      from: String(monthBoundsRow.prev_month_start),
+      to: sgtDateTime(new Date(Date.now() + 31 * 86400000)) || '',
+    });
+    const mktDay = (v: any) => String(v.completedAt || v.windowStart).slice(0, 10);
+    const mktEarnedBetween = (start: any, end: any) =>
+      mktWork.reduce((s: number, v: any) => {
+        const d = mktDay(v);
+        return v.status === 'completed' && d >= String(start).slice(0, 10) && d < String(end).slice(0, 10)
+          ? s + (v.gross || 0)
+          : s;
+      }, 0);
+    const weekMkt = mktEarnedBetween(weekStart, tomorrow);
+    const lastWeekMkt = mktEarnedBetween(lastWeekBounds.start, lastWeekBounds.end);
+    const lastMonthMkt = mktEarnedBetween(monthBoundsRow.last_month_start, monthBoundsRow.this_month_start);
+    const prevMonthMkt = mktEarnedBetween(monthBoundsRow.prev_month_start, monthBoundsRow.last_month_start);
+
+    const weekTotal = money(thisWeekEarned.kynd + weekMkt + thisWeekEarned.own);
+    const lastWeekTotal = money(lastWeekSamePoint.kynd + lastWeekMkt + lastWeekSamePoint.own);
+    const lastMonthTotal = money(lastMonthEarned.kynd + lastMonthMkt + lastMonthEarned.own);
+    const prevMonthTotal = money(prevMonthEarned.kynd + prevMonthMkt + prevMonthEarned.own);
 
     const earned = {
       week: {
@@ -505,7 +587,7 @@ router.get('/money', async (req, res) => {
         total: weekTotal,
         rangeLabel: `${dayLabel(weekStart)} – ${dayLabel(today)}`,
         aheadOfLast: money(weekTotal - lastWeekTotal),
-        kynd: thisWeekEarned.kynd,
+        kynd: money(thisWeekEarned.kynd + weekMkt),
         own: thisWeekEarned.own,
       },
       month: {
@@ -513,7 +595,7 @@ router.get('/money', async (req, res) => {
         total: lastMonthTotal,
         rangeLabel: asSgtDate(monthBoundsRow.last_month_start).toLocaleDateString('en-SG', { month: 'long', timeZone: 'Asia/Singapore' }),
         aheadOfLast: money(lastMonthTotal - prevMonthTotal),
-        kynd: lastMonthEarned.kynd,
+        kynd: money(lastMonthEarned.kynd + lastMonthMkt),
         own: lastMonthEarned.own,
       },
     };
@@ -536,10 +618,15 @@ router.get('/money', async (req, res) => {
     for (let i = 7; i >= 0; i--) {
       const [[wk]]: any = await pool.query(`SELECT DATE_SUB(?, INTERVAL ? WEEK) AS ws`, [weekStart, i]);
       const ws = String(wk.ws).slice(0, 10);
+      const we = (sgtDateTime(new Date(new Date(`${ws}T00:00:00+08:00`).getTime() + 7 * 86400000)) || '').slice(0, 10);
       const row = weekMap.get(ws);
+      const mktWk = mktWork.reduce((s: number, v: any) => {
+        const d = String(v.windowStart).slice(0, 10);
+        return v.status !== 'cancelled' && d >= ws && d < we ? s + (v.gross || 0) : s;
+      }, 0);
       weeklyRevenue.push({
         label: shortLabel(ws),
-        kynd: money(row?.kynd || 0),
+        kynd: money(Number(row?.kynd || 0) + mktWk),
         own: money(row?.own || 0),
         inProgress: i === 0,
       });
@@ -582,11 +669,41 @@ router.get('/money', async (req, res) => {
         LIMIT 10`,
       [vendorId]
     );
-    const revenueByCategory = (categoryRows as any[]).map((r) => ({ name: r.name, amount: money(r.amount) }));
+
+    // Marketplace visits completed in the same 30-day window — categorised
+    // by the first booked service's catalog category, matching what
+    // `offers.category` (and therefore `jobs.category`) carries.
+    const last30Start = (sgtDateTime(new Date(Date.now() - 30 * 86400000)) || '').slice(0, 10);
+    const mktDone30d = mktWork.filter((v: any) => v.status === 'completed' && mktDay(v) >= last30Start);
+    const mktCatalogIds = [...new Set(mktDone30d.flatMap((v: any) => v.catalogIds || []))] as number[];
+    const catNameByService = new Map<number, string>();
+    if (mktCatalogIds.length) {
+      const [svcRows]: any = await pool.query(
+        `SELECT s.id, c.name AS category_name
+           FROM catalog_services s
+           JOIN catalog_categories c ON c.id = s.category_id
+          WHERE s.id IN (${mktCatalogIds.map(() => '?').join(',')})`,
+        mktCatalogIds
+      );
+      for (const r of svcRows as any[]) catNameByService.set(Number(r.id), r.category_name);
+    }
+
+    const catTotals = new Map<string, number>();
+    for (const r of categoryRows as any[]) {
+      catTotals.set(r.name, (catTotals.get(r.name) || 0) + money(r.amount));
+    }
+    for (const v of mktDone30d) {
+      const name = catNameByService.get(Number(v.catalogIds?.[0])) || 'Other';
+      catTotals.set(name, (catTotals.get(name) || 0) + (v.gross || 0));
+    }
+    const revenueByCategory = [...catTotals.entries()]
+      .map(([name, amount]) => ({ name, amount: money(amount) }))
+      .sort((a, b) => b.amount - a.amount)
+      .slice(0, 10);
 
     // ---- Revenue by team member (last 30 days). ----
     const [teamRows]: any = await pool.query(
-      `SELECT sp.name, SUM(j.net) AS amount
+      `SELECT sp.id, sp.name, SUM(j.net) AS amount
          FROM jobs j
          JOIN service_providers sp ON sp.id = j.assignee_provider_id
         WHERE j.vendor_id = ? AND j.status IN ('completed', 'paid')
@@ -596,7 +713,22 @@ router.get('/money', async (req, res) => {
         LIMIT 10`,
       [vendorId]
     );
-    const teamRevenue = (teamRows as any[]).map((r) => ({ name: r.name, amount: money(r.amount) }));
+    const memberTotals = new Map<number, { name: string; amount: number }>();
+    for (const r of teamRows as any[]) {
+      const e = memberTotals.get(Number(r.id)) || { name: r.name, amount: 0 };
+      e.amount += money(r.amount);
+      memberTotals.set(Number(r.id), e);
+    }
+    for (const v of mktDone30d) {
+      if (!v.providerId) continue;
+      const e = memberTotals.get(Number(v.providerId)) || { name: v.assignee?.name || 'Team member', amount: 0 };
+      e.amount += v.gross || 0;
+      memberTotals.set(Number(v.providerId), e);
+    }
+    const teamRevenue = [...memberTotals.values()]
+      .map((m) => ({ name: m.name, amount: money(m.amount) }))
+      .sort((a, b) => b.amount - a.amount)
+      .slice(0, 10);
 
     return res.json({ earned, weeklyRevenue, payouts, revenueByCategory, teamRevenue });
   } catch (error) {
@@ -645,8 +777,47 @@ router.get('/forecast', async (req, res) => {
           AND window_start >= DATE_SUB(?, INTERVAL 8 WEEK) AND window_start < ?`,
       [vendorId, nextMonday, nextMonday]
     );
-    const avgWeeklyAmount = money(avgRow.avg_weekly_amount);
-    const avgWeeklyJobs = Number(avgRow.avg_weekly_jobs) || 0;
+    // Marketplace bookings assigned to the vendor's team never become `jobs`
+    // rows — merge them the same way /vendor/home and /vendor/money do,
+    // valued at the booking total where jobs use `net`. The window covers the
+    // trailing 8 weeks (averages) through the end of the 4 forecast weeks.
+    const nmMs = new Date(`${String(nextMonday).slice(0, 10)}T00:00:00+08:00`).getTime();
+    const mktAvgFrom = (sgtDateTime(new Date(nmMs - 8 * 7 * 86400000)) || '').slice(0, 10);
+    const mktWork = await marketplaceMemberWork(vendorId, {
+      from: mktAvgFrom,
+      to: sgtDateTime(new Date(nmMs + 28 * 86400000)) || '',
+    });
+    const mktActive = mktWork.filter((v: any) => v.status !== 'cancelled');
+    const nextMondayDay = String(nextMonday).slice(0, 10);
+    // Visits in the trailing-8-week window feed the averages; windowStart is
+    // the visit's calendar day, weekday taken from the date label itself.
+    const mktTrailing = mktActive.filter((v: any) => {
+      const d = String(v.windowStart).slice(0, 10);
+      return d >= mktAvgFrom && d < nextMondayDay;
+    });
+    const mktWeekdaySum = new Map<number, number>();
+    for (const v of mktTrailing) {
+      const dow = new Date(`${String(v.windowStart).slice(0, 10)}T00:00:00Z`).getUTCDay();
+      mktWeekdaySum.set(dow, (mktWeekdaySum.get(dow) || 0) + (v.gross || 0));
+    }
+    // Category name per visit for the capacity notes' "top category" label —
+    // resolved once from every visit's first booked service, matching the
+    // `offers.category` convention (catalog_categories.name).
+    const mktCatalogIds = [...new Set(mktActive.flatMap((v: any) => v.catalogIds || []))] as number[];
+    const catNameByService = new Map<number, string>();
+    if (mktCatalogIds.length) {
+      const [svcRows]: any = await pool.query(
+        `SELECT s.id, c.name AS category_name
+           FROM catalog_services s
+           JOIN catalog_categories c ON c.id = s.category_id
+          WHERE s.id IN (${mktCatalogIds.map(() => '?').join(',')})`,
+        mktCatalogIds
+      );
+      for (const r of svcRows as any[]) catNameByService.set(Number(r.id), r.category_name);
+    }
+
+    const avgWeeklyAmount = money(Number(avgRow.avg_weekly_amount) + mktTrailing.reduce((s, v) => s + (v.gross || 0), 0) / 8);
+    const avgWeeklyJobs = (Number(avgRow.avg_weekly_jobs) || 0) + mktTrailing.length / 8;
 
     // Trailing-8-occurrences average for each weekday (0=Sun..6=Sat in
     // MySQL's DAYOFWEEK-1), used to project open/under-booked days.
@@ -658,7 +829,13 @@ router.get('/forecast', async (req, res) => {
         GROUP BY dow`,
       [vendorId, nextMonday, nextMonday]
     );
-    const weekdayAvg = new Map<number, number>((weekdayRows as any[]).map((r) => [Number(r.dow), money(r.avg_amount)]));
+    const weekdayAvg = new Map<number, number>((weekdayRows as any[]).map((r) => [
+      Number(r.dow),
+      money(Number(r.avg_amount) + (mktWeekdaySum.get(Number(r.dow)) || 0) / 8),
+    ]));
+    for (const [dow, sum] of mktWeekdaySum) {
+      if (!weekdayAvg.has(dow)) weekdayAvg.set(dow, money(sum / 8));
+    }
 
     const weeks: any[] = [];
     const capacityCandidates: any[] = [];
@@ -670,6 +847,12 @@ router.get('/forecast', async (req, res) => {
     for (let i = 0; i < 4; i++) {
       const [[wk]]: any = await pool.query(`SELECT DATE_ADD(?, INTERVAL ? WEEK) AS week_start`, [nextMonday, i]);
       const weekStart = wk.week_start;
+      const ws = String(weekStart).slice(0, 10);
+      const we = (sgtDateTime(new Date(new Date(`${ws}T00:00:00+08:00`).getTime() + 7 * 86400000)) || '').slice(0, 10);
+      const mktWeek = mktActive.filter((v: any) => {
+        const d = String(v.windowStart).slice(0, 10);
+        return d >= ws && d < we;
+      });
 
       const [[sums]]: any = await pool.query(
         `SELECT COALESCE(SUM(net), 0) AS booked, COUNT(*) AS booked_jobs
@@ -678,8 +861,8 @@ router.get('/forecast', async (req, res) => {
             AND window_start >= ? AND window_start < DATE_ADD(?, INTERVAL 7 DAY)`,
         [vendorId, weekStart, weekStart]
       );
-      const booked = money(sums.booked);
-      const bookedJobs = Number(sums.booked_jobs) || 0;
+      const booked = money(Number(sums.booked) + mktWeek.reduce((s, v) => s + (v.gross || 0), 0));
+      const bookedJobs = (Number(sums.booked_jobs) || 0) + mktWeek.length;
 
       // Likely ceiling: for each day of the week, how much headroom is left
       // above what's booked vs. the historical weekday average.
@@ -691,23 +874,42 @@ router.get('/forecast', async (req, res) => {
       const high = money(Math.max(booked, weeklyAvgTotal) * 1.15);
       const low = booked;
 
-      const [[dailyMax]]: any = await pool.query(
-        `SELECT COALESCE(MAX(daily.cnt), 0) AS max_jobs_per_day,
-                (SELECT category FROM jobs
-                   WHERE vendor_id = ? AND status != 'cancelled'
-                     AND window_start >= ? AND window_start < DATE_ADD(?, INTERVAL 7 DAY)
-                   GROUP BY category ORDER BY COUNT(*) DESC LIMIT 1) AS top_category
-           FROM (
-             SELECT DATE(window_start) AS d, COUNT(*) AS cnt
-               FROM jobs
-              WHERE vendor_id = ? AND status != 'cancelled'
-                AND window_start >= ? AND window_start < DATE_ADD(?, INTERVAL 7 DAY)
-              GROUP BY DATE(window_start)
-           ) daily`,
-        [vendorId, weekStart, weekStart, vendorId, weekStart, weekStart]
+      // Per-day load merges marketplace visits onto the same day as `jobs` —
+      // counting their separate daily maxima would under-count a day that
+      // mixes both (same reason /vendor/home merges them for staffing).
+      const [dayRows]: any = await pool.query(
+        `SELECT DATE(window_start) AS d, COUNT(*) AS cnt
+           FROM jobs
+          WHERE vendor_id = ? AND status != 'cancelled'
+            AND window_start >= ? AND window_start < DATE_ADD(?, INTERVAL 7 DAY)
+          GROUP BY DATE(window_start)`,
+        [vendorId, weekStart, weekStart]
       );
-      const maxJobsPerDay = Number(dailyMax.max_jobs_per_day) || 0;
-      const topCategory = dailyMax.top_category || 'Jobs';
+      const perDay = new Map<string, number>();
+      for (const r of dayRows as any[]) perDay.set(String(r.d).slice(0, 10), Number(r.cnt) || 0);
+      for (const v of mktWeek) {
+        const d = String(v.windowStart).slice(0, 10);
+        perDay.set(d, (perDay.get(d) || 0) + 1);
+      }
+      const maxJobsPerDay = Math.max(0, ...perDay.values());
+
+      const [catRows]: any = await pool.query(
+        `SELECT category, COUNT(*) AS cnt
+           FROM jobs
+          WHERE vendor_id = ? AND status != 'cancelled'
+            AND window_start >= ? AND window_start < DATE_ADD(?, INTERVAL 7 DAY)
+          GROUP BY category`,
+        [vendorId, weekStart, weekStart]
+      );
+      const catCount = new Map<string, number>();
+      for (const r of catRows as any[]) {
+        if (r.category) catCount.set(r.category, Number(r.cnt) || 0);
+      }
+      for (const v of mktWeek) {
+        const name = catNameByService.get(Number(v.catalogIds?.[0]));
+        if (name) catCount.set(name, (catCount.get(name) || 0) + 1);
+      }
+      const topCategory = [...catCount.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || 'Jobs';
 
       const badge = weeklyAvgTotal > avgWeeklyAmount * 1.1 ? 'Busy' : weeklyAvgTotal < avgWeeklyAmount * 0.85 ? 'Quiet' : 'Normal';
       const label = `Week of ${shortLabel(weekStart)}`;
@@ -834,9 +1036,10 @@ router.get('/offers', async (req, res) => {
       `SELECT o.id, o.service_label, o.category, o.area, o.window_start, o.window_end,
               o.price, o.fee_pct, o.status, o.decline_reason, o.expires_at,
               TIMESTAMPDIFF(MINUTE, NOW(), o.expires_at) AS expires_in_minutes,
-              b.notes
+              b.notes, sp.vendor_id AS holder_vendor_id
          FROM offers o
          LEFT JOIN bookings b ON b.id = o.booking_id
+         LEFT JOIN service_providers sp ON sp.id = b.provider_id
         WHERE o.vendor_id = ?
         ORDER BY o.expires_at DESC
         LIMIT 50`,
@@ -864,6 +1067,11 @@ router.get('/offers', async (req, res) => {
         expiresAt: r.expires_at,
         expiresInMinutes: Math.max(0, Number(r.expires_in_minutes) || 0),
         declineReason: r.decline_reason,
+        // True when the marketplace pool holds the booking through one of
+        // this vendor's own members — the offer lapsing then means "already
+        // with your team", not "offered to another partner".
+        heldByTeam: r.holder_vendor_id != null
+          && Number(r.holder_vendor_id) === Number(session.vendorId),
       };
       (stillOpen ? open : closed).push(item);
     }
@@ -986,6 +1194,16 @@ router.post('/offers/:id/accept', async (req, res) => {
         [session.vendorId, jobRes.insertId, offer.booking_id]
       );
 
+      // Recurring series keep the released provider on each upcoming visit —
+      // clear those too or clash checks treat that worker as busy on slots
+      // this vendor's team now owns. (Dispatch and the missed sweep already
+      // skip the whole booking via b.vendor_id.)
+      await conn.query(
+        `UPDATE booking_occurrences SET provider_id = NULL
+          WHERE booking_id = ? AND status = 'upcoming'`,
+        [offer.booking_id]
+      );
+
       if (previousProviderId) {
         await conn.query(
           'UPDATE service_providers SET total_jobs = GREATEST(total_jobs - 1, 0) WHERE id = ?',
@@ -1082,6 +1300,8 @@ router.get('/jobs', async (req, res) => {
          FROM bookings b
          JOIN service_providers sp ON sp.id = b.provider_id
         WHERE sp.vendor_id = ? AND b.status != 'cancelled'
+          AND b.vendor_id IS NULL
+          AND NOT EXISTS (SELECT 1 FROM jobs jx WHERE jx.booking_id = b.id)
           AND (b.scheduled_at IS NULL OR b.scheduled_at >= DATE_SUB(CURDATE(), INTERVAL 30 DAY))
         ORDER BY b.scheduled_at ASC
         LIMIT 300`,
@@ -1347,6 +1567,92 @@ async function teamLeaveMap(vendorId: any, providerIds: number[]) {
   return map;
 }
 
+// Duration strings on booking items ("60 min", "1.5 hr") — same parser
+// shape as the per-file copies in routes/bookings.ts and availability.ts.
+function parseItemDuration(str: unknown): number {
+  if (!str) return 60;
+  const s = String(str).toLowerCase();
+  const hourMatch = s.match(/(\d+(?:\.\d+)?)\s*(?:hour|hr|hrs|h)/);
+  if (hourMatch) return Math.round(parseFloat(hourMatch[1]) * 60);
+  const minMatch = s.match(/(\d+)\s*(?:min|mins|minute|minutes|m)/);
+  if (minMatch) return parseInt(minMatch[1], 10);
+  const n = parseFloat(s.replace(/[^0-9.]/g, ''));
+  if (Number.isFinite(n)) return n < 20 ? Math.round(n * 60) : Math.round(n);
+  return 60;
+}
+
+// Marketplace work holding this vendor's members, one row per visit:
+// recurring bookings contribute each booking_occurrences row (a visit's
+// provider falls back to the series' bookings.provider_id when the
+// occurrence isn't stamped, same as lib/occurrences.ts), every other
+// booking contributes its own scheduled_at. These never create a `jobs`
+// row (see the merge in GET /jobs), so any read path that lists, counts or
+// clash-checks a member's work has to fold them in explicitly. Returned
+// shaped like slim `jobs` rows — windowEnd is derived from item durations.
+async function marketplaceMemberWork(
+  vendorId: any,
+  opts: { providerIds?: number[]; from: string; to: string }
+) {
+  const providerClause = opts.providerIds?.length ? 'AND src.provider_id IN (?)' : '';
+  // Placeholder order in the SQL below: vendor_id, vendor_id, from, to, then
+  // (optionally) providerIds — keep the params array in that same order.
+  const params: any[] = [vendorId, vendorId, opts.from, opts.to];
+  if (providerClause) params.push(opts.providerIds);
+  const [rows]: any = await pool.query(
+    `SELECT src.*, sp.name AS assignee_name FROM (
+        SELECT b.provider_id, NULL AS visit_id, b.scheduled_at, b.status AS visit_status,
+               b.id AS booking_pk, b.items, b.total, NULL AS completed_at,
+               b.contact_name, b.contact_area, b.contact_phone, b.contact_address
+          FROM bookings b
+         WHERE b.schedule <> 'recurring' AND b.status != 'cancelled' AND b.vendor_id IS NULL
+           AND NOT EXISTS (SELECT 1 FROM jobs jx WHERE jx.booking_id = b.id)
+           AND b.provider_id IN (SELECT id FROM service_providers WHERE vendor_id = ?)
+        UNION ALL
+        SELECT COALESCE(o.provider_id, b2.provider_id), o.id, o.scheduled_at, o.status,
+               b2.id, b2.items, b2.total, o.completed_at,
+               b2.contact_name, b2.contact_area, b2.contact_phone, b2.contact_address
+          FROM booking_occurrences o
+          JOIN bookings b2 ON b2.id = o.booking_id
+         WHERE o.status != 'cancelled' AND b2.status != 'cancelled' AND b2.vendor_id IS NULL
+           AND NOT EXISTS (SELECT 1 FROM jobs jx WHERE jx.booking_id = b2.id)
+           AND COALESCE(o.provider_id, b2.provider_id) IN (SELECT id FROM service_providers WHERE vendor_id = ?)
+      ) src
+      JOIN service_providers sp ON sp.id = src.provider_id
+     WHERE src.scheduled_at >= ? AND src.scheduled_at < ? ${providerClause}
+     ORDER BY src.scheduled_at`,
+    params
+  );
+  return (rows as any[]).map((r) => {
+    let items: any[] = [];
+    try {
+      const parsed = typeof r.items === 'string' ? JSON.parse(r.items) : r.items;
+      if (Array.isArray(parsed)) items = parsed;
+    } catch { /* empty */ }
+    const durationMin = items.reduce((s: number, it: any) => s + parseItemDuration(it?.duration) * (Number(it?.qty) || 1), 0) || 60;
+    const startStr = r.scheduled_at instanceof Date ? String(sgtDateTime(r.scheduled_at)) : String(r.scheduled_at);
+    const startMs = new Date(`${startStr.replace(' ', 'T')}+08:00`).getTime();
+    const endStr = sgtDateTime(new Date(startMs + durationMin * 60000)) || null;
+    return {
+      id: `mkt-${r.booking_pk}`,
+      visitId: r.visit_id,
+      source: 'marketplace',
+      status: r.visit_status === 'completed' ? 'completed' : r.visit_status === 'cancelled' ? 'cancelled' : 'assigned',
+      serviceLabel: items.length ? items.map((it: any) => it.name || it.serviceName || 'Service').join(', ') : 'Service',
+      windowStart: startStr,
+      windowEnd: endStr,
+      customerName: r.contact_name,
+      customerArea: r.contact_area,
+      customerPhone: r.contact_phone,
+      customerAddress: r.contact_address,
+      gross: money(r.total),
+      completedAt: r.completed_at ? String(r.completed_at) : null,
+      catalogIds: items.map((it: any) => Number(it?.catalogId)).filter((n: number) => Number.isInteger(n) && n > 0),
+      providerId: r.provider_id,
+      assignee: r.provider_id ? { id: r.provider_id, name: r.assignee_name } : null,
+    };
+  });
+}
+
 // Why a member can't cleanly take a job covering [windowStart, windowEnd):
 // leave rows spanning the window's day plus their other open jobs that
 // overlap the window. `excludeJobId` ignores the job being assigned (so
@@ -1366,7 +1672,18 @@ async function memberConflicts(vendorId: any, providerId: any, windowStart: stri
         AND window_start < ? AND COALESCE(window_end, DATE_ADD(window_start, INTERVAL 2 HOUR)) > ?`,
     [vendorId, providerId, excludeJobId || -1, windowEnd, windowStart]
   );
-  return { leave: leaveRows as any[], clashes: clashRows as any[] };
+  // Marketplace bookings/visits hold the member through bookings.provider_id
+  // — the vendor console can't reschedule those, so an overlapping one is a
+  // real clash, not just informational.
+  const mktVisits = await marketplaceMemberWork(vendorId, {
+    providerIds: [providerId],
+    from: `${day} 00:00:00`,
+    to: `${day} 23:59:59`,
+  });
+  const mktClashes = mktVisits
+    .filter((v) => v.status !== 'cancelled' && v.windowStart < String(windowEnd) && String(v.windowEnd) > String(windowStart))
+    .map((v) => ({ id: v.id, service_label: v.serviceLabel, window_start: v.windowStart, window_end: v.windowEnd }));
+  return { leave: leaveRows as any[], clashes: [...(clashRows as any[]), ...mktClashes] };
 }
 
 // Full detail for the Job page: the job row plus its assignee, the booking
@@ -1849,9 +2166,10 @@ router.get('/team', async (req, res) => {
     const [rows]: any = await pool.query(
       `SELECT sp.id, sp.name, sp.email, sp.mobile, sp.services, sp.city, sp.status,
               sp.rating, sp.total_jobs, sp.avatar, sp.joined, sp.pay_mode, sp.pay_rate, sp.is_team_lead,
-              (SELECT COUNT(*) FROM jobs j
-                WHERE j.assignee_provider_id = sp.id AND j.vendor_id = ?
-                  AND DATE(j.window_start) = CURDATE() AND j.status != 'cancelled') AS jobs_today,
+              ((SELECT COUNT(*) FROM jobs j
+                 WHERE j.assignee_provider_id = sp.id AND j.vendor_id = ?
+                   AND DATE(j.window_start) = CURDATE() AND j.status != 'cancelled')
+               + COALESCE(mkt.mkt_today, 0)) AS jobs_today,
               (SELECT MIN(c.expires_at) FROM team_member_certs c
                 WHERE c.provider_id = sp.id AND c.expires_at IS NOT NULL
                   AND c.expires_at BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 14 DAY)) AS cert_expiring_at,
@@ -1862,6 +2180,22 @@ router.get('/team', async (req, res) => {
                 WHERE j.assignee_provider_id = sp.id AND j.vendor_id = ? AND j.status = 'in_progress'
                 ORDER BY j.window_start LIMIT 1) AS current_job_area
          FROM service_providers sp
+         LEFT JOIN (
+           SELECT provider_id, COUNT(*) AS mkt_today FROM (
+             SELECT COALESCE(o.provider_id, b.provider_id) AS provider_id
+               FROM booking_occurrences o
+               JOIN bookings b ON b.id = o.booking_id
+              WHERE o.status != 'cancelled' AND b.status != 'cancelled' AND b.vendor_id IS NULL
+                AND NOT EXISTS (SELECT 1 FROM jobs jx WHERE jx.booking_id = b.id)
+                AND DATE(o.scheduled_at) = CURDATE()
+             UNION ALL
+             SELECT b2.provider_id
+               FROM bookings b2
+              WHERE b2.schedule <> 'recurring' AND b2.status != 'cancelled' AND b2.vendor_id IS NULL
+                AND NOT EXISTS (SELECT 1 FROM jobs jx WHERE jx.booking_id = b2.id)
+                AND DATE(b2.scheduled_at) = CURDATE()
+           ) m GROUP BY provider_id
+         ) mkt ON mkt.provider_id = sp.id
         WHERE sp.vendor_id = ?
         ORDER BY sp.name`,
       [vendorId, vendorId, vendorId]
@@ -1921,15 +2255,25 @@ router.post('/team', async (req, res) => {
       return res.status(400).json({ error: 'Name, email, mobile and at least one service are required.' });
     }
 
+    // Skill tags drive /api/availability + booking auto-assign, so they must
+    // be real catalog names — reject anything else instead of storing a tag
+    // that can never match a booking.
+    const { tags: skillTags, unknown: unknownSkills } = await canonicalSkillTags(services);
+    if (unknownSkills.length) {
+      return res.status(400).json({
+        error: `Unknown ${unknownSkills.length === 1 ? 'service' : 'services'}: ${unknownSkills.join(', ')}. Pick skills from your service categories.`,
+      });
+    }
+
     const [vendorRows]: any = await pool.query('SELECT city FROM vendors WHERE id = ?', [session.vendorId]);
     const city = vendorRows?.[0]?.city || 'Singapore';
 
     const passwordHash = password ? await bcrypt.hash(password, 10) : null;
 
     const [result]: any = await pool.query(
-      `INSERT INTO service_providers (vendor_id, name, email, password_hash, mobile, services, city, status, is_team_lead)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [session.vendorId, name, String(email).trim().toLowerCase(), passwordHash, mobile, JSON.stringify(services), city, status, isTeamLead ? 1 : 0]
+      `INSERT INTO service_providers (vendor_id, name, email, password_hash, mobile, services, city, status, is_team_lead, working_hours)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [session.vendorId, name, String(email).trim().toLowerCase(), passwordHash, mobile, JSON.stringify(skillTags), city, status, isTeamLead ? 1 : 0, JSON.stringify(MEMBER_DEFAULT_HOURS)]
     );
 
     return res.status(201).json({ success: true, id: result.insertId });
@@ -2003,8 +2347,14 @@ router.patch('/team/:id', async (req, res) => {
       if (!Array.isArray(services) || services.length === 0) {
         return res.status(400).json({ error: 'At least one service is required.' });
       }
+      const { tags: skillTags, unknown: unknownSkills } = await canonicalSkillTags(services);
+      if (unknownSkills.length) {
+        return res.status(400).json({
+          error: `Unknown ${unknownSkills.length === 1 ? 'service' : 'services'}: ${unknownSkills.join(', ')}. Pick skills from your service categories.`,
+        });
+      }
       fields.push('services = ?');
-      params.push(JSON.stringify(services));
+      params.push(JSON.stringify(skillTags));
     }
     if (password) {
       fields.push('password_hash = ?');
@@ -2053,13 +2403,30 @@ router.get('/team/availability', async (req, res) => {
 
     const [teamRows]: any = await pool.query(
       `SELECT sp.id, sp.name, sp.rating, sp.working_hours,
-              (SELECT COUNT(*) FROM jobs j
-                WHERE j.assignee_provider_id = sp.id AND j.vendor_id = ?
-                  AND DATE(j.window_start) = ? AND j.status != 'cancelled') AS jobs_today
+              ((SELECT COUNT(*) FROM jobs j
+                 WHERE j.assignee_provider_id = sp.id AND j.vendor_id = ?
+                   AND DATE(j.window_start) = ? AND j.status != 'cancelled')
+               + COALESCE(mkt.mkt_today, 0)) AS jobs_today
          FROM service_providers sp
+         LEFT JOIN (
+           SELECT provider_id, COUNT(*) AS mkt_today FROM (
+             SELECT COALESCE(o.provider_id, b.provider_id) AS provider_id
+               FROM booking_occurrences o
+               JOIN bookings b ON b.id = o.booking_id
+              WHERE o.status != 'cancelled' AND b.status != 'cancelled' AND b.vendor_id IS NULL
+                AND NOT EXISTS (SELECT 1 FROM jobs jx WHERE jx.booking_id = b.id)
+                AND DATE(o.scheduled_at) = ?
+             UNION ALL
+             SELECT b2.provider_id
+               FROM bookings b2
+              WHERE b2.schedule <> 'recurring' AND b2.status != 'cancelled' AND b2.vendor_id IS NULL
+                AND NOT EXISTS (SELECT 1 FROM jobs jx WHERE jx.booking_id = b2.id)
+                AND DATE(b2.scheduled_at) = ?
+           ) m GROUP BY provider_id
+         ) mkt ON mkt.provider_id = sp.id
         WHERE sp.vendor_id = ? AND sp.status = ?
         ORDER BY sp.name`,
-      [session.vendorId, day, session.vendorId, 'active']
+      [session.vendorId, day, day, day, session.vendorId, 'active']
     );
 
     // Outside-hours check: the member's working_hours entry for the slot's
@@ -2181,7 +2548,8 @@ router.get('/team/:id', async (req, res) => {
     // either side of today covers what's actually useful on a profile page
     // (a just-paid-out job from last week, what's in progress now, what's next).
     const [recentJobs]: any = await pool.query(
-      `SELECT id, service_label, customer_name, customer_area, status, window_start, window_end
+      `SELECT id, service_label, customer_name, customer_area, status, window_start, window_end,
+              issue_type, issue_resolved_at
          FROM jobs
         WHERE vendor_id = ? AND assignee_provider_id = ? AND status != 'cancelled'
           AND window_start >= DATE_SUB(CURDATE(), INTERVAL 14 DAY)
@@ -2189,6 +2557,51 @@ router.get('/team/:id', async (req, res) => {
         ORDER BY window_start
         LIMIT 8`,
       [vendorId, memberId]
+    );
+
+    // Marketplace visits for the same ±14-day window — they never reach the
+    // `jobs` table, so without this the member's Jobs card looks empty even
+    // while they hold Kynd bookings (see the merge in GET /jobs).
+    const memberDayStart = new Date(`${new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Singapore' })}T00:00:00+08:00`).getTime();
+    const mktVisits = await marketplaceMemberWork(vendorId, {
+      providerIds: [memberId],
+      from: String(sgtDateTime(new Date(memberDayStart - 14 * 86400000))),
+      to: String(sgtDateTime(new Date(memberDayStart + 14 * 86400000))),
+    });
+    const memberJobs = [
+      ...(recentJobs as any[]).map((j) => ({
+        id: j.id,
+        serviceLabel: j.service_label,
+        customerName: j.customer_name,
+        customerArea: j.customer_area,
+        status: j.issue_type && !j.issue_resolved_at ? 'issue' : j.status,
+        windowStart: j.window_start,
+        windowEnd: j.window_end,
+      })),
+      ...mktVisits.map((v) => ({
+        id: v.id,
+        serviceLabel: v.serviceLabel,
+        customerName: v.customerName,
+        customerArea: v.customerArea,
+        status: v.status,
+        windowStart: v.windowStart,
+        windowEnd: v.windowEnd,
+      })),
+    ]
+      .sort((a, b) => new Date(a.windowStart || 0).getTime() - new Date(b.windowStart || 0).getTime())
+      .slice(0, 8);
+
+    const [[mktDone]]: any = await pool.query(
+      `SELECT (SELECT COUNT(*) FROM bookings b
+                 WHERE b.provider_id = ? AND b.schedule <> 'recurring' AND b.status = 'completed'
+                   AND b.vendor_id IS NULL
+                   AND NOT EXISTS (SELECT 1 FROM jobs jx WHERE jx.booking_id = b.id))
+            + (SELECT COUNT(*) FROM booking_occurrences o
+                 JOIN bookings b2 ON b2.id = o.booking_id
+                 WHERE COALESCE(o.provider_id, b2.provider_id) = ? AND o.status = 'completed'
+                   AND b2.vendor_id IS NULL
+                   AND NOT EXISTS (SELECT 1 FROM jobs jx WHERE jx.booking_id = b2.id)) AS cnt`,
+      [memberId, memberId]
     );
 
     // Same "late" definition as the Home page's needs-attention alerts
@@ -2241,7 +2654,7 @@ router.get('/team/:id', async (req, res) => {
         payRate: money(row.pay_rate),
       },
       stats: {
-        jobsDone: Number(jobStats.jobs_done) || 0,
+        jobsDone: (Number(jobStats.jobs_done) || 0) + (Number(mktDone?.cnt) || 0),
         onTimePct,
         teamOnTimePct,
         rating: Number(row.rating) || 0,
@@ -2249,15 +2662,7 @@ router.get('/team/:id', async (req, res) => {
         repeatPct,
       },
       workingHours: hours,
-      jobs: (recentJobs as any[]).map((j) => ({
-        id: j.id,
-        serviceLabel: j.service_label,
-        customerName: j.customer_name,
-        customerArea: j.customer_area,
-        status: j.status,
-        windowStart: j.window_start,
-        windowEnd: j.window_end,
-      })),
+      jobs: memberJobs,
       lateJob,
       skills: services,
       certifications: (certs as any[]).map((c) => ({
@@ -2977,6 +3382,12 @@ const WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 const WEEKDAY_LABEL: Record<string, string> = { mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat', sun: 'Sun' };
 const DEFAULT_HOURS = WEEKDAYS.map((day) => ({ day, open: day !== 'sun', start: '08:00', end: '18:00' }));
 
+// A member with no working_hours row isn't "off" — the storefront's
+// /api/availability sells their slots at its 9:00-18:00 fallback
+// (DEFAULT_WORKING_HOURS there), so the vendor console must show and
+// clash-check the same open week rather than reporting them closed.
+const MEMBER_DEFAULT_HOURS = WEEKDAYS.map((day) => ({ day, open: true, start: '09:00', end: '18:00' }));
+
 // One entry per weekday, always in WEEKDAYS order — the vendor's inline hours
 // editor toggles each day open/closed with its own start/end time.
 function parseHours(value: any): { day: string; open: boolean; start: string; end: string }[] {
@@ -2986,7 +3397,8 @@ function parseHours(value: any): { day: string; open: boolean; start: string; en
   } catch {
     arr = [];
   }
-  if (!Array.isArray(arr)) arr = [];
+  // Unset or malformed → the platform default open week (see above).
+  if (!Array.isArray(arr) || arr.length === 0) return MEMBER_DEFAULT_HOURS.map((h) => ({ ...h }));
   const byDay = new Map(arr.filter((e) => e && WEEKDAYS.includes(e.day)).map((e) => [e.day, e]));
   return WEEKDAYS.map((day) => {
     const e = byDay.get(day);

@@ -25,26 +25,103 @@ const statusCfg: Record<string, string> = {
 
 const inputCls = "w-full px-3 py-2 text-sm border border-lightstone rounded-lg focus:outline-none focus:ring-2 focus:ring-terracotta";
 
+// Same +65 normalization as the customer booking form (ServiceDetail.jsx) and
+// the provider form in Pro.tsx: strip non-digits, drop a leading 65, cap at 8.
+const normalizePhone = (value: string) => {
+  const digits = value.replace(/\D/g, '');
+  const after65 = digits.startsWith('65') ? digits.slice(2) : digits;
+  return '+65' + after65.slice(0, 8);
+};
+
+const PHONE_PATTERN = "[+]65[89][0-9]{7}";
+const PHONE_TITLE = "Enter a valid Singapore number: +65 followed by 8 digits starting with 8 or 9";
+
+type CatalogCategory = { id: number; name: string };
+
+// Fetches the catalog's top-level category names once — the values stored in
+// vendors.categories are matched against offers.category / jobs.category,
+// which carry catalog_categories.name.
+function useCatalogCategories() {
+  const [catalogCategories, setCatalogCategories] = useState<CatalogCategory[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch("/api/catalog/categories")
+      .then(async (res) => {
+        const json = await res.json();
+        if (!cancelled && res.ok && Array.isArray(json.data)) setCatalogCategories(json.data);
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoaded(true); });
+    return () => { cancelled = true; };
+  }, []);
+  return { catalogCategories, loaded };
+}
+
+// Keeps the mobile field optional while still normalizing to +65…: clearing
+// the digits collapses back to empty instead of a bare "+65" the pattern
+// would reject.
+function mobileFromInput(value: string) {
+  const next = normalizePhone(value);
+  return next === "+65" ? "" : next;
+}
+
 const EMPTY_FORM = {
   name: "", contactEmail: "", mobile: "", city: "",
   ownerName: "", ownerEmail: "", ownerPassword: "",
 };
 
+function CategoryPicker({ categories, onAdd, onRemove, catalogCategories, catalogLoaded }: {
+  categories: string[];
+  onAdd: (name: string) => void;
+  onRemove: (name: string) => void;
+  catalogCategories: CatalogCategory[];
+  catalogLoaded: boolean;
+}) {
+  const options = catalogCategories.filter((c) => !categories.includes(c.name));
+  return (
+    <div>
+      <label className="block text-xs font-semibold text-charcoal mb-1.5">Service categories</label>
+      <select
+        value=""
+        onChange={(e) => { if (e.target.value) onAdd(e.target.value); }}
+        disabled={catalogLoaded && options.length === 0}
+        className={inputCls}
+      >
+        <option value="">
+          {!catalogLoaded ? "Loading categories..." : options.length === 0 ? "No more categories" : "Add a category"}
+        </option>
+        {options.map((c) => (
+          <option key={c.id} value={c.name}>{c.name}</option>
+        ))}
+      </select>
+      {categories.length > 0 && (
+        <div className="flex flex-wrap gap-2 mt-2.5">
+          {categories.map((c) => (
+            <span key={c} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-accent-50 text-terracotta">
+              {c}
+              <button type="button" onClick={() => onRemove(c)} className="leading-none hover:text-charcoal">×</button>
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AddVendorModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const [form, setForm] = useState(EMPTY_FORM);
   const [categories, setCategories] = useState<string[]>([]);
-  const [categoryInput, setCategoryInput] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const { catalogCategories, loaded: catalogLoaded } = useCatalogCategories();
 
   const set = (key: keyof typeof EMPTY_FORM) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm((f) => ({ ...f, [key]: e.target.value }));
 
   function addCategory(name: string) {
-    const trimmed = name.trim();
-    if (!trimmed || categories.includes(trimmed)) return;
-    setCategories((list) => [...list, trimmed]);
-    setCategoryInput("");
+    if (!name || categories.includes(name)) return;
+    setCategories((list) => [...list, name]);
   }
 
   async function submit(e: React.FormEvent) {
@@ -105,7 +182,15 @@ function AddVendorModal({ onClose, onCreated }: { onClose: () => void; onCreated
             </div>
             <div>
               <label className="block text-xs font-semibold text-charcoal mb-1.5">Mobile</label>
-              <input value={form.mobile} onChange={set("mobile")} placeholder="9123 4567" className={inputCls} />
+              <input
+                type="tel"
+                value={form.mobile}
+                onChange={(e) => setForm((f) => ({ ...f, mobile: mobileFromInput(e.target.value) }))}
+                pattern={PHONE_PATTERN}
+                title={PHONE_TITLE}
+                placeholder="+65 8123 4567"
+                className={inputCls}
+              />
             </div>
           </div>
 
@@ -114,37 +199,13 @@ function AddVendorModal({ onClose, onCreated }: { onClose: () => void; onCreated
             <input required value={form.city} onChange={set("city")} placeholder="Singapore" className={inputCls} />
           </div>
 
-          <div>
-            <label className="block text-xs font-semibold text-charcoal mb-1.5">Service categories</label>
-            <div className="flex gap-2">
-              <input
-                value={categoryInput}
-                onChange={(e) => setCategoryInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") { e.preventDefault(); addCategory(categoryInput); }
-                }}
-                placeholder="e.g. Home Cleaning"
-                className={inputCls}
-              />
-              <button
-                type="button"
-                onClick={() => addCategory(categoryInput)}
-                className="shrink-0 inline-flex items-center justify-center rounded-lg border border-lightstone px-3 text-charcoal hover:bg-warmlinen transition"
-              >
-                <Plus size={16} />
-              </button>
-            </div>
-            {categories.length > 0 && (
-              <div className="flex flex-wrap gap-2 mt-2.5">
-                {categories.map((c) => (
-                  <span key={c} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-accent-50 text-terracotta">
-                    {c}
-                    <button type="button" onClick={() => setCategories((list) => list.filter((x) => x !== c))} className="leading-none hover:text-charcoal">×</button>
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
+          <CategoryPicker
+            categories={categories}
+            onAdd={addCategory}
+            onRemove={(name) => setCategories((list) => list.filter((x) => x !== name))}
+            catalogCategories={catalogCategories}
+            catalogLoaded={catalogLoaded}
+          />
 
           <div className="pt-2 border-t border-lightstone">
             <p className="text-xs font-bold text-charcoal uppercase tracking-wide mb-3">Owner login</p>
@@ -195,18 +256,16 @@ function EditVendorModal({ vendor, onClose, onSaved }: { vendor: Vendor; onClose
     city: vendor.city,
   });
   const [categories, setCategories] = useState<string[]>(vendor.categories);
-  const [categoryInput, setCategoryInput] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const { catalogCategories, loaded: catalogLoaded } = useCatalogCategories();
 
   const set = (key: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm((f) => ({ ...f, [key]: e.target.value }));
 
   function addCategory(name: string) {
-    const trimmed = name.trim();
-    if (!trimmed || categories.includes(trimmed)) return;
-    setCategories((list) => [...list, trimmed]);
-    setCategoryInput("");
+    if (!name || categories.includes(name)) return;
+    setCategories((list) => [...list, name]);
   }
 
   async function submit(e: React.FormEvent) {
@@ -262,7 +321,15 @@ function EditVendorModal({ vendor, onClose, onSaved }: { vendor: Vendor; onClose
             </div>
             <div>
               <label className="block text-xs font-semibold text-charcoal mb-1.5">Mobile</label>
-              <input value={form.mobile} onChange={set("mobile")} className={inputCls} />
+              <input
+                type="tel"
+                value={form.mobile}
+                onChange={(e) => setForm((f) => ({ ...f, mobile: mobileFromInput(e.target.value) }))}
+                pattern={form.mobile === (vendor.mobile || "") ? undefined : PHONE_PATTERN}
+                title={PHONE_TITLE}
+                placeholder="+65 8123 4567"
+                className={inputCls}
+              />
             </div>
           </div>
 
@@ -271,37 +338,13 @@ function EditVendorModal({ vendor, onClose, onSaved }: { vendor: Vendor; onClose
             <input required value={form.city} onChange={set("city")} className={inputCls} />
           </div>
 
-          <div>
-            <label className="block text-xs font-semibold text-charcoal mb-1.5">Service categories</label>
-            <div className="flex gap-2">
-              <input
-                value={categoryInput}
-                onChange={(e) => setCategoryInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") { e.preventDefault(); addCategory(categoryInput); }
-                }}
-                placeholder="e.g. Home Cleaning"
-                className={inputCls}
-              />
-              <button
-                type="button"
-                onClick={() => addCategory(categoryInput)}
-                className="shrink-0 inline-flex items-center justify-center rounded-lg border border-lightstone px-3 text-charcoal hover:bg-warmlinen transition"
-              >
-                <Plus size={16} />
-              </button>
-            </div>
-            {categories.length > 0 && (
-              <div className="flex flex-wrap gap-2 mt-2.5">
-                {categories.map((c) => (
-                  <span key={c} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-accent-50 text-terracotta">
-                    {c}
-                    <button type="button" onClick={() => setCategories((list) => list.filter((x) => x !== c))} className="leading-none hover:text-charcoal">×</button>
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
+          <CategoryPicker
+            categories={categories}
+            onAdd={addCategory}
+            onRemove={(name) => setCategories((list) => list.filter((x) => x !== name))}
+            catalogCategories={catalogCategories}
+            catalogLoaded={catalogLoaded}
+          />
 
           {error && <p className="text-sm text-rosewood">{error}</p>}
 

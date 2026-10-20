@@ -9,6 +9,7 @@ import { sgtDateTime, parseSgt } from '../lib/sgt';
 import { priceOrder, PricingError } from '../lib/pricing';
 import { verifyCardPaymentForBooking, PaymentVerificationError } from '../lib/paymentVerification';
 import { fanOutOffersForBooking } from '../lib/offers';
+import { skillTagsForService } from '../lib/providerSkills';
 
 const router = Router();
 
@@ -149,14 +150,36 @@ async function findAvailableProvider(
     [...ids, ...sgtDates]
   );
 
+  // Vendor members on leave can't take visits — a leave span covering a
+  // visit's SGT date makes that provider unfree for it, same as a booking.
+  const minDate = sgtDates.reduce((a, b) => (a < b ? a : b));
+  const maxDate = sgtDates.reduce((a, b) => (a > b ? a : b));
+  const [leaveRows]: any = await pool.query(
+    `SELECT provider_id, start_date, end_date FROM team_member_leave
+      WHERE provider_id IN (${ids.map(() => '?').join(',')})
+        AND start_date <= ? AND end_date >= ?`,
+    [...ids, maxDate, minDate]
+  );
+  const leaveByProvider = new Map<number, { start: string; end: string }[]>();
+  for (const l of leaveRows as any[]) {
+    const entry = { start: String(l.start_date).slice(0, 10), end: String(l.end_date).slice(0, 10) };
+    if (!leaveByProvider.has(l.provider_id)) leaveByProvider.set(l.provider_id, []);
+    leaveByProvider.get(l.provider_id)!.push(entry);
+  }
+  const onLeaveOn = (providerId: number, sgtDate: string) =>
+    (leaveByProvider.get(providerId) || []).some((l) => l.start <= sgtDate && l.end >= sgtDate);
+
   let best = candidates[0];
   let bestScore = -1;
   for (const p of candidates) {
     const hours = providerWorkingHours(p);
+    const freeOnVisit = (v: Date) =>
+      !onLeaveOn(p.id, (sgtDateTime(v) || '').split(' ')[0]) &&
+      isFreeAt(p, hours, v, durationMin, existing);
     // The first visit is the one the customer actually picked, so a provider who
     // cannot make it is never preferred over one who can.
-    if (!isFreeAt(p, hours, visits[0], durationMin, existing)) continue;
-    const score = visits.filter((v) => isFreeAt(p, hours, v, durationMin, existing)).length;
+    if (!freeOnVisit(visits[0])) continue;
+    const score = visits.filter(freeOnVisit).length;
     if (score > bestScore) {
       best = p;
       bestScore = score;
@@ -333,15 +356,25 @@ router.post('/', async (req, res) => {
     const itemList = pricedItems;
     const firstItemName = itemList[0]?.name || 'Service';
 
-    let [candidates]: any = await pool.query(
-      `SELECT id, name, rating, total_jobs, avatar, working_hours
-       FROM service_providers
-       WHERE LOWER(city) = LOWER(?)
-         AND status = 'active'
-         AND JSON_CONTAINS(services, ?)
-       ORDER BY total_jobs ASC, rating DESC, id ASC`,
-      [contact.city, JSON.stringify(firstItemName)]
-    );
+    // A provider qualifies on an exact service-name tag ("Head Massage
+    // 30 min" — the marketplace pool), a subcategory tag ("Head Massage") or
+    // a whole-category tag ("Wellness @ Home") — the vendor Partner OS
+    // member forms; skillTagsForService returns all of them.
+    const skillTags = await skillTagsForService(firstItemName);
+    let candidates: any[] = [];
+    if (skillTags.length) {
+      const skillClause = skillTags.map(() => 'JSON_CONTAINS(services, ?)').join(' OR ');
+      const [rows]: any = await pool.query(
+        `SELECT id, name, rating, total_jobs, avatar, working_hours
+         FROM service_providers
+         WHERE LOWER(city) = LOWER(?)
+           AND status = 'active'
+           AND (${skillClause})
+         ORDER BY total_jobs ASC, rating DESC, id ASC`,
+        [contact.city, ...skillTags.map((t) => JSON.stringify(t))]
+      );
+      candidates = rows || [];
+    }
 
     if (!candidates?.length) {
       const [fallback]: any = await pool.query(
@@ -455,15 +488,22 @@ router.get('/', async (req, res) => {
       return res.status(401).json({ error: 'Authentication required.' });
     }
 
+    // Vendor-claimed bookings carry provider_id NULL (the marketplace slot is
+    // released on offer accept), so resolve the assignee through the vendor
+    // job; falling back to the vendor's name keeps the card from showing a
+    // bare "A Pro" before a team member is assigned.
     let query = `
       SELECT b.*,
-             COALESCE(sp.id, b.provider_id) AS provider_id,
-             sp.name AS provider_name,
-             sp.rating AS provider_rating,
-             sp.avatar AS provider_avatar,
-             sp.mobile AS provider_mobile
+             COALESCE(sp.id, b.provider_id, vsp.id) AS provider_id,
+             COALESCE(sp.name, vsp.name, v.name) AS provider_name,
+             COALESCE(sp.rating, vsp.rating) AS provider_rating,
+             COALESCE(sp.avatar, vsp.avatar) AS provider_avatar,
+             COALESCE(sp.mobile, vsp.mobile) AS provider_mobile
       FROM bookings b
       LEFT JOIN service_providers sp ON b.provider_id = sp.id
+      LEFT JOIN jobs vj ON b.vendor_job_id = vj.id
+      LEFT JOIN service_providers vsp ON vj.assignee_provider_id = vsp.id
+      LEFT JOIN vendors v ON b.vendor_id = v.id
       ORDER BY b.placed_at DESC
     `;
     const params: any[] = [];
@@ -472,13 +512,16 @@ router.get('/', async (req, res) => {
       // Customer: show only their own bookings.
       query = `
         SELECT b.*,
-               COALESCE(sp.id, b.provider_id) AS provider_id,
-               sp.name AS provider_name,
-               sp.rating AS provider_rating,
-               sp.avatar AS provider_avatar,
-               sp.mobile AS provider_mobile
+               COALESCE(sp.id, b.provider_id, vsp.id) AS provider_id,
+               COALESCE(sp.name, vsp.name, v.name) AS provider_name,
+               COALESCE(sp.rating, vsp.rating) AS provider_rating,
+               COALESCE(sp.avatar, vsp.avatar) AS provider_avatar,
+               COALESCE(sp.mobile, vsp.mobile) AS provider_mobile
         FROM bookings b
         LEFT JOIN service_providers sp ON b.provider_id = sp.id
+        LEFT JOIN jobs vj ON b.vendor_job_id = vj.id
+        LEFT JOIN service_providers vsp ON vj.assignee_provider_id = vsp.id
+        LEFT JOIN vendors v ON b.vendor_id = v.id
         WHERE b.user_id = ?
         ORDER BY b.placed_at DESC
       `;

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import pool from '../lib/mysql';
 import { parseSgt } from '../lib/sgt';
+import { skillTagsForService } from '../lib/providerSkills';
 
 const router = Router();
 
@@ -138,11 +139,18 @@ router.get('/', async (req, res) => {
       [city]
     );
 
-    const serviceLower = service.trim().toLowerCase();
+    // Provider skill tags are catalog names at any level: exact service
+    // names (marketplace pool), subcategory names or whole category names
+    // (vendor Partner OS members) — match on all so a member tagged "Makeup"
+    // can serve "Party Makeup" and one tagged "Wellness @ Home" covers
+    // "Body Massage 60 min".
+    const skillTags = new Set(
+      (await skillTagsForService(service)).map((t) => t.toLowerCase())
+    );
     const matched = providers.filter((p: any) => {
       try {
         const list = typeof p.services === 'string' ? JSON.parse(p.services) : p.services;
-        return Array.isArray(list) && list.some((s: string) => String(s).trim().toLowerCase() === serviceLower);
+        return Array.isArray(list) && list.some((s: string) => skillTags.has(String(s).trim().toLowerCase()));
       } catch {
         return false;
       }
@@ -152,17 +160,32 @@ router.get('/', async (req, res) => {
       return res.status(200).json({ slots: [] });
     }
 
+    // Vendor members on leave that day can't take visits — drop them before
+    // slot generation so the calendar stops selling their hours.
     const providerIds = matched.map((p: any) => p.id);
     const placeholders = providerIds.map(() => '?').join(',');
+    const [leaveRows]: any = await pool.query(
+      `SELECT provider_id FROM team_member_leave
+        WHERE provider_id IN (${placeholders}) AND start_date <= ? AND end_date >= ?`,
+      [...providerIds, date, date]
+    );
+    const onLeave = new Set((leaveRows as any[]).map((r) => r.provider_id));
+    const free = matched.filter((p: any) => !onLeave.has(p.id));
+    if (free.length === 0) {
+      return res.status(200).json({ slots: [] });
+    }
+
+    const freeIds = free.map((p: any) => p.id);
+    const freePlaceholders = freeIds.map(() => '?').join(',');
     const [bookings]: any = await pool.query(
       `SELECT provider_id, scheduled_at, items
        FROM bookings
-       WHERE provider_id IN (${placeholders}) AND status != 'cancelled' AND DATE(scheduled_at) = ?`,
-      [...providerIds, date]
+       WHERE provider_id IN (${freePlaceholders}) AND status != 'cancelled' AND DATE(scheduled_at) = ?`,
+      [...freeIds, date]
     );
 
     const slotSet = new Set<string>();
-    for (const p of matched) {
+    for (const p of free) {
       for (const slot of providerSlots(p, date, duration, bookings.filter((b: any) => b.provider_id === p.id))) {
         slotSet.add(slot);
       }

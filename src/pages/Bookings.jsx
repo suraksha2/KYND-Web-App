@@ -345,6 +345,7 @@ function UpcomingCard({ booking }) {
             <button
               onClick={() => navigate(`/chat/${booking.id}`)}
               disabled={!booking.providerId}
+              title={booking.providerId ? undefined : 'Messaging is available once a partner is assigned'}
               className="inline-flex items-center justify-center gap-1.5 rounded-full bg-white ring-1 ring-lightstone hover:ring-terracotta disabled:opacity-50 disabled:cursor-not-allowed text-charcoal font-semibold px-2 py-2 text-sm transition"
             >
               <MessageCircle className="w-3.5 h-3.5 shrink-0" /> Message

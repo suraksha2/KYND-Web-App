@@ -1,32 +1,88 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useNavigate, useOutletContext } from 'react-router-dom'
-import { AlertCircle, Loader2, Plus, Star, UserPlus, X } from 'lucide-react'
+import { Link, useNavigate } from 'react-router-dom'
+import { AlertCircle, Loader2, Star, UserPlus, X } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { vendorFetch } from '../lib/api'
 import { formatDayMonth, formatLeaveRange, initials } from '../lib/format'
 
 const inputCls = 'w-full rounded-xl border border-lightstone bg-white px-4 py-2.5 text-sm text-charcoal placeholder:text-warmgrey/60 focus:outline-none focus:ring-2 focus:ring-terracotta/40 focus:border-terracotta'
 
+// Skill chips come from the vendor's own service listings — exact catalog
+// subcategory names — so a picked tag always matches what /api/availability
+// and booking auto-assign look for. No free text: a typed-but-wrong tag
+// silently produces zero slots. `extra` keeps a member's existing tags
+// visible even when they aren't among the current listings.
+function useSkillOptions(token, extra = []) {
+  const [listings, setListings] = useState(null)
+  useEffect(() => {
+    let cancelled = false
+    vendorFetch('/vendor/service-categories', token)
+      .then((data) => { if (!cancelled) setListings(data?.categories || []) })
+      .catch(() => { if (!cancelled) setListings([]) })
+    return () => { cancelled = true }
+  }, [token])
+  return useMemo(
+    () => (listings === null
+      ? null
+      : [...new Set([...listings.map((c) => c.name).filter(Boolean), ...extra])]),
+    [listings, extra]
+  )
+}
+
+function SkillPicker({ options, selected, onToggle }) {
+  if (!options) {
+    return <p className="text-xs text-warmgrey">Loading your service categories…</p>
+  }
+  if (options.length === 0) {
+    return (
+      <p className="text-xs text-warmgrey">
+        Add a service category on the{' '}
+        <Link to="/services" className="font-semibold text-terracotta hover:underline">Services and hours</Link>
+        {' '}page first — skills are picked from what you offer.
+      </p>
+    )
+  }
+  return (
+    <div className="flex items-center gap-2 flex-wrap">
+      {options.map((c) => {
+        const on = selected.includes(c)
+        return (
+          <button
+            type="button"
+            key={c}
+            onClick={() => onToggle(c)}
+            className={`rounded-full px-3.5 py-1.5 text-xs font-semibold border transition-colors focus:outline-none focus:ring-2 focus:ring-terracotta/40 ${
+              on
+                ? 'bg-white border-terracotta text-terracotta'
+                : 'bg-white/60 border-lightstone text-warmgrey hover:text-charcoal'
+            }`}
+          >
+            {c}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 const EMPTY_FORM = { name: '', email: '', mobile: '', password: '', services: [], status: 'active', isTeamLead: false }
 
-function AddTeamMember({ categories, onClose, onCreated }) {
+function AddTeamMember({ onClose, onCreated }) {
   const { token } = useAuth()
   const [form, setForm] = useState(EMPTY_FORM)
-  const [serviceInput, setServiceInput] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+  const skillOptions = useSkillOptions(token)
 
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }))
 
-  function addService(name) {
-    const trimmed = name.trim()
-    if (!trimmed || form.services.includes(trimmed)) return
-    setForm((f) => ({ ...f, services: [...f.services, trimmed] }))
-    setServiceInput('')
-  }
-
-  function removeService(name) {
-    setForm((f) => ({ ...f, services: f.services.filter((s) => s !== name) }))
+  function toggleService(name) {
+    setForm((f) => ({
+      ...f,
+      services: f.services.includes(name)
+        ? f.services.filter((s) => s !== name)
+        : [...f.services, name],
+    }))
   }
 
   const submit = async (e) => {
@@ -98,57 +154,7 @@ function AddTeamMember({ categories, onClose, onCreated }) {
 
           <div>
             <span className="block text-xs font-semibold text-charcoal mb-1.5">Services</span>
-            {categories.length > 0 && (
-              <div className="flex items-center gap-2 flex-wrap mb-2">
-                {categories.map((c) => (
-                  <button
-                    type="button"
-                    key={c}
-                    onClick={() => addService(c)}
-                    className={`rounded-full px-3.5 py-1.5 text-xs font-semibold border transition-colors focus:outline-none focus:ring-2 focus:ring-terracotta/40 ${
-                      form.services.includes(c)
-                        ? 'bg-white border-terracotta text-terracotta'
-                        : 'bg-white/60 border-lightstone text-warmgrey hover:text-charcoal'
-                    }`}
-                  >
-                    {c}
-                  </button>
-                ))}
-              </div>
-            )}
-            <div className="flex gap-2">
-              <input
-                value={serviceInput}
-                onChange={(e) => setServiceInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault()
-                    addService(serviceInput)
-                  }
-                }}
-                placeholder="Add another skill, e.g. Deep clean"
-                className={inputCls}
-              />
-              <button
-                type="button"
-                onClick={() => addService(serviceInput)}
-                className="shrink-0 inline-flex items-center justify-center rounded-xl border border-lightstone px-3.5 text-charcoal hover:bg-warmlinen focus:outline-none focus:ring-2 focus:ring-terracotta/40"
-              >
-                <Plus className="w-4 h-4" />
-              </button>
-            </div>
-            {form.services.length > 0 && (
-              <div className="flex flex-wrap gap-2 mt-2.5">
-                {form.services.map((name) => (
-                  <span key={name} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-accent-50 text-terracotta">
-                    {name}
-                    <button type="button" onClick={() => removeService(name)} aria-label={`Remove ${name}`} className="text-terracotta hover:text-charcoal leading-none">
-                      ×
-                    </button>
-                  </span>
-                ))}
-              </div>
-            )}
+            <SkillPicker options={skillOptions} selected={form.services} onToggle={toggleService} />
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -192,7 +198,7 @@ function AddTeamMember({ categories, onClose, onCreated }) {
   )
 }
 
-export function EditTeamMember({ member, categories, onClose, onSaved }) {
+export function EditTeamMember({ member, onClose, onSaved }) {
   const { token } = useAuth()
   const [form, setForm] = useState({
     name: member.name,
@@ -203,21 +209,19 @@ export function EditTeamMember({ member, categories, onClose, onSaved }) {
     status: member.status,
     isTeamLead: !!member.isTeamLead,
   })
-  const [serviceInput, setServiceInput] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+  const skillOptions = useSkillOptions(token, member.services || [])
 
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }))
 
-  function addService(name) {
-    const trimmed = name.trim()
-    if (!trimmed || form.services.includes(trimmed)) return
-    setForm((f) => ({ ...f, services: [...f.services, trimmed] }))
-    setServiceInput('')
-  }
-
-  function removeService(name) {
-    setForm((f) => ({ ...f, services: f.services.filter((s) => s !== name) }))
+  function toggleService(name) {
+    setForm((f) => ({
+      ...f,
+      services: f.services.includes(name)
+        ? f.services.filter((s) => s !== name)
+        : [...f.services, name],
+    }))
   }
 
   const submit = async (e) => {
@@ -289,57 +293,7 @@ export function EditTeamMember({ member, categories, onClose, onSaved }) {
 
           <div>
             <span className="block text-xs font-semibold text-charcoal mb-1.5">Services</span>
-            {categories.length > 0 && (
-              <div className="flex items-center gap-2 flex-wrap mb-2">
-                {categories.map((c) => (
-                  <button
-                    type="button"
-                    key={c}
-                    onClick={() => addService(c)}
-                    className={`rounded-full px-3.5 py-1.5 text-xs font-semibold border transition-colors focus:outline-none focus:ring-2 focus:ring-terracotta/40 ${
-                      form.services.includes(c)
-                        ? 'bg-white border-terracotta text-terracotta'
-                        : 'bg-white/60 border-lightstone text-warmgrey hover:text-charcoal'
-                    }`}
-                  >
-                    {c}
-                  </button>
-                ))}
-              </div>
-            )}
-            <div className="flex gap-2">
-              <input
-                value={serviceInput}
-                onChange={(e) => setServiceInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault()
-                    addService(serviceInput)
-                  }
-                }}
-                placeholder="Add another skill, e.g. Deep clean"
-                className={inputCls}
-              />
-              <button
-                type="button"
-                onClick={() => addService(serviceInput)}
-                className="shrink-0 inline-flex items-center justify-center rounded-xl border border-lightstone px-3.5 text-charcoal hover:bg-warmlinen focus:outline-none focus:ring-2 focus:ring-terracotta/40"
-              >
-                <Plus className="w-4 h-4" />
-              </button>
-            </div>
-            {form.services.length > 0 && (
-              <div className="flex flex-wrap gap-2 mt-2.5">
-                {form.services.map((name) => (
-                  <span key={name} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-accent-50 text-terracotta">
-                    {name}
-                    <button type="button" onClick={() => removeService(name)} aria-label={`Remove ${name}`} className="text-terracotta hover:text-charcoal leading-none">
-                      ×
-                    </button>
-                  </span>
-                ))}
-              </div>
-            )}
+            <SkillPicker options={skillOptions} selected={form.services} onToggle={toggleService} />
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -452,7 +406,6 @@ function MemberCard({ member }) {
 }
 
 export default function Team() {
-  const { profile } = useOutletContext()
   const { token } = useAuth()
 
   const [data, setData] = useState(null)
@@ -479,7 +432,6 @@ export default function Team() {
 
   const team = data?.team || []
   const canManage = !!data?.canManage
-  const categories = profile?.vendor?.categories || []
 
   const summary = useMemo(() => {
     const onLeave = team.filter((m) => m.onLeaveToday).length
@@ -535,7 +487,7 @@ export default function Team() {
       )}
 
       {addOpen && (
-        <AddTeamMember categories={categories} onClose={() => setAddOpen(false)} onCreated={load} />
+        <AddTeamMember onClose={() => setAddOpen(false)} onCreated={load} />
       )}
     </div>
   )

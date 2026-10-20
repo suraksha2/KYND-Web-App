@@ -182,6 +182,16 @@ today is the Home-screen slice:
   seat (`owner`/`manager`/`field`, only `owner` has a working login flow so
   far). `service_providers.vendor_id` links a worker to the vendor that owns
   them; `NULL` keeps the existing admin-assigned marketplace pool untouched.
+  Skill tags differ by pool: marketplace providers carry exact catalog
+  service names ("Head Massage 30 min"), vendor members carry subcategory
+  ("Head Massage") or whole-category ("Wellness @ Home") names.
+  `src/lib/providerSkills.ts` (`skillTagsForService`) resolves a catalog
+  service to all three forms; `GET /api/availability` and the
+  `POST /api/bookings` auto-assign match against any of them. Tags are only
+  ever written through `canonicalSkillTags` (vendor `POST/PATCH /team`,
+  admin `POST/PUT /service-providers`), which rejects non-catalog names —
+  the vendor Team picker offers the vendor's `vendor_service_categories`
+  subcategory names as chips, so a typo'd tag can never reach the DB.
 - `jobs` is the vendor-side work item (accepted Kynd offer or the vendor's own
   customer booking) — it owns its own status machine
   (`accepted → assigned → in_progress → completed → paid`), independent of
@@ -194,7 +204,11 @@ today is the Home-screen slice:
   booking — active, same city as `contact.city`, and holding a `live` listing
   for one of the booked services (`vendor_service_categories.subcategory_id`
   from `catalog_services`, or the legacy free-text `vendor_service_prices`
-  category). All rows from one booking share `expires_at` (`OFFER_EXPIRY_MINUTES`
+  category). A vendor whose own team member already holds the booking via the
+  marketplace auto-assignment is skipped — offering their own job back at a
+  fee is a self-offer (the visit still shows on their Jobs page through the
+  marketplace merge in `GET /vendor/jobs`). All rows from one booking share
+  `expires_at` (`OFFER_EXPIRY_MINUTES`
   env var, default 30) — broadcast, first accept wins. A fan-out failure is
   caught and logged, never fails the booking. `POST /vendor/offers/:id/accept`
   flips sibling offers for the same `booking_id` to `taken` in the same
@@ -242,14 +256,20 @@ today is the Home-screen slice:
   "Needs attention" alerts (late job / unassigned job / pending payout /
   expiring cert — picked for variety across types, not just whichever fires
   most) plus today's jobs, offers-waiting count, and (owner-only) this week's
-  earnings and a 30-day forecast with a simple staffing heads-up.
+  earnings and a 30-day forecast with a simple staffing heads-up. Any money or
+  work-list figure for a vendor must merge `marketplaceMemberWork()` —
+  bookings/occurrences assigned to the vendor's `service_providers` rows never
+  become `jobs` rows; `GET /vendor/home`, `/vendor/jobs` and `/vendor/money`
+  all do this merge (visits are valued at the booking total where `jobs` use
+  `net`).
 - `backend/db/scripts/seed-vendor-demo.mjs` creates a demo vendor + owner login
   + team + today's jobs + an open offer + a pending payout + an expiring cert
   for local testing — it is **not** part of `db.sql` (schema only, no seed
   rows). Run it after importing the schema, then sign in to `/vendor` with the
   email/password it prints.
-- Jobs/Offers/Team/Schedule/Money/Forecast/Expenses/Invoices/Services pages are
-  routed but render a "Coming soon" placeholder — only Home has a backend.
+- Home, Jobs, Offers, Team, Schedule and the owner-only Money/Forecast/
+  Expenses/Payouts/Services pages are backed by `vendor.ts` routes; Invoices
+  is still a placeholder (no `invoices` table exists).
 
 ## Pre-launch gate
 

@@ -40,7 +40,9 @@ function closedLabel(offer) {
     case 'taken':
       return 'Another partner took this offer'
     default:
-      return 'Expired, Kynd offered it to another partner'
+      return offer.heldByTeam
+        ? 'Already with your team — Kynd assigned your pro directly'
+        : 'Expired, Kynd offered it to another partner'
   }
 }
 
@@ -457,7 +459,7 @@ export default function Offers() {
                 key={offer.id}
                 className="flex items-center gap-3 rounded-2xl border border-lightstone bg-white px-4 py-3.5"
               >
-                {offer.status === 'accepted' ? (
+                {offer.status === 'accepted' || offer.heldByTeam ? (
                   <Inbox className="w-4 h-4 text-sage shrink-0" />
                 ) : (
                   <X className="w-4 h-4 text-warmgrey shrink-0" />

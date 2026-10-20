@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import pool from '../lib/mysql';
 import bcrypt from 'bcryptjs';
+import { canonicalSkillTags } from '../lib/providerSkills';
 
 const router = Router();
 
@@ -70,13 +71,22 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
+    // Skill tags drive /api/availability + booking auto-assign — only real
+    // catalog names can ever match, so reject typos instead of storing them.
+    const { tags: skillTags, unknown: unknownSkills } = await canonicalSkillTags(services);
+    if (unknownSkills.length) {
+      return res.status(400).json({
+        error: `Unknown ${unknownSkills.length === 1 ? 'service' : 'services'}: ${unknownSkills.join(', ')}`,
+      });
+    }
+
     // Optional login password for the provider portal.
     const passwordHash = password ? await bcrypt.hash(password, 10) : null;
 
     const [result] = await pool.query(
       `INSERT INTO service_providers (name, email, password_hash, mobile, services, city, status, avatar, working_hours)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [name, email.trim().toLowerCase(), passwordHash, mobile, JSON.stringify(services), city, status, avatar || null, working_hours ? JSON.stringify(working_hours) : null]
+      [name, email.trim().toLowerCase(), passwordHash, mobile, JSON.stringify(skillTags), city, status, avatar || null, working_hours ? JSON.stringify(working_hours) : null]
     );
 
     return res.status(201).json({
@@ -99,6 +109,13 @@ router.put('/', async (req, res) => {
       return res.status(400).json({ error: 'Provider ID is required' });
     }
 
+    const { tags: skillTags, unknown: unknownSkills } = await canonicalSkillTags(services);
+    if (unknownSkills.length) {
+      return res.status(400).json({
+        error: `Unknown ${unknownSkills.length === 1 ? 'service' : 'services'}: ${unknownSkills.join(', ')}`,
+      });
+    }
+
     // Only update the password when a new one is explicitly provided.
     if (password) {
       const passwordHash = await bcrypt.hash(password, 10);
@@ -112,7 +129,7 @@ router.put('/', async (req, res) => {
       `UPDATE service_providers 
        SET name = ?, email = ?, mobile = ?, services = ?, city = ?, status = ?, avatar = ?, working_hours = ?
        WHERE id = ?`,
-      [name, email.trim().toLowerCase(), mobile, JSON.stringify(services), city, status, avatar, working_hours ? JSON.stringify(working_hours) : null, id]
+      [name, email.trim().toLowerCase(), mobile, JSON.stringify(skillTags), city, status, avatar, working_hours ? JSON.stringify(working_hours) : null, id]
     );
 
     return res.status(200).json({ success: true });

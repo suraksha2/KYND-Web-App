@@ -82,6 +82,23 @@ export async function fanOutOffersForBooking(input: FanOutInput): Promise<number
     for (const r of vsp as any[]) eligibleVendorIds.add(Number(r.vendor_id));
   }
 
+  // The marketplace auto-assignment in POST /api/bookings may already have
+  // handed this booking to one of a vendor's own team members. Offering it
+  // back to that vendor is a self-offer: accepting would convert a job they
+  // already hold into a fee-bearing kynd job, and letting it lapse reads as
+  // "Kynd offered it to another partner" about their own worker. The visit
+  // still shows on their Jobs page via the marketplace merge in
+  // GET /vendor/jobs, so the offer is simply never sent.
+  const [holderRows]: any = await pool.query(
+    `SELECT sp.vendor_id
+       FROM bookings b
+       JOIN service_providers sp ON sp.id = b.provider_id
+      WHERE b.id = ?`,
+    [bookingDbId]
+  );
+  const holderVendorId = (holderRows as any[])[0]?.vendor_id;
+  if (holderVendorId) eligibleVendorIds.delete(Number(holderVendorId));
+
   if (!eligibleVendorIds.size) return 0;
 
   const expiryMinutes = Math.min(
