@@ -394,7 +394,7 @@ function PricingPanel({ category, canManage, onSubmitted }) {
     <div className="border-t border-lightstone px-5 sm:px-6 py-5">
       {editable && (
         <p className="mb-4 rounded-xl bg-amber-50 border border-amber-100 text-amber-800 text-xs px-4 py-2.5">
-          Add a price for each service you offer in this category, then submit. Kynd approves prices before offers start.
+          Add a price for each service you offer in this category, then submit for Kynd's review.
         </p>
       )}
       {category.status === 'rejected' && category.reviewNote && (
@@ -575,7 +575,7 @@ export default function Services() {
 
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <p className="text-sm text-warmgrey max-w-xl">
-          What you offer on Kynd and when. Add a category any time. Kynd reviews new categories before sending offers for them.
+          What you offer on Kynd and when. Add a category any time. Kynd reviews new categories before they go live.
         </p>
         {canManage && (
           <button
@@ -596,7 +596,7 @@ export default function Services() {
       ) : categories.length === 0 ? (
         <div className="bg-white rounded-3xl border border-lightstone shadow-soft flex flex-col items-center justify-center py-12 text-center">
           <Store className="w-7 h-7 text-warmgrey mb-2" />
-          <p className="text-sm text-warmgrey">No service categories yet. Add one to start getting offers.</p>
+          <p className="text-sm text-warmgrey">No service categories yet. Add one to set up your services.</p>
         </div>
       ) : (
         <div className="space-y-4">

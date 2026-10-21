@@ -3,7 +3,8 @@ import { useAuth } from './context/AuthContext'
 import AppShell from './components/AppShell'
 import Login from './pages/Login'
 import Home from './pages/Home'
-import Offers from './pages/Offers'
+// Offer inbox is deferred until the multi-vendor stage.
+// import Offers from './pages/Offers'
 import Jobs from './pages/Jobs'
 import JobDetail from './pages/JobDetail'
 import Schedule from './pages/Schedule'
@@ -49,7 +50,10 @@ export default function App() {
         }
       >
         <Route index element={<Home />} />
+        {/* Offer inbox retained for a later stage:
         <Route path="offers" element={<Offers />} />
+        */}
+        <Route path="offers" element={<Navigate to="/jobs" replace />} />
         <Route path="jobs" element={<Jobs />} />
         <Route path="jobs/:id" element={<JobDetail />} />
         <Route path="schedule" element={<Schedule />} />

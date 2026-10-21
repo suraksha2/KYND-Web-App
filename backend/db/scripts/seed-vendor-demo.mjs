@@ -1,5 +1,5 @@
-// Seed a demo vendor (Partner OS) account with a team, today's jobs, an open
-// offer, a pending payout and an expiring cert, so the vendor portal Home
+// Seed a demo vendor (Partner OS) account with a team, today's jobs,
+// a pending payout and an expiring cert, so the vendor portal Home
 // screen has something to show locally. Not part of db.sql — that file is
 // schema-only; this is throwaway local/demo data, safe to run more than once.
 //
@@ -128,10 +128,11 @@ async function main() {
     }
     console.log(`Team ready: ${Object.keys(teamIds).join(', ')}`);
 
-    // Clear out this vendor's previous demo jobs/offers so the script is
+    // Clear out this vendor's previous demo jobs so the script is
     // re-runnable without piling up duplicates.
     await pool.query('DELETE FROM jobs WHERE vendor_id = ?', [vendorId]);
-    await pool.query('DELETE FROM offers WHERE vendor_id = ?', [vendorId]);
+    // Later multi-vendor stage:
+    // await pool.query('DELETE FROM offers WHERE vendor_id = ?', [vendorId]);
     await pool.query('DELETE FROM vendor_payouts WHERE vendor_id = ?', [vendorId]);
 
     // 4. Today's jobs
@@ -194,6 +195,7 @@ async function main() {
     }
     console.log(`Seeded ${jobs.length} jobs for today.`);
 
+    /* Offer inbox deferred until the multi-vendor stage.
     // 5. Offers: one still open (long enough to click around the inbox), plus
     // a few expired ones so the "Closed" history isn't empty.
     const soon = sgtDateTime(new Date(Date.now() + 2 * 3600000));
@@ -217,6 +219,7 @@ async function main() {
       );
     }
     console.log(`Seeded 1 open offer + ${closedOffers.length} expired offers.`);
+    */
 
     // 6. A pending payout for last Mon–Sun week with its member jobs stamped —
     // mirrors what the real payout batch produces (src/lib/payouts.ts): jobs

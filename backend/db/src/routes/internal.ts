@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { timingSafeEqual } from 'node:crypto';
-import pool from '../lib/mysql';
+// Later multi-vendor stage (expire-offers): import pool from '../lib/mysql';
 import { findDueOccurrences, markNotified, topUpOccurrences } from '../lib/occurrences';
 import { findMissedBookings, findMissedOccurrences, markMissedNotified } from '../lib/missed';
 import { sendProviderAssignmentWhatsApp, sendMissedJobsWhatsApp } from '../lib/whatsapp';
@@ -178,6 +178,7 @@ router.post('/run-payouts', async (req, res) => {
  *   * * * * * curl -fsS -X POST http://127.0.0.1:3001/api/internal/expire-offers \
  *     -H "Authorization: Bearer $INTERNAL_API_TOKEN" >> /var/log/kynd-offers.log 2>&1
  */
+/* Offer inbox deferred until the multi-vendor stage.
 router.post('/expire-offers', async (req, res) => {
   if (!isAuthorizedCaller(req.headers.authorization)) {
     return res.status(401).json({ error: 'Invalid internal token.' });
@@ -193,5 +194,6 @@ router.post('/expire-offers', async (req, res) => {
     return res.status(500).json({ error: 'Failed to expire offers.' });
   }
 });
+*/
 
 export default router;

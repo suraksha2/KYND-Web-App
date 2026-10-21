@@ -236,7 +236,7 @@ export default function BookingConfirmed() {
           <div className="mt-7 flex flex-col sm:flex-row gap-3 justify-center">
             <Link to="/" className="rounded-full bg-charcoal hover:bg-terracotta text-white font-semibold px-6 py-3 text-sm">Back to home</Link>
             <Link to={`/bookings/${order.bookingId}`} className="rounded-full bg-terracotta hover:bg-charcoal text-white font-semibold px-6 py-3 text-sm">View booking</Link>
-            <Link to="/services" className="rounded-full bg-white ring-1 ring-lightstone hover:ring-terracotta text-charcoal font-semibold px-6 py-3 text-sm">Book another</Link>
+            <Link to="/#services" className="rounded-full bg-white ring-1 ring-lightstone hover:ring-terracotta text-charcoal font-semibold px-6 py-3 text-sm">Book another</Link>
           </div>
         </div>
       </div>

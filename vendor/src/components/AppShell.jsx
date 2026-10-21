@@ -7,7 +7,7 @@ import { Sidebar, MobileDrawer, MobileTabBar } from './Sidebar'
 import LateJobBanner from './LateJobBanner'
 
 // Loads the vendor + home data once at the shell level so the sidebar badges
-// (needs-attention count, offers waiting) and the Home page itself share a
+// (needs-attention count) and the Home page itself share a
 // single fetch, and re-fetches are a single `reload()` call away from any page.
 export default function AppShell() {
   const { user, token, logout } = useAuth()
@@ -49,7 +49,7 @@ export default function AppShell() {
 
   const badges = {
     needsAttention: home?.needsAttention?.length || 0,
-    offersWaiting: home?.offersWaiting || 0,
+    // Later multi-vendor stage: offersWaiting: home?.offersWaiting || 0,
   }
 
   // Home already renders the full "Needs attention" board, so the pinned

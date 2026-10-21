@@ -8,6 +8,7 @@ import Addons from './pages/Addons'
 import CatalogServices from './pages/CatalogServices'
 import Pro from './pages/Pro'
 import Vendors from './pages/Vendors'
+import VendorDetail from './pages/VendorDetail'
 import VendorPayouts from './pages/VendorPayouts'
 import VendorServices from './pages/VendorServices'
 import Analytics from './pages/Analytics'
@@ -32,6 +33,8 @@ export default function App() {
         <Route path="/help-moments" element={<ServiceSubcategories />} />
         <Route path="/pro" element={<Pro />} />
         <Route path="/vendors" element={<Vendors />} />
+        <Route path="/vendors/:id" element={<VendorDetail />} />
+        {/* <Route path="/vendors/:id" element={<VendorDetail />} /> */}
         <Route path="/vendor-services" element={<VendorServices />} />
         <Route path="/vendor-payouts" element={<VendorPayouts />} />
         <Route path="/analytics" element={<Analytics />} />

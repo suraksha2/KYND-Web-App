@@ -75,6 +75,7 @@ function transformBooking(row) {
       scheduledAt: toSgtIso(o.scheduled_at),
       status: o.status,
       notifiedAt: toSgtIso(o.notified_at),
+      providerName: o.provider_name || null,
     })),
     contact: {
       name: row.contact_name,

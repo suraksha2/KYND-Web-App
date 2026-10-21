@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useNavigate, useOutletContext } from 'react-router-dom'
 import { AlertCircle, Download, Loader2 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
@@ -65,7 +65,7 @@ function TotalEarnedCard({ earned }) {
                 <span className={d.aheadOfLast > 0 ? 'text-sage font-semibold' : 'text-danger font-semibold'}>
                   {formatMoney(Math.abs(d.aheadOfLast))} {d.aheadOfLast > 0 ? 'ahead' : 'behind'}
                 </span>{' '}
-                of the same point last {period === 'week' ? 'week' : 'month'}
+                {period === 'week' ? 'of the same point last week' : 'compared with the previous month'}
               </>
             )}
           </p>
@@ -121,7 +121,7 @@ function RevenueByWeekCard({ weeklyRevenue }) {
               <span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-terracotta" /> Kynd</span>
               <span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-sage" /> Own</span>
             </div>
-            <p className="text-[11px] text-warmgrey">This week is still in progress, shown lighter.</p>
+            <p className="text-[11px] text-warmgrey">Completed work only. This week is shown lighter.</p>
           </div>
         </>
       )}
@@ -196,18 +196,13 @@ function PayoutsCard({ payouts, onError }) {
   )
 }
 
-// Same "Profit by service" card as the original design (title, "Costs" link,
-// per-service margin bar), but margin/staff/other cost can't be computed
-// honestly yet — there's no expenses/payroll table in the schema. Revenue
-// itself (from completed/paid jobs) is real; margin is shown as "—" with a
-// note explaining why, instead of a fabricated percentage.
-function ProfitByServiceCard({ revenueByCategory }) {
+function RevenueByServiceCard({ revenueByCategory }) {
   const navigate = useNavigate()
   const rows = revenueByCategory || []
   const max = Math.max(...rows.map((r) => r.amount), 1)
   return (
     <SectionCard
-      title="Profit by service"
+      title="Revenue by service"
       aside={
         <button
           onClick={() => navigate('/expenses')}
@@ -218,7 +213,7 @@ function ProfitByServiceCard({ revenueByCategory }) {
       }
     >
       <p className="text-xs text-warmgrey -mt-2 mb-4">
-        Last 30 days · margin needs cost tracking, which isn't set up yet — showing revenue only
+        Completed work in the last 30 days · before staff pay and other costs
       </p>
       {rows.length === 0 ? (
         <EmptyState label="No completed jobs in the last 30 days." />
@@ -233,7 +228,6 @@ function ProfitByServiceCard({ revenueByCategory }) {
               <div className="mt-2 h-2 w-full rounded-full bg-lightstone/60 overflow-hidden">
                 <div className="h-full bg-sage rounded-full" style={{ width: `${(r.amount / max) * 100}%` }} />
               </div>
-              <p className="mt-2 text-xs text-warmgrey">Margin — not available yet</p>
             </div>
           ))}
         </div>
@@ -242,11 +236,7 @@ function ProfitByServiceCard({ revenueByCategory }) {
   )
 }
 
-// Same "Outstanding invoices" card as the original design, but there is no
-// `invoices` table in the schema at all yet (Invoices.jsx is still a static
-// mock page), so this shows an honest empty state instead of fabricated
-// unpaid/overdue counts.
-function OutstandingInvoicesCard() {
+function OutstandingInvoicesCard({ invoices }) {
   const navigate = useNavigate()
   return (
     <SectionCard
@@ -260,8 +250,10 @@ function OutstandingInvoicesCard() {
         </button>
       }
     >
-      <p className="font-heading text-4xl font-bold text-charcoal">{formatMoney(0)}</p>
-      <p className="mt-1.5 text-sm text-warmgrey">Invoice tracking isn't set up yet.</p>
+      <p className="font-heading text-4xl font-bold text-charcoal">{formatMoney(invoices?.total)}</p>
+      <p className="mt-1.5 text-sm text-warmgrey">
+        {invoices?.count ? `${invoices.count} unpaid · ${invoices.overdue} overdue` : 'No outstanding invoices.'}
+      </p>
     </SectionCard>
   )
 }
@@ -294,7 +286,7 @@ function RevenueByTeamCard({ teamRevenue }) {
 }
 
 export default function Overview() {
-  const { profile, home } = useOutletContext()
+  const { home } = useOutletContext()
   const { token } = useAuth()
 
   const [data, setData] = useState(null)
@@ -318,13 +310,11 @@ export default function Overview() {
     load()
   }, [load])
 
-  const [category, setCategory] = useState('all')
-  const categories = useMemo(() => profile?.vendor?.categories || [], [profile])
   const alerts = home?.needsAttention || []
 
   return (
     <div className="space-y-6 max-w-6xl">
-      <MoneyHeader title="Money" categories={categories} category={category} onCategory={setCategory} />
+      <MoneyHeader title="Money" />
 
       {alerts.length > 0 && (
         <div className="space-y-3">
@@ -353,10 +343,10 @@ export default function Overview() {
           <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 items-start">
             <div className="lg:col-span-3 space-y-6">
               <PayoutsCard payouts={data?.payouts} onError={setError} />
-              <ProfitByServiceCard revenueByCategory={data?.revenueByCategory} />
+              <RevenueByServiceCard revenueByCategory={data?.revenueByCategory} />
             </div>
             <div className="lg:col-span-2 space-y-6">
-              <OutstandingInvoicesCard />
+              <OutstandingInvoicesCard invoices={data?.outstandingInvoices} />
               <RevenueByTeamCard teamRevenue={data?.teamRevenue} />
             </div>
           </div>

@@ -2,8 +2,10 @@ import { useEffect, useState } from "react";
 import { Building2, Loader2, Pencil, Plus, X } from "lucide-react";
 import clsx from "clsx";
 import { apiFetch } from "@/lib/api";
+import TablePagination from "@/components/TablePagination";
+import { usePagination } from "@/lib/usePagination";
 import { useAuth } from "@/context/AuthContext";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 type Vendor = {
   id: number;
@@ -376,6 +378,7 @@ export default function VendorsPage() {
   const [busyId, setBusyId] = useState<number | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [editingVendor, setEditingVendor] = useState<Vendor | null>(null);
+  const { pageItems, pagination } = usePagination(vendors);
 
   async function load() {
     setLoading(true);
@@ -465,9 +468,14 @@ export default function VendorsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-lightstone/50">
-                {vendors.map((v) => (
+                {pageItems.map((v) => (
                   <tr key={v.id} className="hover:bg-accent-50/70 transition">
-                    <td className="px-4 py-3 font-semibold text-charcoal whitespace-nowrap">{v.name}</td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <Link to={`/vendors/${v.id}`} className="font-semibold text-terracotta hover:underline">
+                        {v.name}
+                      </Link>
+                      <p className="text-[11px] text-warmgrey mt-0.5">View services &amp; prices</p>
+                    </td>
                     <td className="px-4 py-3 text-warmgrey max-w-xs truncate">{v.categories.join(", ") || "—"}</td>
                     <td className="px-4 py-3 text-warmgrey whitespace-nowrap">{v.city}</td>
                     <td className="px-4 py-3 whitespace-nowrap">
@@ -513,6 +521,7 @@ export default function VendorsPage() {
             </table>
           </div>
         )}
+        {!loading && !error && <TablePagination {...pagination} label="vendors" />}
       </div>
 
       {showModal && <AddVendorModal onClose={() => setShowModal(false)} onCreated={load} />}

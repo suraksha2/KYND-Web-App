@@ -24,6 +24,7 @@ router.get('/', async (_req, res) => {
         b.payment,
         b.provider_id,
         b.assigned_at,
+        b.history,
         sp.name as providerName,
         sp.mobile as providerMobile,
         sp.city as providerCity,

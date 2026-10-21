@@ -1,4 +1,5 @@
 import pool from './mysql';
+import type { PoolConnection } from 'mysql2/promise';
 import { PLANNED_OCCURRENCES, anchorWallMs, nextWeekdayVisits, type Recurrence } from './recurrence';
 import { sgtDateTime } from './sgt';
 
@@ -8,11 +9,12 @@ import { sgtDateTime } from './sgt';
 async function insertOccurrences(
   bookingDbId: number,
   providerId: number | null,
-  visits: { seq: number; at: string | null }[]
+  visits: { seq: number; at: string | null }[],
+  db: typeof pool | PoolConnection = pool
 ): Promise<number> {
   const rows = visits.filter((v) => v.at);
   if (!rows.length) return 0;
-  const [result]: any = await pool.query(
+  const [result]: any = await db.query(
     `INSERT IGNORE INTO booking_occurrences (booking_id, seq, scheduled_at, provider_id)
      VALUES ${rows.map(() => '(?, ?, ?, ?)').join(', ')}`,
     rows.flatMap((v) => [bookingDbId, v.seq, v.at, providerId])
@@ -32,12 +34,14 @@ const SGT_STRING = (col: string, alias: string) =>
 export function createOccurrences(
   bookingDbId: number,
   providerId: number | null,
-  plan: Recurrence
+  plan: Recurrence,
+  db: typeof pool | PoolConnection = pool
 ): Promise<number> {
   return insertOccurrences(
     bookingDbId,
     providerId,
-    plan.occurrences.map((iso, i) => ({ seq: i + 1, at: sgtDateTime(iso) }))
+    plan.occurrences.map((iso, i) => ({ seq: i + 1, at: sgtDateTime(iso) })),
+    db
   );
 }
 
@@ -47,7 +51,25 @@ export function createOccurrences(
  * horizon does not have to be materialized months in advance.
  */
 export async function topUpOccurrences(bookingDbId: number): Promise<number> {
-  const [rows]: any = await pool.query(
+  const db = await pool.getConnection();
+  try {
+    await db.beginTransaction();
+    // Reassignment locks the same parent: new visits must inherit the saved
+    // series owner, even when cron and an admin act at the same time.
+    await db.query('SELECT id FROM bookings WHERE id = ? FOR UPDATE', [bookingDbId]);
+    const added = await topUpLocked(bookingDbId, db);
+    await db.commit();
+    return added;
+  } catch (error) {
+    await db.rollback();
+    throw error;
+  } finally {
+    db.release();
+  }
+}
+
+async function topUpLocked(bookingDbId: number, db: PoolConnection): Promise<number> {
+  const [rows]: any = await db.query(
     `SELECT b.recurrence, b.provider_id,
             MAX(o.seq) AS last_seq,
             ${SGT_STRING('MAX(o.scheduled_at)', 'last_at')},
@@ -79,12 +101,12 @@ export async function topUpOccurrences(bookingDbId: number): Promise<number> {
       seq: lastSeq + i + 1,
       at: new Date(t).toISOString().slice(0, 19).replace('T', ' '),
     }));
-    return insertOccurrences(bookingDbId, row.provider_id ?? null, visits);
+    return insertOccurrences(bookingDbId, row.provider_id ?? null, visits, db);
   }
 
   // Step forward from the last planned visit in MySQL's own wall-clock so the
   // cadence stays exact no matter what timezone the API process runs in.
-  const [steps]: any = await pool.query(
+  const [steps]: any = await db.query(
     `SELECT ${Array.from({ length: missing },
       (_, i) => `DATE_FORMAT(DATE_ADD(?, INTERVAL ${(i + 1) * plan.intervalDays} DAY), '%Y-%m-%d %H:%i:%s') AS at${i}`
     ).join(', ')}`,
@@ -96,7 +118,7 @@ export async function topUpOccurrences(bookingDbId: number): Promise<number> {
     at: steps[0][`at${i}`] as string,
   }));
 
-  return insertOccurrences(bookingDbId, row.provider_id ?? null, visits);
+  return insertOccurrences(bookingDbId, row.provider_id ?? null, visits, db);
 }
 
 export type DueOccurrence = {
@@ -166,47 +188,36 @@ export type CompletedOccurrence = {
  * Mark the next upcoming visit of a recurring booking as completed and top the
  * series up so future visits stay visible. Returns the completed occurrence.
  */
-export async function completeNextOccurrence(bookingDbId: number): Promise<CompletedOccurrence | null> {
-  const [rows]: any = await pool.query(
-    `SELECT id, seq, ${SGT_STRING('scheduled_at', 'scheduled_at')}
-       FROM booking_occurrences
-      WHERE booking_id = ? AND status = 'upcoming'
-      ORDER BY seq ASC
-      LIMIT 1`,
-    [bookingDbId]
-  );
-
-  const next = rows?.[0];
-  if (!next) {
-    // No upcoming visit to complete; top-up in case the series ran dry and retry.
-    await topUpOccurrences(bookingDbId);
-    const [retry]: any = await pool.query(
+export async function completeNextOccurrence(bookingDbId: number, providerId?: number): Promise<CompletedOccurrence | null> {
+  const db = await pool.getConnection();
+  try {
+    await db.beginTransaction();
+    const [parents]: any = await db.query('SELECT status FROM bookings WHERE id = ? FOR UPDATE', [bookingDbId]);
+    if (parents[0]?.status !== 'upcoming') {
+      await db.commit();
+      return null;
+    }
+    const [rows]: any = await db.query(
       `SELECT id, seq, ${SGT_STRING('scheduled_at', 'scheduled_at')}
          FROM booking_occurrences
         WHERE booking_id = ? AND status = 'upcoming'
-        ORDER BY seq ASC
-        LIMIT 1`,
-      [bookingDbId]
+          ${providerId == null ? '' : 'AND provider_id = ?'}
+        ORDER BY scheduled_at ASC LIMIT 1 FOR UPDATE`,
+      providerId == null ? [bookingDbId] : [bookingDbId, providerId]
     );
-    if (!retry?.[0]) return null;
-    await pool.query(
-      `UPDATE booking_occurrences
-          SET status = 'completed', completed_at = NOW()
-        WHERE id = ?`,
-      [retry[0].id]
-    );
-    return retry[0] as CompletedOccurrence;
+    const next = rows[0];
+    if (next) {
+      await db.query("UPDATE booking_occurrences SET status = 'completed', completed_at = NOW() WHERE id = ?", [next.id]);
+      await topUpLocked(bookingDbId, db);
+    }
+    await db.commit();
+    return next || null;
+  } catch (error) {
+    await db.rollback();
+    throw error;
+  } finally {
+    db.release();
   }
-
-  await pool.query(
-    `UPDATE booking_occurrences
-        SET status = 'completed', completed_at = NOW()
-      WHERE id = ?`,
-    [next.id]
-  );
-
-  await topUpOccurrences(bookingDbId);
-  return next as CompletedOccurrence;
 }
 
 /**
@@ -220,12 +231,13 @@ export async function withOccurrences<T extends { id: number; schedule?: string 
   if (!recurringIds.length) return bookings;
 
   const [rows]: any = await pool.query(
-    `SELECT id, booking_id, seq, status,
-            ${SGT_STRING('scheduled_at', 'scheduled_at')},
-            ${SGT_STRING('notified_at', 'notified_at')}
-       FROM booking_occurrences
-      WHERE booking_id IN (${recurringIds.map(() => '?').join(',')})
-      ORDER BY seq ASC`,
+    `SELECT o.id, o.booking_id, o.seq, o.status, o.provider_id, sp.name AS provider_name,
+            ${SGT_STRING('o.scheduled_at', 'scheduled_at')},
+            ${SGT_STRING('o.notified_at', 'notified_at')}
+       FROM booking_occurrences o
+       LEFT JOIN service_providers sp ON sp.id = o.provider_id
+      WHERE o.booking_id IN (${recurringIds.map(() => '?').join(',')})
+      ORDER BY o.seq ASC`,
     recurringIds
   );
 

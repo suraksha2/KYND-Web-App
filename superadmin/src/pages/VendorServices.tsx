@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { Check, Loader2, Store, X } from "lucide-react";
 import clsx from "clsx";
 import { apiFetch } from "@/lib/api";
+import TablePagination from "@/components/TablePagination";
+import { usePagination } from "@/lib/usePagination";
 import { useAuth } from "@/context/AuthContext";
 import { useNavigate } from "react-router-dom";
 
@@ -94,6 +96,7 @@ function FlatPricingPanel() {
   const navigate = useNavigate();
   const [tab, setTab] = useState("under_review");
   const [listings, setListings] = useState<Listing[]>([]);
+  const { pageItems, pagination, resetPage } = usePagination(listings);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
@@ -154,7 +157,7 @@ function FlatPricingPanel() {
         {TABS.map((t) => (
           <button
             key={t.key || "all"}
-            onClick={() => setTab(t.key)}
+            onClick={() => { setTab(t.key); resetPage(); }}
             className={clsx(
               "px-3.5 py-1.5 rounded-xl text-sm font-semibold border transition",
               tab === t.key ? "bg-terracotta text-white border-terracotta" : "bg-white text-warmgrey border-lightstone hover:text-charcoal"
@@ -191,7 +194,7 @@ function FlatPricingPanel() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-lightstone/50">
-                {listings.map((l) => (
+                {pageItems.map((l) => (
                   <tr key={l.id} className="hover:bg-accent-50/70 transition">
                     <td className="px-4 py-3 font-semibold text-charcoal whitespace-nowrap">{l.vendor_name}</td>
                     <td className="px-4 py-3 text-warmgrey whitespace-nowrap">{l.category}</td>
@@ -231,6 +234,7 @@ function FlatPricingPanel() {
             </table>
           </div>
         )}
+        {!loading && !error && <TablePagination {...pagination} label="listings" />}
       </div>
 
       {rejecting && (
@@ -274,6 +278,7 @@ function PartnerCategoriesPanel() {
   const navigate = useNavigate();
   const [tab, setTab] = useState("under_review");
   const [rows, setRows] = useState<PartnerCategory[]>([]);
+  const { pageItems, pagination, resetPage } = usePagination(rows);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
@@ -351,7 +356,7 @@ function PartnerCategoriesPanel() {
         {TABS.map((t) => (
           <button
             key={t.key || "all"}
-            onClick={() => setTab(t.key)}
+            onClick={() => { setTab(t.key); resetPage(); }}
             className={clsx(
               "px-3.5 py-1.5 rounded-xl text-sm font-semibold border transition",
               tab === t.key ? "bg-terracotta text-white border-terracotta" : "bg-white text-warmgrey border-lightstone hover:text-charcoal"
@@ -388,7 +393,7 @@ function PartnerCategoriesPanel() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-lightstone/50">
-                {rows.map((r) => (
+                {pageItems.map((r) => (
                   <tr key={r.id} className="hover:bg-accent-50/70 transition">
                     <td className="px-4 py-3 font-semibold text-charcoal whitespace-nowrap">{r.vendor_name}</td>
                     <td className="px-4 py-3 text-warmgrey whitespace-nowrap">
@@ -432,6 +437,7 @@ function PartnerCategoriesPanel() {
             </table>
           </div>
         )}
+        {!loading && !error && <TablePagination {...pagination} label="service categories" />}
       </div>
 
       {viewing && (

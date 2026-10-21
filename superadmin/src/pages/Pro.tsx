@@ -2,6 +2,8 @@ import React, { useEffect, useState } from "react";
 import { Plus, Search, Star, X, Wrench, Pencil } from "lucide-react";
 import clsx from "clsx";
 import ModalPortal from "@/components/ModalPortal";
+import TablePagination from "@/components/TablePagination";
+import { usePagination } from "@/lib/usePagination";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { useNavigate } from "react-router-dom";
@@ -214,6 +216,8 @@ export default function ProPage() {
     );
   });
 
+  const { pageItems, pagination, resetPage } = usePagination(filtered);
+
   const inputCls =
     "w-full px-3 py-2 text-sm bg-gray-50 border border-lightstone rounded-xl focus:outline-none focus:ring-2 focus:ring-terracotta/30 focus:border-terracotta transition placeholder:text-warmgrey";
 
@@ -231,7 +235,7 @@ export default function ProPage() {
               type="text"
               placeholder="Search providers..."
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => { setSearch(e.target.value); resetPage(); }}
               className="pl-8 pr-4 py-2 text-sm bg-white border border-lightstone rounded-xl focus:outline-none focus:ring-2 focus:ring-terracotta/30 w-64 transition"
             />
           </div>
@@ -286,7 +290,7 @@ export default function ProPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-lightstone/50">
-                {filtered.map((provider) => {
+                {pageItems.map((provider) => {
                   const st = statusCfg[provider.status] ?? statusCfg.inactive;
                   return (
                     <tr key={provider.id} className="hover:bg-accent-50/70 transition">
@@ -352,6 +356,9 @@ export default function ProPage() {
               </div>
             )}
           </div>
+        )}
+        {!loading && !error && (
+          <TablePagination {...pagination} label="providers" overallTotal={providers.length} />
         )}
       </div>
 

@@ -37,7 +37,7 @@ export default function Login() {
             <p className="font-heading text-4xl font-bold lowercase tracking-tight text-terracotta">kynd</p>
             <h1 className="mt-3 font-heading text-sm font-semibold uppercase tracking-[0.2em] text-warmgrey">Partner OS</h1>
             <h2 className="mt-6 font-heading text-2xl sm:text-3xl font-bold text-charcoal">Welcome back</h2>
-            <p className="mt-2 text-warmgrey text-base">Sign in to run your team's jobs, offers and payouts.</p>
+            <p className="mt-2 text-warmgrey text-base">Sign in to run your team's jobs, schedule and payouts.</p>
           </div>
 
           {error && (

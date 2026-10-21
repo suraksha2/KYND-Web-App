@@ -109,7 +109,7 @@ export default function Home() {
         <div>
           <h1 className="font-heading text-2xl sm:text-3xl font-bold text-charcoal">{greeting()}, {firstName}</h1>
           <p className="mt-1 text-sm text-warmgrey">
-            {todayLabel} · {home?.today?.jobsCount ?? 0} jobs today, {home?.offersWaiting ?? 0} offers waiting, {needsAttention.length} things to check
+            {todayLabel} · {home?.today?.jobsCount ?? 0} jobs today, {needsAttention.length} things to check
           </p>
         </div>
         <button
@@ -152,8 +152,8 @@ export default function Home() {
         </section>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <section className="lg:col-span-2 bg-white rounded-3xl border border-lightstone shadow-soft p-5 sm:p-6">
+      <div className="grid grid-cols-1 gap-6">
+        <section className="bg-white rounded-3xl border border-lightstone shadow-soft p-5 sm:p-6">
           <div className="flex items-center justify-between gap-4 mb-4 flex-wrap">
             <h2 className="font-heading text-lg font-bold text-charcoal">Today's jobs</h2>
             <div className="flex items-center gap-4">
@@ -174,7 +174,7 @@ export default function Home() {
                 <CircleDot className="w-7 h-7 text-warmgrey" />
               </div>
               <p className="font-heading text-base font-bold text-charcoal">No jobs today</p>
-              <p className="text-warmgrey text-sm mt-1">Accepted offers and your own jobs will show up here.</p>
+              <p className="text-warmgrey text-sm mt-1">Assigned bookings and your own jobs will show up here.</p>
             </div>
           ) : (
             <div className="space-y-3">
@@ -183,6 +183,7 @@ export default function Home() {
           )}
         </section>
 
+        {/* Offer inbox retained for the later multi-vendor stage.
         <section className="bg-white rounded-3xl border border-lightstone shadow-soft p-5 sm:p-6 flex flex-col">
           <div className="flex items-center justify-between gap-4 mb-2">
             <h2 className="font-heading text-lg font-bold text-charcoal">Offers waiting</h2>
@@ -198,6 +199,7 @@ export default function Home() {
             <p className="mt-1 text-sm text-warmgrey">{home?.offersWaiting === 1 ? 'offer waiting' : 'offers waiting'}</p>
           </div>
         </section>
+        */}
       </div>
 
       {canSeeMoney && thisWeek && (

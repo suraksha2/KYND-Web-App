@@ -70,10 +70,41 @@ export default function QuickAddJob({ categories, services, team, onClose, onCre
     return set
   }, [team, form.date])
 
+  const normalizeSkill = (value) => String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[’‘]/g, "'")
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  const requiredSkillTags = useMemo(() => {
+    const exact = categoryServices.find((s) => normalizeSkill(s.label) === normalizeSkill(form.serviceLabel))
+    if (exact?.skillTags?.length) return exact.skillTags
+    return form.category ? [form.category] : []
+  }, [categoryServices, form.serviceLabel, form.category])
+
+  const unqualified = useMemo(() => {
+    const required = new Set(requiredSkillTags.map(normalizeSkill))
+    const set = new Set()
+    if (!required.size) return set
+    for (const m of team || []) {
+      const skills = new Set((m.services || []).map(normalizeSkill))
+      if (![...required].some((tag) => skills.has(tag))) set.add(m.id)
+    }
+    return set
+  }, [team, requiredSkillTags])
+
   const submit = async (e) => {
     e.preventDefault()
     setSubmitting(true)
     setError('')
+    if (form.assigneeId && unqualified.has(Number(form.assigneeId))) {
+      setSubmitting(false)
+      setError('That team member does not have the skill required for this service.')
+      return
+    }
     try {
       await vendorFetch('/vendor/jobs', token, {
         method: 'POST',
@@ -197,8 +228,8 @@ export default function QuickAddJob({ categories, services, team, onClose, onCre
               >
                 <option value="">Not assigned yet</option>
                 {(team || []).map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.name}{onLeave.has(m.id) ? ' · On leave' : clashes.has(m.id) ? ' · Clash' : ''}
+                  <option key={m.id} value={m.id} disabled={unqualified.has(m.id)}>
+                    {m.name}{unqualified.has(m.id) ? ' · No matching skill' : onLeave.has(m.id) ? ' · On leave' : clashes.has(m.id) ? ' · Clash' : ''}
                   </option>
                 ))}
               </select>

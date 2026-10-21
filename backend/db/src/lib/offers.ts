@@ -1,3 +1,5 @@
+// Retained for the later multi-vendor stage. Booking fan-out, inbox routes,
+// expiry cron, demo seeding and UI entry points are currently commented out.
 import pool from './mysql';
 import { sgtDateTime } from './sgt';
 

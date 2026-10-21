@@ -147,8 +147,34 @@ session) plus a first-session calendar. "Monthly" sends the `fourweekly` preset
 - `src/lib/occurrences.ts` — writes the series, tops it up so four visits stay
   ahead, and finds visits due for notification. `(booking_id, seq)` is unique and
   inserts use `INSERT IGNORE`, so re-running any of it is safe.
-- Provider matching in `POST /api/bookings` scores candidates across the **whole**
-  series, not just the first visit, but requires the first visit to be free.
+- Provider matching in `POST /api/bookings` requires skills for **every** booked
+  service and availability for **every** initially planned visit. Shared checks
+  in `src/lib/providerSchedule.ts` cover working hours, leave, one-off bookings,
+  recurring occurrences and vendor jobs; `/api/availability` uses them too.
+  No qualified free worker leaves the booking unassigned for admin handling.
+  Assignment locks the city's active roster until the provider and occurrences
+  are saved, so concurrent customer bookings cannot claim the same free slot.
+  From `backend/db`, run `npm run build` then
+  `node --test scripts/test-provider-assignment.mjs` to check matching/scheduling
+  using connection-local temporary MySQL tables (requires the configured DB).
+- **Replacement cover**: Superadmin Orders > booking details > Provider can
+  reassign across active vendors and independent providers. Vendor Jobs >
+  marketplace visit > Assigned to > Reassign lets owners/managers choose their
+  own team's replacement. `src/lib/bookingAssignment.ts` serves admin
+  `GET /bookings/:id/assignment-options`, `PUT /bookings/:id` and vendor
+  `GET /vendor/bookings/:id/assignment-options`, `PUT /vendor/bookings/:id/assignment`.
+  Writes require `provider_id` and a `reason`; optional `occurrenceId` changes
+  only that visit. Without it, all open visits plus the future series owner
+  change together. Skills, city, active status, working hours, leave and
+  schedule conflicts are checked again under roster/booking locks. Vendors
+  cannot take another vendor's work; field seats cannot reassign. Changes
+  append actor/reason/old assignments to `bookings.history`, preserve closed
+  visits, reset visit dispatch flags and attempt WhatsApp to the replacement
+  after commit. Delivery failures return a warning without undoing the save.
+  Vendor recurring detail URLs are `mkt-{bookingId}-{occurrenceId}`; single
+  bookings retain `mkt-{bookingId}`. Provider task lists/completion use each
+  occurrence's owner. The assignment regression script above covers these
+  permissions, transfers and future occurrence ownership.
 - `POST /api/internal/dispatch-due` (cron; `INTERNAL_API_TOKEN` bearer, min 16
   chars) WhatsApps the partner about each visit starting within `withinHours`
   (default 24), sets `notified_at` only on success, then tops the series up.
@@ -199,7 +225,13 @@ today is the Home-screen slice:
   `vendor_payouts` and `team_member_certs` back the "pending payout" and
   "training expiring" alerts.
 - **Offer fan-out**: `fanOutOffersForBooking` (`backend/db/src/lib/offers.ts`),
-  called from `POST /api/bookings` after the existing marketplace
+  **currently deferred for the single-vendor stage**. The booking fan-out call,
+  vendor inbox endpoints, expiry endpoint, demo offer seeding and frontend
+  import/route/navigation/card are commented out with restoration notes. The
+  implementation and tables are retained; `/vendor/offers` redirects to Jobs.
+  Bookings assign directly to qualified available `service_providers`, including
+  vendor team members, and appear through the existing marketplace work merge.
+  When restored, the fan-out is called from `POST /api/bookings` after the existing marketplace
   auto-assignment, inserts one `offers` row per vendor eligible to serve the
   booking — active, same city as `contact.city`, and holding a `live` listing
   for one of the booked services (`vendor_service_categories.subcategory_id`
@@ -262,6 +294,16 @@ today is the Home-screen slice:
   become `jobs` rows; `GET /vendor/home`, `/vendor/jobs` and `/vendor/money`
   all do this merge (visits are valued at the booking total where `jobs` use
   `net`).
+- Money overview's weekly chart uses completed work and completion dates, like
+  its earned total. `marketplaceMemberWork` accepts `dateBasis: 'completed'`
+  for financial windows (`'activity'` combines completions with upcoming work
+  on Home). Single-booking completion dates come from the last "Marked
+  completed" audit entry, falling back to the slot/placed time for legacy
+  rows; recurring visits use `booking_occurrences.completed_at`. Expenses
+  includes these direct visits in cost-per-job averages. Staff costs are
+  estimates using current pay rates and booked duration; only job-linked
+  expenses are allocated. The overview labels category totals as revenue,
+  before operating costs, and reads unpaid totals from `invoices`.
 - `backend/db/scripts/seed-vendor-demo.mjs` creates a demo vendor + owner login
   + team + today's jobs + an open offer + a pending payout + an expiring cert
   for local testing — it is **not** part of `db.sql` (schema only, no seed

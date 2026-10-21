@@ -6,6 +6,14 @@ import { vendorFetch } from '../lib/api'
 import { formatDayMonth, formatLeaveRange, initials } from '../lib/format'
 
 const inputCls = 'w-full rounded-xl border border-lightstone bg-white px-4 py-2.5 text-sm text-charcoal placeholder:text-warmgrey/60 focus:outline-none focus:ring-2 focus:ring-terracotta/40 focus:border-terracotta'
+const SG_MOBILE_PATTERN = '^\\+65[89]\\d{7}$'
+const sgMobileIsValid = (value) => /^\+65[89]\d{7}$/.test(value)
+
+const normalizeSgMobile = (value) => {
+  const digits = String(value || '').replace(/\D/g, '')
+  const after65 = digits.startsWith('65') ? digits.slice(2) : digits
+  return `+65${after65.slice(0, 8)}`
+}
 
 // Skill chips come from the vendor's own service listings — exact catalog
 // subcategory names — so a picked tag always matches what /api/availability
@@ -65,7 +73,7 @@ function SkillPicker({ options, selected, onToggle }) {
   )
 }
 
-const EMPTY_FORM = { name: '', email: '', mobile: '', password: '', services: [], status: 'active', isTeamLead: false }
+const EMPTY_FORM = { name: '', email: '', mobile: '+65', password: '', services: [], status: 'active', isTeamLead: false }
 
 function AddTeamMember({ onClose, onCreated }) {
   const { token } = useAuth()
@@ -75,6 +83,7 @@ function AddTeamMember({ onClose, onCreated }) {
   const skillOptions = useSkillOptions(token)
 
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }))
+  const setMobile = (e) => setForm((f) => ({ ...f, mobile: normalizeSgMobile(e.target.value) }))
 
   function toggleService(name) {
     setForm((f) => ({
@@ -89,6 +98,10 @@ function AddTeamMember({ onClose, onCreated }) {
     e.preventDefault()
     if (form.services.length === 0) {
       setError('Add at least one service this worker can do.')
+      return
+    }
+    if (!sgMobileIsValid(form.mobile)) {
+      setError('Enter a valid Singapore mobile: +65 followed by 8 digits starting with 8 or 9.')
       return
     }
     setSubmitting(true)
@@ -143,7 +156,17 @@ function AddTeamMember({ onClose, onCreated }) {
             </label>
             <label className="block">
               <span className="block text-xs font-semibold text-charcoal mb-1.5">Mobile</span>
-              <input required value={form.mobile} onChange={set('mobile')} placeholder="9123 4567" className={inputCls} />
+              <input
+                required
+                type="tel"
+                inputMode="tel"
+                pattern={SG_MOBILE_PATTERN}
+                title="Enter a valid Singapore number: +65 followed by 8 digits starting with 8 or 9"
+                value={form.mobile}
+                onChange={setMobile}
+                placeholder="+65 9123 4567"
+                className={inputCls}
+              />
             </label>
           </div>
 
@@ -203,7 +226,7 @@ export function EditTeamMember({ member, onClose, onSaved }) {
   const [form, setForm] = useState({
     name: member.name,
     email: member.email || '',
-    mobile: member.mobile || '',
+    mobile: normalizeSgMobile(member.mobile || ''),
     password: '',
     services: member.services || [],
     status: member.status,
@@ -214,6 +237,7 @@ export function EditTeamMember({ member, onClose, onSaved }) {
   const skillOptions = useSkillOptions(token, member.services || [])
 
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }))
+  const setMobile = (e) => setForm((f) => ({ ...f, mobile: normalizeSgMobile(e.target.value) }))
 
   function toggleService(name) {
     setForm((f) => ({
@@ -228,6 +252,10 @@ export function EditTeamMember({ member, onClose, onSaved }) {
     e.preventDefault()
     if (form.services.length === 0) {
       setError('Add at least one service this worker can do.')
+      return
+    }
+    if (!sgMobileIsValid(form.mobile)) {
+      setError('Enter a valid Singapore mobile: +65 followed by 8 digits starting with 8 or 9.')
       return
     }
     setSubmitting(true)
@@ -282,7 +310,17 @@ export function EditTeamMember({ member, onClose, onSaved }) {
             </label>
             <label className="block">
               <span className="block text-xs font-semibold text-charcoal mb-1.5">Mobile</span>
-              <input required value={form.mobile} onChange={set('mobile')} className={inputCls} />
+              <input
+                required
+                type="tel"
+                inputMode="tel"
+                pattern={SG_MOBILE_PATTERN}
+                title="Enter a valid Singapore number: +65 followed by 8 digits starting with 8 or 9"
+                value={form.mobile}
+                onChange={setMobile}
+                placeholder="+65 9123 4567"
+                className={inputCls}
+              />
             </label>
           </div>
 

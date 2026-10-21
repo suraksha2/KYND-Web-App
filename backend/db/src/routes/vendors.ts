@@ -55,6 +55,53 @@ router.get('/', async (_req, res) => {
   }
 });
 
+// Prices for one vendor, including catalog services and flat-rate listings.
+router.get('/:id/services', async (req, res) => {
+  const vendorId = Number(req.params.id);
+  if (!Number.isSafeInteger(vendorId) || vendorId <= 0) {
+    return res.status(400).json({ error: 'Invalid vendor ID.' });
+  }
+  try {
+    const [[vendor]]: any = await pool.query(
+      `SELECT id, name, city, contact_email AS contactEmail, mobile, status
+         FROM vendors WHERE id = ?`,
+      [vendorId]
+    );
+    if (!vendor) return res.status(404).json({ error: 'Vendor not found.' });
+
+    const [rows]: any = await pool.query(
+      `SELECT CONCAT('category-', vsc.id, '-', COALESCE(i.id, 0)) AS id,
+              c.name AS category, sc.name AS subcategory,
+              COALESCE(s.name, sc.name) AS name,
+              COALESCE(NULLIF(s.rate_type, ''), s.duration) AS unit,
+              i.price, vsc.status
+         FROM vendor_service_categories vsc
+         JOIN catalog_subcategories sc ON sc.id = vsc.subcategory_id
+         JOIN catalog_categories c ON c.id = sc.category_id
+         LEFT JOIN vendor_service_category_items i ON i.vendor_category_id = vsc.id
+         LEFT JOIN catalog_services s ON s.id = i.catalog_service_id
+        WHERE vsc.vendor_id = ?
+        UNION ALL
+       SELECT CONCAT('flat-', vsp.id) AS id, vsp.category, NULL AS subcategory,
+              vsp.category AS name, vsp.unit, vsp.price, vsp.status
+         FROM vendor_service_prices vsp
+        WHERE vsp.vendor_id = ?
+        ORDER BY category, subcategory, name, id`,
+      [vendorId, vendorId]
+    );
+    return res.json({
+      vendor,
+      services: rows.map((row: any) => ({
+        ...row,
+        price: row.price === null ? null : Number(row.price),
+      })),
+    });
+  } catch (error) {
+    console.error('[GET /api/vendors/:id/services]', error);
+    return res.status(500).json({ error: 'Failed to load vendor services and prices.' });
+  }
+});
+
 // Onboard a new partner company: a `vendors` row plus its first login seat
 // (`vendor_users`, role 'owner') in one transaction, so a vendor is never left
 // without a way to sign into their own Partner OS console.

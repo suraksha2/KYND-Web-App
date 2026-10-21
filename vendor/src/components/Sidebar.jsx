@@ -1,6 +1,6 @@
 import { NavLink } from 'react-router-dom'
 import {
-  Home, Inbox, Briefcase, CalendarDays, Users,
+  Home, Briefcase, CalendarDays, Users,
   BarChart3, TrendingUp, Wallet, FileText, Settings,
   LogOut, X, Banknote,
 } from 'lucide-react'
@@ -8,7 +8,8 @@ import { initials } from '../lib/format'
 
 export const NAV_ITEMS = [
   { to: '/', end: true, label: 'Home', icon: Home, badgeKey: 'needsAttention' },
-  { to: '/offers', label: 'Offer inbox', icon: Inbox, badgeKey: 'offersWaiting' },
+  // Later multi-vendor stage (restore the Inbox import too):
+  // { to: '/offers', label: 'Offer inbox', icon: Inbox, badgeKey: 'offersWaiting' },
   { to: '/jobs', label: 'Jobs', icon: Briefcase },
   { to: '/schedule', label: 'Schedule', icon: CalendarDays },
   { to: '/team', label: 'Team', icon: Users },

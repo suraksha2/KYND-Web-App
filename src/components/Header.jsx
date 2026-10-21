@@ -279,9 +279,6 @@ export default function Header() {
             </NavLink>
             <NavDropdown label="Services"><ServicesMenu categories={categories} /></NavDropdown>
             <NavDropdown label="Cities"><CitiesMenu cities={cities} /></NavDropdown>
-            <NavLink to="/partners" className={({ isActive }) => `hover:text-terracotta transition ${isActive ? 'text-terracotta' : ''}`}>
-              Partners
-            </NavLink>
           </div>
 
           {/* Logo */}

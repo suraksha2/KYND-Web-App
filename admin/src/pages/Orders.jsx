@@ -38,11 +38,13 @@ export default function Orders() {
   }
 
   async function assignProvider(bookingId, providerId) {
+    const reason = window.prompt('Reason for assignment (recurring bookings: all remaining visits and future repeats)')
+    if (!reason?.trim()) return
     try {
       const response = await authFetch(`/bookings/${bookingId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider_id: providerId }),
+        body: JSON.stringify({ provider_id: providerId, reason: reason.trim() }),
       })
       const data = await response.json()
       if (!response.ok) {
@@ -52,6 +54,7 @@ export default function Orders() {
       const ordersResponse = await authFetch('/orders')
       const ordersData = await ordersResponse.json()
       if (ordersResponse.ok) setOrders(ordersData.data || [])
+      if (data.warning) alert(data.warning)
       setSelectedOrder(null)
     } catch {
       alert('Failed to connect to server')

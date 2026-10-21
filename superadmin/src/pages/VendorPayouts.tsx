@@ -2,6 +2,8 @@ import { Fragment, useCallback, useEffect, useState } from "react";
 import { Building2, ChevronDown, Download, Loader2, Play } from "lucide-react";
 import clsx from "clsx";
 import { apiFetch } from "@/lib/api";
+import TablePagination from "@/components/TablePagination";
+import { usePagination } from "@/lib/usePagination";
 import { useAuth } from "@/context/AuthContext";
 import { useNavigate } from "react-router-dom";
 
@@ -163,6 +165,7 @@ export default function VendorPayoutsPage() {
   const navigate = useNavigate();
 
   const [payouts, setPayouts] = useState<Payout[]>([]);
+  const { pageItems, pagination, resetPage } = usePagination(payouts);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [tab, setTab] = useState("pending");
   const [loading, setLoading] = useState(true);
@@ -314,7 +317,7 @@ export default function VendorPayoutsPage() {
         {TABS.map((t) => (
           <button
             key={t.key}
-            onClick={() => setTab(t.key)}
+            onClick={() => { setTab(t.key); resetPage(); setOpenId(null); }}
             className={clsx(
               "rounded-full px-3.5 py-1.5 text-xs font-semibold border transition",
               tab === t.key ? "bg-white border-terracotta text-terracotta" : "border-lightstone text-warmgrey hover:text-charcoal"
@@ -348,7 +351,7 @@ export default function VendorPayoutsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-lightstone/50">
-                {payouts.map((p) => (
+                {pageItems.map((p) => (
                   <Fragment key={p.id}>
                     <tr className="hover:bg-accent-50/70 transition">
                       <td className="px-4 py-3 font-semibold text-charcoal whitespace-nowrap">{p.vendorName}</td>
@@ -416,6 +419,7 @@ export default function VendorPayoutsPage() {
             </table>
           </div>
         )}
+        {!loading && !error && <TablePagination {...pagination} label="payouts" />}
       </div>
     </div>
   );

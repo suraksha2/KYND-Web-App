@@ -6,9 +6,10 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { vendorFetch } from '../lib/api'
-import { formatMoney, formatTime12h, formatJobDay, formatDayMonth, durationLabel, parseSgt, initials } from '../lib/format'
+import { formatMoney, formatTime12h, formatJobDay, durationLabel, parseSgt, initials } from '../lib/format'
 import StatusBadge from '../components/StatusBadge'
 import QuickAddJob from '../components/QuickAddJob'
+import BookingAssignment from '../components/BookingAssignment'
 
 const STEPS = [
   { key: 'offered', label: 'Offered' },
@@ -63,7 +64,7 @@ function StatusStepper({ status, steps = STEPS }) {
 
 export default function JobDetail() {
   const { id } = useParams()
-  const { reload } = useOutletContext()
+  const { profile, reload } = useOutletContext()
   const { token } = useAuth()
 
   const [data, setData] = useState(null)
@@ -242,6 +243,7 @@ export default function JobDetail() {
   const jobEnd = parseSgt(job.windowEnd) || (jobStart && new Date(jobStart.getTime() + 2 * 3600000))
   const jobDay = String(job.windowStart || '').slice(0, 10)
   const memberTag = (m) => {
+    if (job.skillChecked && m.qualified === false) return 'no matching skill'
     if (jobDay && (m.leave || []).some((l) => l.startDate <= jobDay && l.endDate >= jobDay)) return 'on leave'
     if (jobStart && jobEnd && (m.bookedWindows || []).some((w) => {
       const ws = parseSgt(w.start)
@@ -344,7 +346,7 @@ export default function JobDetail() {
         <div className="rounded-2xl bg-lightstone/40 border border-lightstone px-5 py-4 flex items-start gap-3">
           <Info className="w-5 h-5 text-warmgrey shrink-0 mt-0.5" />
           <p className="text-sm text-warmgrey">
-            This is a marketplace booking matched to your team — status, assignment and messaging are managed from the customer's booking, not from here.
+            This booking was matched to your team. Owners and managers can arrange replacement cover below. Contact Kynd admin if another vendor needs to cover the work.
           </p>
         </div>
       )}
@@ -371,7 +373,7 @@ export default function JobDetail() {
                 <span className="block text-xs font-semibold text-charcoal mb-1.5">Assign a worker to start</span>
                 <select value={assigneeId} onChange={(e) => { setAssigneeId(e.target.value); setAssignConflict(false) }} className={inputCls} disabled={!canManage}>
                   <option value="">Choose team member…</option>
-                  {team.map((m) => <option key={m.id} value={m.id}>{memberLabel(m)}</option>)}
+                  {team.map((m) => <option key={m.id} value={m.id} disabled={job.skillChecked && m.qualified === false}>{memberLabel(m)}</option>)}
                 </select>
               </label>
               {canManage && (
@@ -487,7 +489,7 @@ export default function JobDetail() {
           <section className="bg-white rounded-3xl border border-lightstone shadow-soft p-5 sm:p-6">
             <div className="flex items-center justify-between gap-4 mb-3">
               <h2 className="font-heading text-base font-bold text-charcoal">Assigned to</h2>
-              {canManage && open && !job.readOnly && job.assignee && (
+              {canManage && open && ['accepted', 'assigned'].includes(job.status) && job.assignee && (
                 <button onClick={() => setReassignOpen((v) => !v)} className="text-xs font-semibold text-terracotta hover:text-accent-600 focus:outline-none focus:ring-2 focus:ring-terracotta/40 rounded-lg px-1">
                   Reassign
                 </button>
@@ -511,6 +513,18 @@ export default function JobDetail() {
             ) : (
               <p className="text-sm text-warmgrey">Not assigned yet.</p>
             )}
+            {job.assignee && job.skillChecked && job.assignee.qualified === false && (
+              <p className="mt-3 rounded-xl bg-danger/10 border border-danger/20 px-3 py-2 text-xs font-semibold text-danger">
+                {job.assignee.name} does not have the skill required for this job. Reassign it before starting.
+              </p>
+            )}
+            {canManage && job.source === 'marketplace' && job.status === 'assigned' && reassignOpen && (
+              <BookingAssignment key={job.id} job={job} onSaved={async () => {
+                const updated = await vendorFetch(`/vendor/jobs/${id}`, token)
+                setData(updated)
+                await reload?.()
+              }} />
+            )}
             {canManage && open && !job.readOnly && job.assignee && (
               <p className="mt-2 text-xs text-warmgrey">You can change who does this job any time before it's completed.</p>
             )}
@@ -519,7 +533,10 @@ export default function JobDetail() {
                 <label className="block flex-1 min-w-48">
                   <span className="block text-xs font-semibold text-charcoal mb-1.5">Reassign to</span>
                   <select value={assigneeId} onChange={(e) => { setAssigneeId(e.target.value); setAssignConflict(false) }} className={inputCls}>
-                    {team.map((m) => <option key={m.id} value={m.id}>{memberLabel(m)}</option>)}
+                    {team.map((m) => {
+                      const tag = memberTag(m)
+                      return <option key={m.id} value={m.id} disabled={job.skillChecked && m.qualified === false}>{m.name}{tag ? ` — ${tag}` : ''}</option>
+                    })}
                   </select>
                 </label>
                 <button onClick={() => assign()} disabled={!assigneeId || busy === 'assign'} className={`${btn} bg-white border border-terracotta text-terracotta hover:bg-accent-50`}>
@@ -596,38 +613,9 @@ export default function JobDetail() {
         </div>
       </div>
 
-      {canSeeMoney && !job.readOnly && (
-        <section className="bg-white rounded-3xl border border-lightstone shadow-soft p-5 sm:p-6">
-          <h2 className="font-heading text-base font-bold text-charcoal mb-3">Earnings breakdown</h2>
-          <div className="grid grid-cols-3 gap-3">
-            <div>
-              <p className="text-xs text-warmgrey">Job price</p>
-              <p className="text-lg font-bold text-charcoal">{formatMoney(job.gross)}</p>
-            </div>
-            <div>
-              <p className="text-xs text-warmgrey">Kynd fee{job.feePct ? ` (${job.feePct}%)` : ''}</p>
-              <p className="text-lg font-bold text-charcoal">{formatMoney((job.gross || 0) - (job.net || 0))}</p>
-            </div>
-            <div>
-              <p className="text-xs text-warmgrey">Net to you</p>
-              <p className="text-lg font-bold text-sage">{formatMoney(job.net)}</p>
-            </div>
-          </div>
-          {(job.startedAt || job.completedAt || job.paidAt) && (
-            <p className="mt-3 pt-3 border-t border-lightstone text-xs text-warmgrey">
-              {[
-                job.startedAt && `Started ${formatDayMonth(job.startedAt)} ${formatTime12h(job.startedAt)}`,
-                job.completedAt && `Completed ${formatDayMonth(job.completedAt)} ${formatTime12h(job.completedAt)}`,
-                job.paidAt && `Paid ${formatDayMonth(job.paidAt)}`,
-              ].filter(Boolean).join(' · ')}
-            </p>
-          )}
-        </section>
-      )}
-
       {quickAddOpen && (
         <QuickAddJob
-          categories={data?.job?.category ? [data.job.category] : []}
+          categories={profile?.vendor?.categories?.length ? profile.vendor.categories : (data?.job?.category ? [data.job.category] : [])}
           services={[]}
           team={team}
           onClose={() => setQuickAddOpen(false)}

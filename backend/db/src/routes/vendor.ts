@@ -2,15 +2,20 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import multer from 'multer';
 import type { NextFunction, Request, Response } from 'express';
+import type { PoolConnection } from 'mysql2/promise';
 import pool from '../lib/mysql';
 import { isVendorRole, canSeeVendorMoney, canManageVendorTeam } from '../lib/auth';
 import { getSession } from '../http/session';
 import { sgtDateTime } from '../lib/sgt';
 import { payoutMemberJobs } from '../lib/payouts';
 import { buildPayoutStatementPdf } from '../lib/pdfStatement';
-import { canonicalSkillTags } from '../lib/providerSkills';
+import { canonicalSkillTags, providerSupportsServices, skillRequirementsForJob } from '../lib/providerSkills';
+import { handleBookingAssignment } from '../lib/bookingAssignment';
 
 const router = Router();
+
+router.get('/bookings/:id/assignment-options', handleBookingAssignment);
+router.put('/bookings/:id/assignment', handleBookingAssignment);
 
 // Job photo uploads — same memory-storage + `images` table pattern as
 // routes/images.ts (bytes go to the DB, not public/, so they survive a
@@ -88,6 +93,28 @@ const FEE_PCT_DEFAULT = 15;
 function money(n: any): number {
   const v = Number(n);
   return Number.isFinite(v) ? Math.round(v * 100) / 100 : 0;
+}
+
+function normalizeSgMobile(value: unknown): string {
+  const digits = String(value || '').replace(/\D/g, '');
+  const after65 = digits.startsWith('65') ? digits.slice(2) : digits;
+  return `+65${after65.slice(0, 8)}`;
+}
+const SG_MOBILE_RE = /^\+65[89]\d{7}$/;
+
+// Kynd work must always resolve back to the booked catalog services. Vendor
+// jobs for their own customers can use free-text labels, so they get a skill
+// check whenever the supplied service/category resolves to the catalog but
+// remain assignable when it is genuinely custom work.
+async function jobSkillState(job: any, provider: any, db: typeof pool | PoolConnection = pool) {
+  const requirements = await skillRequirementsForJob(job, db);
+  const bookingBound = job?.source === 'kynd' && Number(job?.booking_id) > 0;
+  const checked = requirements.length > 0 || bookingBound;
+  return {
+    requirements,
+    checked,
+    qualified: requirements.length ? providerSupportsServices(provider, requirements) : !bookingBound,
+  };
 }
 
 // Default job checklist, seeded once per job (see GET /jobs/:id). Cleaning
@@ -213,7 +240,8 @@ router.get('/home', async (req, res) => {
     }
 
     const [unassignedRows]: any = await pool.query(
-      `SELECT j.id, j.window_start, j.customer_name, j.customer_area, j.service_label
+      `SELECT j.id, j.booking_id, j.source, j.category, j.window_start, j.window_end,
+              j.customer_name, j.customer_area, j.service_label
          FROM jobs j
         WHERE j.vendor_id = ? AND j.status = 'accepted' AND j.assignee_provider_id IS NULL
         ORDER BY j.window_start ASC
@@ -223,7 +251,7 @@ router.get('/home', async (req, res) => {
     for (const r of unassignedRows as any[]) {
       // Suggest the vendor's least-loaded active worker who is free at the job's window.
       const [suggestRows]: any = await pool.query(
-        `SELECT sp.id, sp.name,
+        `SELECT sp.id, sp.name, sp.services,
                 (SELECT COUNT(*) FROM jobs j2
                   WHERE j2.assignee_provider_id = sp.id AND j2.status NOT IN ('completed','paid','cancelled')) AS load_count,
                 (SELECT COUNT(*) FROM jobs j3
@@ -233,10 +261,17 @@ router.get('/home', async (req, res) => {
           WHERE sp.vendor_id = ? AND sp.status = 'active'
          HAVING clashes = 0
           ORDER BY load_count ASC
-          LIMIT 1`,
+          LIMIT 10`,
         [r.window_end || r.window_start, r.window_start, vendorId]
       );
-      const suggestion = (suggestRows as any[])[0];
+      let suggestion: any = null;
+      for (const candidate of suggestRows as any[]) {
+        const skill = await jobSkillState(r, candidate);
+        if (skill.qualified) {
+          suggestion = candidate;
+          break;
+        }
+      }
       alerts.push({
         rank: 1,
         type: 'unassigned',
@@ -320,12 +355,13 @@ router.get('/home', async (req, res) => {
     }
     const needsAttention = picked.slice(0, 4).map(({ rank, ...rest }) => rest);
 
-    // ---- Offers waiting -----------------------------------------------------
+    /* Offer inbox deferred until the multi-vendor stage.
     const [offerCountRows]: any = await pool.query(
       `SELECT COUNT(*) AS cnt FROM offers WHERE vendor_id = ? AND status = 'open' AND expires_at > NOW()`,
       [vendorId]
     );
     const offersWaiting = Number((offerCountRows as any[])[0]?.cnt || 0);
+    */
 
     let thisWeek: any = null;
     let forecast: any = null;
@@ -375,6 +411,7 @@ router.get('/home', async (req, res) => {
       const mktWork = await marketplaceMemberWork(vendorId, {
         from: mktFrom30d,
         to: sgtDateTime(new Date(Date.now() + 31 * 86400000)) || '',
+        dateBasis: 'activity',
       });
       const earnDay = (v: any) => String(v.completedAt || v.windowStart).slice(0, 10);
       const lastWeekStart = String(sgtDateTime(new Date(new Date(`${weekStart}T00:00:00+08:00`).getTime() - 7 * 86400000)) || '').slice(0, 10);
@@ -383,7 +420,8 @@ router.get('/home', async (req, res) => {
 
       const sumGross = (list: any[]) => list.reduce((s, v) => s + (v.gross || 0), 0);
       const mktEarnedWeek = sumGross(mktWork.filter((v) => v.status === 'completed' && earnDay(v) >= weekStart && earnDay(v) <= weekEnd && earnDay(v) <= todaySgtStr));
-      const mktEarnedLastWeek = sumGross(mktWork.filter((v) => v.status === 'completed' && earnDay(v) >= lastWeekStart && earnDay(v) < weekStart));
+      const lastWeekNow = sgtDateTime(new Date(Date.now() - 7 * 86400000)) || '';
+      const mktEarnedLastWeek = sumGross(mktWork.filter((v) => v.status === 'completed' && (v.completedAt || v.windowStart) >= lastWeekStart && (v.completedAt || v.windowStart) < lastWeekNow));
       const mktBookedWeek = sumGross(mktWork.filter((v) => v.status !== 'cancelled' && v.status !== 'completed' && v.windowStart > nowSgtStr && v.windowStart <= `${weekEndNext} 00:00:00`));
       const mktBooked30d = sumGross(mktWork.filter((v) => v.status !== 'cancelled' && v.status !== 'completed' && v.windowStart > nowSgtStr && v.windowStart <= in30dSgt));
       const mktEarned30d = sumGross(mktWork.filter((v) => v.status === 'completed' && earnDay(v) >= mktFrom30d.slice(0, 10)));
@@ -486,7 +524,7 @@ router.get('/home', async (req, res) => {
       today: { date: new Date().toISOString().slice(0, 10), jobsCount: todaysJobs.length, done: todayDone, inProgress: todayInProgress, toGo: todayToGo },
       needsAttention,
       todaysJobs,
-      offersWaiting,
+      // Later multi-vendor stage: offersWaiting,
       thisWeek,
       forecast,
     });
@@ -500,10 +538,7 @@ router.get('/home', async (req, res) => {
 // (completed/paid work, split Kynd vs own), marketplace bookings/occurrences
 // assigned to the vendor's team (they never become `jobs` rows — same merge
 // as /vendor/home, valued at the booking total where jobs use `net`), and
-// `vendor_payouts`. There is no `expenses` or `invoices` table in the schema
-// yet, so unlike the Home screen's forecast this intentionally doesn't
-// fabricate a profit margin or an outstanding-invoices figure —
-// `revenueByCategory` below is real revenue, not profit.
+// `vendor_payouts`. Revenue is before staff pay and logged expenses.
 router.get('/money', async (req, res) => {
   try {
     const session = await requireVendorSession(req, res);
@@ -519,13 +554,13 @@ router.get('/money', async (req, res) => {
     // boundaries are computed in MySQL (not JS `Date` math) since DATETIME
     // columns are SGT wall-clock — see AGENTS.md.
     const [[weekBounds]]: any = await pool.query(
-      `SELECT CURDATE() AS today,
+      `SELECT CURDATE() AS today, NOW() AS now,
               DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) DAY) AS week_start,
-              DATE_ADD(CURDATE(), INTERVAL 1 DAY) AS tomorrow`
+              DATE_SUB(NOW(), INTERVAL 30 DAY) AS last30_start,
+              DATE_SUB(DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) DAY), INTERVAL 7 WEEK) AS chart_start`
     );
     const today = weekBounds.today;
     const weekStart = weekBounds.week_start;
-    const tomorrow = weekBounds.tomorrow;
 
     async function earnedBetween(start: string | Date, end: string | Date) {
       const [[row]]: any = await pool.query(
@@ -539,10 +574,10 @@ router.get('/money', async (req, res) => {
       return { kynd: money(row.kynd_total), own: money(row.own_total) };
     }
 
-    const thisWeekEarned = await earnedBetween(weekStart, tomorrow);
+    const thisWeekEarned = await earnedBetween(weekStart, weekBounds.now);
     const [[lastWeekBounds]]: any = await pool.query(
       `SELECT DATE_SUB(?, INTERVAL 7 DAY) AS start, DATE_SUB(?, INTERVAL 7 DAY) AS end`,
-      [weekStart, tomorrow]
+      [weekStart, weekBounds.now]
     );
     const lastWeekSamePoint = await earnedBetween(lastWeekBounds.start, lastWeekBounds.end);
 
@@ -557,21 +592,22 @@ router.get('/money', async (req, res) => {
     // Marketplace visits assigned to the vendor's team never become `jobs`
     // rows — add them on top of each figure, same as /vendor/home. A visit's
     // value is the booking total (jobs use `net`); its day is the
-    // occurrence's completed_at, else the scheduled slot. The window covers
-    // the earliest bucket needed (prev month) through the end of the chart.
+    // completion timestamp, with the scheduled slot as a legacy fallback.
+    // Filter by completion, so late/early completions stay in the right period.
     const mktWork = await marketplaceMemberWork(vendorId, {
-      from: String(monthBoundsRow.prev_month_start),
-      to: sgtDateTime(new Date(Date.now() + 31 * 86400000)) || '',
+      from: [String(monthBoundsRow.prev_month_start), String(weekBounds.chart_start)].sort()[0],
+      to: weekBounds.now,
+      dateBasis: 'completed',
     });
     const mktDay = (v: any) => String(v.completedAt || v.windowStart).slice(0, 10);
     const mktEarnedBetween = (start: any, end: any) =>
       mktWork.reduce((s: number, v: any) => {
-        const d = mktDay(v);
-        return v.status === 'completed' && d >= String(start).slice(0, 10) && d < String(end).slice(0, 10)
+        const d = String(v.completedAt || v.windowStart);
+        return v.status === 'completed' && d >= String(start) && d < String(end)
           ? s + (v.gross || 0)
           : s;
       }, 0);
-    const weekMkt = mktEarnedBetween(weekStart, tomorrow);
+    const weekMkt = mktEarnedBetween(weekStart, weekBounds.now);
     const lastWeekMkt = mktEarnedBetween(lastWeekBounds.start, lastWeekBounds.end);
     const lastMonthMkt = mktEarnedBetween(monthBoundsRow.last_month_start, monthBoundsRow.this_month_start);
     const prevMonthMkt = mktEarnedBetween(monthBoundsRow.prev_month_start, monthBoundsRow.last_month_start);
@@ -600,18 +636,18 @@ router.get('/money', async (req, res) => {
       },
     };
 
-    // ---- Revenue by week: last 8 Mon–Sun weeks, by job date (not just
-    // completed ones, so booked-but-not-yet-done work still shows up). ----
+    // Same earned revenue and completion dates as the headline total.
     const [weekRows]: any = await pool.query(
-      `SELECT DATE_SUB(DATE(window_start), INTERVAL WEEKDAY(window_start) DAY) AS week_start,
+      `SELECT DATE_SUB(DATE(COALESCE(completed_at, paid_at)), INTERVAL WEEKDAY(COALESCE(completed_at, paid_at)) DAY) AS week_start,
               COALESCE(SUM(CASE WHEN source = 'kynd' THEN net ELSE 0 END), 0) AS kynd,
               COALESCE(SUM(CASE WHEN source = 'own' THEN net ELSE 0 END), 0) AS own
          FROM jobs
-        WHERE vendor_id = ? AND status != 'cancelled'
-          AND window_start >= DATE_SUB(?, INTERVAL 7 WEEK)
+        WHERE vendor_id = ? AND status IN ('completed', 'paid')
+          AND COALESCE(completed_at, paid_at) >= ?
+          AND COALESCE(completed_at, paid_at) < ?
         GROUP BY week_start
         ORDER BY week_start ASC`,
-      [vendorId, weekStart]
+      [vendorId, weekBounds.chart_start, weekBounds.now]
     );
     const weekMap = new Map((weekRows as any[]).map((r) => [String(r.week_start).slice(0, 10), r]));
     const weeklyRevenue: any[] = [];
@@ -621,8 +657,8 @@ router.get('/money', async (req, res) => {
       const we = (sgtDateTime(new Date(new Date(`${ws}T00:00:00+08:00`).getTime() + 7 * 86400000)) || '').slice(0, 10);
       const row = weekMap.get(ws);
       const mktWk = mktWork.reduce((s: number, v: any) => {
-        const d = String(v.windowStart).slice(0, 10);
-        return v.status !== 'cancelled' && d >= ws && d < we ? s + (v.gross || 0) : s;
+        const d = mktDay(v);
+        return v.status === 'completed' && d >= ws && d < we ? s + (v.gross || 0) : s;
       }, 0);
       weeklyRevenue.push({
         label: shortLabel(ws),
@@ -657,24 +693,21 @@ router.get('/money', async (req, res) => {
           : `Expected ${shortLabel(p.expected_date)}`,
     }));
 
-    // ---- Revenue by category (last 30 days) — real revenue, not profit:
-    // there's no expense/payroll tracking yet to compute a margin. ----
+    // ---- Revenue by category (last 30 days), before operating costs. ----
     const [categoryRows]: any = await pool.query(
       `SELECT COALESCE(category, 'Other') AS name, SUM(net) AS amount
          FROM jobs
         WHERE vendor_id = ? AND status IN ('completed', 'paid')
-          AND COALESCE(completed_at, paid_at) >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+          AND COALESCE(completed_at, paid_at) >= ? AND COALESCE(completed_at, paid_at) < ?
         GROUP BY name
-        ORDER BY amount DESC
-        LIMIT 10`,
-      [vendorId]
+        ORDER BY amount DESC`,
+      [vendorId, weekBounds.last30_start, weekBounds.now]
     );
 
     // Marketplace visits completed in the same 30-day window — categorised
     // by the first booked service's catalog category, matching what
     // `offers.category` (and therefore `jobs.category`) carries.
-    const last30Start = (sgtDateTime(new Date(Date.now() - 30 * 86400000)) || '').slice(0, 10);
-    const mktDone30d = mktWork.filter((v: any) => v.status === 'completed' && mktDay(v) >= last30Start);
+    const mktDone30d = mktWork.filter((v: any) => String(v.completedAt || v.windowStart) >= weekBounds.last30_start);
     const mktCatalogIds = [...new Set(mktDone30d.flatMap((v: any) => v.catalogIds || []))] as number[];
     const catNameByService = new Map<number, string>();
     if (mktCatalogIds.length) {
@@ -703,15 +736,14 @@ router.get('/money', async (req, res) => {
 
     // ---- Revenue by team member (last 30 days). ----
     const [teamRows]: any = await pool.query(
-      `SELECT sp.id, sp.name, SUM(j.net) AS amount
+      `SELECT sp.id, COALESCE(sp.name, 'Unassigned') AS name, SUM(j.net) AS amount
          FROM jobs j
-         JOIN service_providers sp ON sp.id = j.assignee_provider_id
+         LEFT JOIN service_providers sp ON sp.id = j.assignee_provider_id
         WHERE j.vendor_id = ? AND j.status IN ('completed', 'paid')
-          AND COALESCE(j.completed_at, j.paid_at) >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+          AND COALESCE(j.completed_at, j.paid_at) >= ? AND COALESCE(j.completed_at, j.paid_at) < ?
         GROUP BY sp.id
-        ORDER BY amount DESC
-        LIMIT 10`,
-      [vendorId]
+        ORDER BY amount DESC`,
+      [vendorId, weekBounds.last30_start, weekBounds.now]
     );
     const memberTotals = new Map<number, { name: string; amount: number }>();
     for (const r of teamRows as any[]) {
@@ -730,7 +762,18 @@ router.get('/money', async (req, res) => {
       .sort((a, b) => b.amount - a.amount)
       .slice(0, 10);
 
-    return res.json({ earned, weeklyRevenue, payouts, revenueByCategory, teamRevenue });
+    const [[invoiceTotals]]: any = await pool.query(
+      `SELECT COALESCE(SUM(amount), 0) AS total, COUNT(*) AS count,
+              COALESCE(SUM(due_date < CURDATE()), 0) AS overdue
+         FROM invoices WHERE vendor_id = ? AND status = 'sent'`,
+      [vendorId]
+    );
+    const outstandingInvoices = {
+      total: money(invoiceTotals.total),
+      count: Number(invoiceTotals.count),
+      overdue: Number(invoiceTotals.overdue),
+    };
+    return res.json({ earned, weeklyRevenue, payouts, revenueByCategory, teamRevenue, outstandingInvoices });
   } catch (error) {
     console.error('[GET /api/vendor/money]', error);
     return res.status(500).json({ error: 'Failed to load vendor money.' });
@@ -951,9 +994,9 @@ router.get('/forecast', async (req, res) => {
           metric: `${pctOfCapacity}%`,
           metricLabel: 'of team capacity booked',
           scope: `${topCategory} · ${label}`,
-          detail: `Your team has room for more ${topCategory.toLowerCase()} jobs this week. Keep accepting offers.`,
-          action: 'See offers',
-          to: '/offers',
+          detail: `Your team has room for more ${topCategory.toLowerCase()} jobs this week. Review their availability.`,
+          action: 'See schedule',
+          to: '/schedule',
         });
       }
     }
@@ -991,6 +1034,7 @@ router.get('/forecast', async (req, res) => {
   }
 });
 
+/* Offer inbox deferred until the multi-vendor stage. Keep handlers for later.
 // Offer inbox: everything Kynd has offered this vendor, split into open
 // (still actionable) and closed (accepted / declined / expired / taken) so
 // the frontend can render the waiting list and the history in one fetch.
@@ -999,18 +1043,18 @@ router.get('/forecast', async (req, res) => {
 // can decide with eyes open rather than the suggestion silently vanishing
 // (unlike the Home "unassigned job" alert, which only ever suggests someone
 // who's free).
-async function suggestForOffer(vendorId: any, windowStart: string, windowEnd: string | null) {
+async function suggestForOffer(vendorId: any, skillRequirements: string[][], windowStart: string, windowEnd: string | null) {
   const [rows]: any = await pool.query(
-    `SELECT sp.id, sp.name, sp.rating,
+    `SELECT sp.id, sp.name, sp.rating, sp.services,
             (SELECT COUNT(*) FROM jobs j
               WHERE j.assignee_provider_id = sp.id AND j.status NOT IN ('completed', 'paid', 'cancelled')) AS load_count
        FROM service_providers sp
       WHERE sp.vendor_id = ? AND sp.status = 'active'
       ORDER BY load_count ASC, sp.name ASC
-      LIMIT 1`,
+      LIMIT 20`,
     [vendorId]
   );
-  const candidate = (rows as any[])[0];
+  const candidate = (rows as any[]).find((m: any) => providerSupportsServices(m, skillRequirements));
   if (!candidate) return null;
 
   const end = windowEnd || sgtDateTime(new Date(new Date(`${String(windowStart).replace(' ', 'T')}+08:00`).getTime() + 2 * 3600000));
@@ -1033,7 +1077,7 @@ router.get('/offers', async (req, res) => {
     if (!session) return;
 
     const [rows]: any = await pool.query(
-      `SELECT o.id, o.service_label, o.category, o.area, o.window_start, o.window_end,
+      `SELECT o.id, o.booking_id, o.service_label, o.category, o.area, o.window_start, o.window_end,
               o.price, o.fee_pct, o.status, o.decline_reason, o.expires_at,
               TIMESTAMPDIFF(MINUTE, NOW(), o.expires_at) AS expires_in_minutes,
               b.notes, sp.vendor_id AS holder_vendor_id
@@ -1052,15 +1096,17 @@ router.get('/offers', async (req, res) => {
       // An offer whose expiry has passed reads as expired even if nothing has
       // swept its status yet (the expiry cron is a later phase).
       const stillOpen = r.status === 'open' && Number(r.expires_in_minutes) > 0;
+      const skillRequirements = await skillRequirementsForJob({ ...r, source: 'kynd' });
       const item = {
         id: r.id,
+        bookingId: r.booking_id,
         serviceLabel: r.service_label,
         category: r.category,
         area: r.area,
         windowStart: r.window_start,
         windowEnd: r.window_end,
         notes: r.notes || null,
-        suggested: stillOpen ? await suggestForOffer(session.vendorId, r.window_start, r.window_end) : null,
+        suggested: stillOpen ? await suggestForOffer(session.vendorId, skillRequirements, r.window_start, r.window_end) : null,
         price: money(r.price),
         feePct: Number(r.fee_pct) || 0,
         status: stillOpen ? 'open' : r.status === 'open' ? 'expired' : r.status,
@@ -1112,11 +1158,16 @@ router.post('/offers/:id/accept', async (req, res) => {
     const requestedAssignee = req.body?.assigneeId;
     if (requestedAssignee) {
       const [memberRows]: any = await conn.query(
-        'SELECT id FROM service_providers WHERE id = ? AND vendor_id = ? AND status = ?',
+        'SELECT id, name, services FROM service_providers WHERE id = ? AND vendor_id = ? AND status = ?',
         [requestedAssignee, session.vendorId, 'active']
       );
-      if (!(memberRows as any[])[0]) {
+      const provider = (memberRows as any[])[0];
+      if (!provider) {
         return res.status(400).json({ error: 'That worker is not on your team.' });
+      }
+      const skill = await jobSkillState({ ...offer, source: 'kynd' }, provider, conn);
+      if (!skill.qualified) {
+        return res.status(400).json({ error: `${provider.name} does not have the skill required for '${offer.service_label}'.` });
       }
       assigneeId = Number(requestedAssignee);
     }
@@ -1216,7 +1267,7 @@ router.post('/offers/:id/accept', async (req, res) => {
 
     return res.json({ success: true, jobId: jobRes.insertId });
   } catch (error) {
-    try { await conn.rollback(); } catch { /* already rolled back */ }
+    try { await conn.rollback(); } catch { } // Already rolled back.
     console.error('[POST /api/vendor/offers/:id/accept]', error);
     return res.status(500).json({ error: 'Failed to accept offer.' });
   } finally {
@@ -1245,6 +1296,8 @@ router.post('/offers/:id/decline', async (req, res) => {
     return res.status(500).json({ error: 'Failed to decline offer.' });
   }
 });
+
+*/
 
 // Jobs list page: the vendor's non-cancelled jobs (recent past + future) plus
 // the metadata the page and the quick-add modal need — the active team roster
@@ -1293,51 +1346,16 @@ router.get('/jobs', async (req, res) => {
     // provider scoring, independent of this vendor) to one of this vendor's own
     // team members. These never create a `jobs` row, so without this they were
     // invisible here even though the vendor's own worker is doing the visit.
-    const [marketplaceRows]: any = await pool.query(
-      `SELECT b.id, b.booking_id, b.items, b.total, b.status, b.scheduled_at,
-              b.contact_name, b.contact_area, b.contact_phone, b.contact_address,
-              sp.id AS assignee_id, sp.name AS assignee_name
-         FROM bookings b
-         JOIN service_providers sp ON sp.id = b.provider_id
-        WHERE sp.vendor_id = ? AND b.status != 'cancelled'
-          AND b.vendor_id IS NULL
-          AND NOT EXISTS (SELECT 1 FROM jobs jx WHERE jx.booking_id = b.id)
-          AND (b.scheduled_at IS NULL OR b.scheduled_at >= DATE_SUB(CURDATE(), INTERVAL 30 DAY))
-        ORDER BY b.scheduled_at ASC
-        LIMIT 300`,
-      [vendorId]
-    );
-    const marketplaceJobs = (marketplaceRows as any[]).map((b) => {
-      let serviceLabel = 'Service';
-      try {
-        const items = typeof b.items === 'string' ? JSON.parse(b.items) : b.items;
-        if (Array.isArray(items) && items.length > 0) {
-          serviceLabel = items.map((it: any) => it.name || it.serviceName || 'Service').join(', ');
-        }
-      } catch { /* empty */ }
-      return {
-        id: `mkt-${b.id}`,
-        status: b.status === 'completed' ? 'completed' : 'assigned',
-        source: 'marketplace',
-        serviceLabel,
-        category: null,
-        windowStart: b.scheduled_at,
-        windowEnd: null,
-        customerName: b.contact_name,
-        customerArea: b.contact_area,
-        customerPhone: b.contact_phone,
-        customerAddress: b.contact_address,
-        gross: money(b.total),
-        net: money(b.total),
-        hasIssue: false,
-        assignee: { id: b.assignee_id, name: b.assignee_name },
-      };
+    const marketplaceJobs = await marketplaceMemberWork(vendorId, {
+      from: sgtDateTime(new Date(Date.now() - 30 * 86400000))!,
+      to: '9999-12-31 23:59:59',
+      providerIds: session.role === 'vendor_field' ? [session.providerId || -1] : undefined,
     });
-    jobs.push(...marketplaceJobs);
+    jobs.push(...marketplaceJobs.map(j => ({ ...j, category: null, net: j.gross, hasIssue: false })));
     jobs.sort((a, b) => new Date(a.windowStart || 0).getTime() - new Date(b.windowStart || 0).getTime());
 
     const [teamRows]: any = await pool.query(
-      `SELECT id, name FROM service_providers
+      `SELECT id, name, services FROM service_providers
         WHERE vendor_id = ? AND status = 'active'
         ORDER BY name`,
       [vendorId]
@@ -1360,6 +1378,12 @@ router.get('/jobs', async (req, res) => {
     const team = (teamRows as any[]).map((m) => ({
       id: m.id,
       name: m.name,
+      services: (() => {
+        try {
+          const parsed = typeof m.services === 'string' ? JSON.parse(m.services) : m.services;
+          return Array.isArray(parsed) ? parsed : [];
+        } catch { return []; }
+      })(),
       bookedWindows: windowsByProvider.get(m.id) || [],
       leave: leaveByProvider.get(m.id) || [],
     }));
@@ -1374,10 +1398,16 @@ router.get('/jobs', async (req, res) => {
         LIMIT 40`,
       [vendorId]
     );
-    const services = (serviceRows as any[]).map((s) => ({
-      label: s.service_label,
-      category: s.category,
-      hours: Number(s.hours) || 2,
+    const services = await Promise.all((serviceRows as any[]).map(async (s) => {
+      const requirements = await skillRequirementsForJob(
+        { service_label: s.service_label, category: s.category, source: 'own' }
+      );
+      return {
+        label: s.service_label,
+        category: s.category,
+        hours: Number(s.hours) || 2,
+        skillTags: requirements[0] || [],
+      };
     }));
 
     return res.json({ jobs, team, services });
@@ -1408,11 +1438,16 @@ router.post('/jobs', async (req, res) => {
     let assignee: number | null = null;
     if (assigneeId) {
       const [p]: any = await pool.query(
-        'SELECT id FROM service_providers WHERE id = ? AND vendor_id = ? AND status = ?',
+        'SELECT id, name, services FROM service_providers WHERE id = ? AND vendor_id = ? AND status = ?',
         [assigneeId, session.vendorId, 'active']
       );
-      if (!(p as any[])[0]) {
+      const provider = (p as any[])[0];
+      if (!provider) {
         return res.status(400).json({ error: 'That worker is not on your team.' });
+      }
+      const skill = await jobSkillState({ service_label: serviceLabel, category, source: 'own' }, provider);
+      if (skill.checked && !skill.qualified) {
+        return res.status(400).json({ error: `${provider.name} does not have the skill required for '${serviceLabel}'.` });
       }
       assignee = Number(assigneeId);
     }
@@ -1471,6 +1506,9 @@ router.patch('/jobs/:id/assign', async (req, res) => {
   try {
     const session = await requireVendorSession(req, res);
     if (!session) return;
+    if (!canManageVendorTeam(session.role)) {
+      return res.status(403).json({ error: 'Only owners and managers can reassign jobs.' });
+    }
 
     const { providerId, force } = req.body || {};
     if (!providerId) {
@@ -1478,21 +1516,30 @@ router.patch('/jobs/:id/assign', async (req, res) => {
     }
 
     const [jobRows]: any = await pool.query(
-      'SELECT id, vendor_id, status, service_label, window_start, window_end, assignee_provider_id FROM jobs WHERE id = ?',
+      `SELECT id, vendor_id, source, booking_id, category, status, service_label,
+              window_start, window_end, assignee_provider_id
+         FROM jobs WHERE id = ?`,
       [req.params.id]
     );
     const job = (jobRows as any[])[0];
     if (!job || Number(job.vendor_id) !== Number(session.vendorId)) {
       return res.status(404).json({ error: 'Job not found.' });
     }
+    if (!['accepted', 'assigned'].includes(job.status)) {
+      return res.status(409).json({ error: 'Only jobs that have not started can be reassigned.' });
+    }
 
     const [providerRows]: any = await pool.query(
-      'SELECT id, name FROM service_providers WHERE id = ? AND vendor_id = ? AND status = ?',
+      'SELECT id, name, services FROM service_providers WHERE id = ? AND vendor_id = ? AND status = ?',
       [providerId, session.vendorId, 'active']
     );
     const provider = (providerRows as any[])[0];
     if (!provider) {
       return res.status(400).json({ error: 'That worker is not available on your team.' });
+    }
+    const skill = await jobSkillState(job, provider);
+    if (skill.checked && !skill.qualified) {
+      return res.status(400).json({ error: `${provider.name} does not have the skill required for '${job.service_label}'.` });
     }
 
     // Advisory check: leave spanning the job's day, or another open job that
@@ -1591,17 +1638,24 @@ function parseItemDuration(str: unknown): number {
 // shaped like slim `jobs` rows — windowEnd is derived from item durations.
 async function marketplaceMemberWork(
   vendorId: any,
-  opts: { providerIds?: number[]; from: string; to: string }
+  opts: { providerIds?: number[]; from: string; to: string; dateBasis?: 'completed' | 'activity'; includeStaffCost?: boolean }
 ) {
   const providerClause = opts.providerIds?.length ? 'AND src.provider_id IN (?)' : '';
+  const dateColumn = opts.dateBasis
+    ? `CASE WHEN src.visit_status = 'completed' THEN COALESCE(src.completed_at, src.scheduled_at) ELSE src.scheduled_at END`
+    : 'src.scheduled_at';
+  const completedClause = opts.dateBasis === 'completed' ? "AND src.visit_status = 'completed'" : '';
+  // Single bookings keep completion in their audit JSON rather than a column.
+  // Include those rows here and apply the completion window after parsing it.
+  const historyClause = opts.dateBasis ? "OR (src.visit_id IS NULL AND src.visit_status = 'completed')" : '';
   // Placeholder order in the SQL below: vendor_id, vendor_id, from, to, then
   // (optionally) providerIds — keep the params array in that same order.
   const params: any[] = [vendorId, vendorId, opts.from, opts.to];
   if (providerClause) params.push(opts.providerIds);
   const [rows]: any = await pool.query(
-    `SELECT src.*, sp.name AS assignee_name FROM (
-        SELECT b.provider_id, NULL AS visit_id, b.scheduled_at, b.status AS visit_status,
-               b.id AS booking_pk, b.items, b.total, NULL AS completed_at,
+    `SELECT src.*, sp.name AS assignee_name, sp.pay_mode, sp.pay_rate FROM (
+        SELECT b.provider_id, NULL AS visit_id, COALESCE(b.scheduled_at, b.placed_at) AS scheduled_at, b.status AS visit_status,
+               b.id AS booking_pk, b.items, b.total, NULL AS completed_at, b.history,
                b.contact_name, b.contact_area, b.contact_phone, b.contact_address
           FROM bookings b
          WHERE b.schedule <> 'recurring' AND b.status != 'cancelled' AND b.vendor_id IS NULL
@@ -1609,7 +1663,7 @@ async function marketplaceMemberWork(
            AND b.provider_id IN (SELECT id FROM service_providers WHERE vendor_id = ?)
         UNION ALL
         SELECT COALESCE(o.provider_id, b2.provider_id), o.id, o.scheduled_at, o.status,
-               b2.id, b2.items, b2.total, o.completed_at,
+               b2.id, b2.items, b2.total, o.completed_at, NULL AS history,
                b2.contact_name, b2.contact_area, b2.contact_phone, b2.contact_address
           FROM booking_occurrences o
           JOIN bookings b2 ON b2.id = o.booking_id
@@ -1618,22 +1672,32 @@ async function marketplaceMemberWork(
            AND COALESCE(o.provider_id, b2.provider_id) IN (SELECT id FROM service_providers WHERE vendor_id = ?)
       ) src
       JOIN service_providers sp ON sp.id = src.provider_id
-     WHERE src.scheduled_at >= ? AND src.scheduled_at < ? ${providerClause}
+     WHERE ((${dateColumn} >= ? AND ${dateColumn} < ?) ${historyClause}) ${providerClause} ${completedClause}
      ORDER BY src.scheduled_at`,
     params
   );
   return (rows as any[]).map((r) => {
     let items: any[] = [];
+    let completedAt = r.completed_at ? String(r.completed_at) : null;
     try {
       const parsed = typeof r.items === 'string' ? JSON.parse(r.items) : r.items;
       if (Array.isArray(parsed)) items = parsed;
     } catch { /* empty */ }
+    if (!r.visit_id && r.visit_status === 'completed') {
+      try {
+        const history = typeof r.history === 'string' ? JSON.parse(r.history) : r.history;
+        const completion = Array.isArray(history)
+          ? [...history].reverse().find((entry) => /^Marked completed\b/.test(entry?.note || '') && entry.at)
+          : null;
+        if (completion) completedAt = String(completion.at);
+      } catch { /* Older bookings fall back to their slot/placed_at. */ }
+    }
     const durationMin = items.reduce((s: number, it: any) => s + parseItemDuration(it?.duration) * (Number(it?.qty) || 1), 0) || 60;
     const startStr = r.scheduled_at instanceof Date ? String(sgtDateTime(r.scheduled_at)) : String(r.scheduled_at);
     const startMs = new Date(`${startStr.replace(' ', 'T')}+08:00`).getTime();
     const endStr = sgtDateTime(new Date(startMs + durationMin * 60000)) || null;
     return {
-      id: `mkt-${r.booking_pk}`,
+      id: `mkt-${r.booking_pk}${r.visit_id ? `-${r.visit_id}` : ''}`,
       visitId: r.visit_id,
       source: 'marketplace',
       status: r.visit_status === 'completed' ? 'completed' : r.visit_status === 'cancelled' ? 'cancelled' : 'assigned',
@@ -1645,11 +1709,18 @@ async function marketplaceMemberWork(
       customerPhone: r.contact_phone,
       customerAddress: r.contact_address,
       gross: money(r.total),
-      completedAt: r.completed_at ? String(r.completed_at) : null,
+      ...(opts.includeStaffCost ? {
+        staffCost: money(r.pay_mode === 'job' ? r.pay_rate : Number(r.pay_rate || 0) * durationMin / 60),
+      } : {}),
+      completedAt,
       catalogIds: items.map((it: any) => Number(it?.catalogId)).filter((n: number) => Number.isInteger(n) && n > 0),
       providerId: r.provider_id,
       assignee: r.provider_id ? { id: r.provider_id, name: r.assignee_name } : null,
     };
+  }).filter((visit) => {
+    if (!opts.dateBasis) return true;
+    const at = visit.status === 'completed' ? visit.completedAt || visit.windowStart : visit.windowStart;
+    return at >= opts.from && at < opts.to;
   });
 }
 
@@ -1692,23 +1763,27 @@ async function memberConflicts(vendorId: any, providerId: any, windowStart: stri
 // the owner (canSeeVendorMoney) — managers and field seats get nulls.
 // Marketplace bookings (id 'mkt-N' from GET /jobs) have no `jobs` row — the
 // booking lives entirely in `bookings`, matched to this vendor's own worker
-// by the storefront's provider scoring. Read-only: status/assignment there
-// is driven by the marketplace flow (provider app, admin), not this app, so
-// there's no checklist/photos/messages/status-change support for these yet.
-router.get('/jobs/mkt-:bookingId(\\d+)', async (req, res) => {
+// by the storefront's provider scoring. Each recurring visit has its own
+// detail URL so temporary cover follows the actual visit's owner.
+router.get(['/jobs/mkt-:bookingId(\\d+)', '/jobs/mkt-:bookingId(\\d+)-:occurrenceId(\\d+)'], async (req, res) => {
   try {
     const session = await requireVendorSession(req, res);
     if (!session) return;
 
     const [rows]: any = await pool.query(
-      `SELECT b.id, b.booking_id, b.items, b.total, b.status, b.scheduled_at,
+      `SELECT b.id, b.booking_id, b.items, b.total, b.schedule,
+              COALESCE(o.status, b.status) AS status,
+              COALESCE(o.scheduled_at, b.scheduled_at) AS scheduled_at,
               b.contact_name, b.contact_phone, b.contact_address, b.contact_area,
               sp.id AS assignee_id, sp.name AS assignee_name, sp.mobile AS assignee_mobile,
               sp.rating AS assignee_rating, sp.vendor_id
          FROM bookings b
-         JOIN service_providers sp ON sp.id = b.provider_id
-        WHERE b.id = ?`,
-      [req.params.bookingId]
+         LEFT JOIN booking_occurrences o ON o.booking_id = b.id AND o.id = ?
+         JOIN service_providers sp ON sp.id = COALESCE(o.provider_id, b.provider_id)
+        WHERE b.id = ? AND (? IS NULL OR o.id IS NOT NULL)
+          AND b.vendor_id IS NULL
+          AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.booking_id = b.id)`,
+      [req.params.occurrenceId || null, req.params.bookingId, req.params.occurrenceId || null]
     );
     const b = (rows as any[])[0];
     if (!b || Number(b.vendor_id) !== Number(session.vendorId)) {
@@ -1728,7 +1803,10 @@ router.get('/jobs/mkt-:bookingId(\\d+)', async (req, res) => {
 
     const canSeeMoney = canSeeVendorMoney(session.role);
     const job = {
-      id: `mkt-${b.id}`,
+      id: `mkt-${b.id}${req.params.occurrenceId ? `-${req.params.occurrenceId}` : ''}`,
+      bookingId: b.id,
+      occurrenceId: req.params.occurrenceId ? Number(req.params.occurrenceId) : null,
+      schedule: b.schedule,
       status: b.status === 'completed' ? 'completed' : 'assigned',
       source: 'marketplace',
       serviceLabel,
@@ -1759,7 +1837,7 @@ router.get('/jobs/mkt-:bookingId(\\d+)', async (req, res) => {
       readOnly: true,
     };
 
-    return res.json({ job, team: [], canSeeMoney, canManageTeam: false });
+    return res.json({ job, team: [], canSeeMoney, canManageTeam: canManageVendorTeam(session.role) });
   } catch (error) {
     console.error('[GET /api/vendor/jobs/mkt-:bookingId]', error);
     return res.status(500).json({ error: 'Failed to load job.' });
@@ -1776,7 +1854,8 @@ router.get('/jobs/:id', async (req, res) => {
 
     const [rows]: any = await pool.query(
       `SELECT j.*, sp.name AS assignee_name, sp.mobile AS assignee_mobile,
-              sp.rating AS assignee_rating, b.booking_id AS booking_ref,
+              sp.rating AS assignee_rating, sp.services AS assignee_services,
+              b.booking_id AS booking_ref,
               TIMESTAMPDIFF(MINUTE, j.window_start, NOW()) AS late_minutes
          FROM jobs j
          LEFT JOIN service_providers sp ON sp.id = j.assignee_provider_id
@@ -1833,6 +1912,13 @@ router.get('/jobs/:id', async (req, res) => {
     );
     const messages = (messageRows as any[]).map((m) => ({ id: m.id, senderType: m.sender_type, body: m.body, createdAt: m.created_at }));
 
+    const skillRequirements = await skillRequirementsForJob(j);
+    const requiredSkills = [...new Set(skillRequirements.flat())];
+    const skillChecked = skillRequirements.length > 0 || (j.source === 'kynd' && Number(j.booking_id) > 0);
+    const assigneeSkill = j.assignee_provider_id
+      ? await jobSkillState(j, { services: j.assignee_services })
+      : null;
+
     const job = {
       id: j.id,
       status: j.status,
@@ -1853,8 +1939,16 @@ router.get('/jobs/:id', async (req, res) => {
       issueNote: j.issue_resolved_at ? null : j.issue_note,
       hasIssue: !!j.issue_type && !j.issue_resolved_at,
       assignee: j.assignee_provider_id
-        ? { id: j.assignee_provider_id, name: j.assignee_name, mobile: j.assignee_mobile, rating: Number(j.assignee_rating) || 0 }
+        ? {
+          id: j.assignee_provider_id,
+          name: j.assignee_name,
+          mobile: j.assignee_mobile,
+          rating: Number(j.assignee_rating) || 0,
+          qualified: assigneeSkill?.qualified !== false,
+        }
         : null,
+      skillChecked,
+      requiredSkills,
       bookingRef: j.booking_ref,
       startedAt: j.started_at,
       completedAt: j.completed_at,
@@ -1869,7 +1963,7 @@ router.get('/jobs/:id', async (req, res) => {
     };
 
     const [teamRows]: any = await pool.query(
-      'SELECT id, name FROM service_providers WHERE vendor_id = ? AND status = ? ORDER BY name',
+      'SELECT id, name, services FROM service_providers WHERE vendor_id = ? AND status = ? ORDER BY name',
       [session.vendorId, 'active']
     );
     // The assign pickers flag clashes client-side, so the roster ships each
@@ -1890,12 +1984,23 @@ router.get('/jobs/:id', async (req, res) => {
       windowsByProvider.get(w.provider_id)!.push({ start: w.window_start, end: w.window_end });
     }
     const leaveByProvider = await teamLeaveMap(session.vendorId, ids);
-    const team = (teamRows as any[]).map((m: any) => ({
-      id: m.id,
-      name: m.name,
-      bookedWindows: windowsByProvider.get(m.id) || [],
-      leave: leaveByProvider.get(m.id) || [],
-    }));
+    const team = (teamRows as any[]).map((m: any) => {
+      let services: string[] = [];
+      try {
+        const parsed = typeof m.services === 'string' ? JSON.parse(m.services) : m.services;
+        if (Array.isArray(parsed)) services = parsed;
+      } catch { /* keep an empty list */ }
+      return {
+        id: m.id,
+        name: m.name,
+        services,
+        qualified: skillRequirements.length
+          ? providerSupportsServices(m, skillRequirements)
+          : !(j.source === 'kynd' && Number(j.booking_id) > 0),
+        bookedWindows: windowsByProvider.get(m.id) || [],
+        leave: leaveByProvider.get(m.id) || [],
+      };
+    });
 
     return res.json({
       job,
@@ -2056,7 +2161,12 @@ router.patch('/jobs/:id/status', async (req, res) => {
 
     const next = String(req.body?.status || '');
     const [rows]: any = await pool.query(
-      'SELECT id, vendor_id, status, assignee_provider_id FROM jobs WHERE id = ?',
+      `SELECT j.id, j.vendor_id, j.status, j.assignee_provider_id, j.source,
+              j.booking_id, j.service_label, j.category, sp.name AS assignee_name,
+              sp.services AS assignee_services
+         FROM jobs j
+         LEFT JOIN service_providers sp ON sp.id = j.assignee_provider_id
+        WHERE j.id = ?`,
       [req.params.id]
     );
     const job = (rows as any[])[0];
@@ -2068,8 +2178,14 @@ router.patch('/jobs/:id/status', async (req, res) => {
     if (!allowed.includes(next)) {
       return res.status(400).json({ error: `A '${job.status}' job can't move to '${next}'.` });
     }
-    if (next === 'in_progress' && !job.assignee_provider_id) {
-      return res.status(400).json({ error: 'Assign a worker before starting this job.' });
+    if (next === 'in_progress') {
+      if (!job.assignee_provider_id) {
+        return res.status(400).json({ error: 'Assign a worker before starting this job.' });
+      }
+      const skill = await jobSkillState(job, { services: job.assignee_services });
+      if (skill.checked && !skill.qualified) {
+        return res.status(409).json({ error: `${job.assignee_name || 'The assigned worker'} does not have the skill required for '${job.service_label}'. Reassign this job before starting it.` });
+      }
     }
     if (next === 'paid' && !canSeeVendorMoney(session.role)) {
       return res.status(403).json({ error: 'Only the owner can mark a job paid.' });
@@ -2254,6 +2370,10 @@ router.post('/team', async (req, res) => {
     if (!name || !email || !mobile || !Array.isArray(services) || services.length === 0) {
       return res.status(400).json({ error: 'Name, email, mobile and at least one service are required.' });
     }
+    const normalizedMobile = normalizeSgMobile(mobile);
+    if (!SG_MOBILE_RE.test(normalizedMobile)) {
+      return res.status(400).json({ error: 'Enter a valid Singapore mobile: +65 followed by 8 digits starting with 8 or 9.' });
+    }
 
     // Skill tags drive /api/availability + booking auto-assign, so they must
     // be real catalog names — reject anything else instead of storing a tag
@@ -2273,7 +2393,7 @@ router.post('/team', async (req, res) => {
     const [result]: any = await pool.query(
       `INSERT INTO service_providers (vendor_id, name, email, password_hash, mobile, services, city, status, is_team_lead, working_hours)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [session.vendorId, name, String(email).trim().toLowerCase(), passwordHash, mobile, JSON.stringify(skillTags), city, status, isTeamLead ? 1 : 0, JSON.stringify(MEMBER_DEFAULT_HOURS)]
+      [session.vendorId, name, String(email).trim().toLowerCase(), passwordHash, normalizedMobile, JSON.stringify(skillTags), city, status, isTeamLead ? 1 : 0, JSON.stringify(MEMBER_DEFAULT_HOURS)]
     );
 
     return res.status(201).json({ success: true, id: result.insertId });
@@ -2339,9 +2459,12 @@ router.patch('/team/:id', async (req, res) => {
       params.push(String(email).trim().toLowerCase());
     }
     if (mobile !== undefined) {
-      if (!String(mobile).trim()) return res.status(400).json({ error: 'Mobile cannot be empty.' });
+      const normalizedMobile = normalizeSgMobile(mobile);
+      if (!SG_MOBILE_RE.test(normalizedMobile)) {
+        return res.status(400).json({ error: 'Enter a valid Singapore mobile: +65 followed by 8 digits starting with 8 or 9.' });
+      }
       fields.push('mobile = ?');
-      params.push(String(mobile).trim());
+      params.push(normalizedMobile);
     }
     if (services !== undefined) {
       if (!Array.isArray(services) || services.length === 0) {
@@ -2400,9 +2523,16 @@ router.get('/team/availability', async (req, res) => {
     const startMs = new Date(`${windowStart.replace(' ', 'T')}+08:00`).getTime();
     const windowEnd = sgtDateTime(new Date(startMs + durationMin * 60000));
     const day = windowStart.slice(0, 10);
+    const skillRequested = !!(req.query.bookingId || req.query.serviceLabel || req.query.category);
+    const skillRequirements = await skillRequirementsForJob({
+      booking_id: req.query.bookingId,
+      service_label: req.query.serviceLabel,
+      category: req.query.category,
+      source: skillRequested ? 'kynd' : 'own',
+    });
 
     const [teamRows]: any = await pool.query(
-      `SELECT sp.id, sp.name, sp.rating, sp.working_hours,
+      `SELECT sp.id, sp.name, sp.rating, sp.working_hours, sp.services,
               ((SELECT COUNT(*) FROM jobs j
                  WHERE j.assignee_provider_id = sp.id AND j.vendor_id = ?
                    AND DATE(j.window_start) = ? AND j.status != 'cancelled')
@@ -2441,6 +2571,9 @@ router.get('/team/availability', async (req, res) => {
       const hours = parseHours(m.working_hours);
       const todayHours = hours.find((h) => h.day === dayKey);
       const outsideHours = !todayHours || !todayHours.open || startTime < todayHours.start || endTime > todayHours.end;
+      const qualified = skillRequirements.length
+        ? providerSupportsServices(m, skillRequirements)
+        : !skillRequested;
       return {
         id: m.id,
         name: m.name,
@@ -2449,6 +2582,7 @@ router.get('/team/availability', async (req, res) => {
         onLeave: leave.map((l: any) => ({ startDate: l.start_date, endDate: l.end_date, note: l.note })),
         clashes: clashes.map((c: any) => ({ id: c.id, serviceLabel: c.service_label, windowStart: c.window_start, windowEnd: c.window_end })),
         outsideHours,
+        qualified,
         available: leave.length === 0 && clashes.length === 0 && !outsideHours,
       };
     }));
@@ -2810,37 +2944,56 @@ router.get('/expenses', async (req, res) => {
     );
     const staff = (staffRows as any[]).map((s) => ({ id: s.id, name: s.name, mode: s.pay_mode, rate: money(s.pay_rate) }));
 
+    const [[costBounds]]: any = await pool.query(
+      `SELECT DATE_SUB(NOW(), INTERVAL 30 DAY) AS start, NOW() AS end`
+    );
     // Cost per job, last 30 days: only service labels with at least one
     // completed/paid job, averaged across however many of those jobs exist.
     const [costRows]: any = await pool.query(
       `SELECT j.service_label AS label,
               COUNT(*) AS job_count,
-              AVG(j.net) AS avg_earn,
-              AVG(CASE
+              SUM(j.net) AS earn,
+              SUM(CASE
                     WHEN sp.id IS NULL THEN 0
                     WHEN sp.pay_mode = 'job' THEN sp.pay_rate
-                    ELSE sp.pay_rate * (COALESCE(TIMESTAMPDIFF(MINUTE, j.window_start, j.window_end), 120) / 60.0)
-                  END) AS avg_staff,
-              AVG(COALESCE(ex.total, 0)) AS avg_supplies
+                    ELSE sp.pay_rate * (GREATEST(COALESCE(TIMESTAMPDIFF(MINUTE, j.window_start, j.window_end), 120), 0) / 60.0)
+                  END) AS staff,
+              SUM(COALESCE(ex.total, 0)) AS supplies
          FROM jobs j
          LEFT JOIN service_providers sp ON sp.id = j.assignee_provider_id
-         LEFT JOIN (SELECT job_id, SUM(amount) AS total FROM expenses WHERE job_id IS NOT NULL GROUP BY job_id) ex
+         LEFT JOIN (SELECT job_id, SUM(amount) AS total FROM expenses WHERE vendor_id = ? AND job_id IS NOT NULL GROUP BY job_id) ex
            ON ex.job_id = j.id
         WHERE j.vendor_id = ? AND j.status IN ('completed', 'paid')
-          AND COALESCE(j.completed_at, j.paid_at) >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+          AND COALESCE(j.completed_at, j.paid_at) >= ? AND COALESCE(j.completed_at, j.paid_at) < ?
         GROUP BY j.service_label
-        ORDER BY job_count DESC
-        LIMIT 6`,
-      [vendorId]
+        ORDER BY job_count DESC`,
+      [vendorId, vendorId, costBounds.start, costBounds.end]
     );
-    const costPerJob = (costRows as any[]).map((r) => {
-      const earn = money(r.avg_earn);
-      const staffCost = money(r.avg_staff);
-      const supplies = money(r.avg_supplies);
+    const costs = new Map<string, { label: string; jobCount: number; earn: number; staff: number; supplies: number }>();
+    for (const r of costRows as any[]) {
+      costs.set(r.label, {
+        label: r.label, jobCount: Number(r.job_count),
+        earn: Number(r.earn), staff: Number(r.staff), supplies: Number(r.supplies),
+      });
+    }
+    const marketplace = await marketplaceMemberWork(vendorId, {
+      from: costBounds.start, to: costBounds.end, dateBasis: 'completed', includeStaffCost: true,
+    });
+    for (const visit of marketplace) {
+      const r = costs.get(visit.serviceLabel) || { label: visit.serviceLabel, jobCount: 0, earn: 0, staff: 0, supplies: 0 };
+      r.jobCount++;
+      r.earn += visit.gross;
+      r.staff += visit.staffCost || 0;
+      costs.set(r.label, r);
+    }
+    const costPerJob = [...costs.values()].sort((a, b) => b.jobCount - a.jobCount).map((r) => {
+      const earn = money(r.earn / r.jobCount);
+      const staffCost = money(r.staff / r.jobCount);
+      const supplies = money(r.supplies / r.jobCount);
       const net = money(earn - staffCost - supplies);
       return {
         label: r.label,
-        jobCount: Number(r.job_count) || 0,
+        jobCount: r.jobCount,
         earn,
         staff: staffCost,
         supplies,

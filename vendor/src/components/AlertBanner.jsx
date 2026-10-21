@@ -1,12 +1,12 @@
 import { useNavigate } from 'react-router-dom'
-import { AlertTriangle, GraduationCap, Timer, UserPlus, Wallet } from 'lucide-react'
+import { AlertTriangle, GraduationCap, UserPlus, Wallet } from 'lucide-react'
 
 const ALERT_ICONS = {
   late_start: AlertTriangle,
   unassigned: UserPlus,
   payout_pending: Wallet,
   cert_expiring: GraduationCap,
-  offer_expiring: Timer,
+  // Later multi-vendor stage (restore Timer import): offer_expiring: Timer,
 }
 
 const ALERT_TONE = {
@@ -14,7 +14,7 @@ const ALERT_TONE = {
   unassigned: 'bg-accent-50 border-accent-200',
   payout_pending: 'bg-amber-50 border-amber-200',
   cert_expiring: 'bg-accent-50 border-accent-200',
-  offer_expiring: 'bg-accent-50 border-accent-200',
+  // Later multi-vendor stage: offer_expiring: 'bg-accent-50 border-accent-200',
 }
 
 const ALERT_ICON_TONE = {
@@ -22,7 +22,7 @@ const ALERT_ICON_TONE = {
   unassigned: 'text-terracotta',
   payout_pending: 'text-amber-700',
   cert_expiring: 'text-terracotta',
-  offer_expiring: 'text-terracotta',
+  // Later multi-vendor stage: offer_expiring: 'text-terracotta',
 }
 
 // Full-width strip version of the needs-attention alerts — same data the Home
@@ -39,7 +39,8 @@ export default function AlertBanner({ alert }) {
       else navigate('/payouts')
     }
     else if (alert.type === 'cert_expiring') navigate('/team')
-    else if (alert.type === 'offer_expiring') navigate('/offers')
+    // Later multi-vendor stage:
+    // else if (alert.type === 'offer_expiring') navigate('/offers')
   }
 
   return (

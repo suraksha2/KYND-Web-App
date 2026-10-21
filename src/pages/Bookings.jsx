@@ -220,7 +220,6 @@ function UpcomingCard({ booking }) {
   const { cancelBooking, rescheduleBooking, rescheduleOccurrence, skipOccurrence } = useBookings()
   const navigate = useNavigate()
   const firstItem = booking.items?.[0]
-  const providerName = booking.provider?.name || 'A Pro'
   const isInstant = booking.schedule === 'instant'
   const isRecurring = booking.schedule === 'recurring'
 
@@ -236,6 +235,7 @@ function UpcomingCard({ booking }) {
         .filter(o => !Number.isNaN(o.ts))
         .sort((a, b) => a.ts - b.ts)[0]
     : null
+  const providerName = nextOcc?.providerName || booking.provider?.name || 'A Pro'
   
   if (!shouldShow) return null
 

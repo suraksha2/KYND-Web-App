@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import { AlertCircle, Loader2 } from 'lucide-react'
 import { formatMoney, initials } from '../lib/format'
@@ -94,7 +94,7 @@ function RecentExpensesCard({ expenses, total }) {
     <section className="bg-white rounded-3xl border border-lightstone shadow-soft p-5 sm:p-6">
       <div className="flex items-start justify-between gap-4 mb-4">
         <h2 className="font-heading text-lg font-bold text-charcoal">Recent expenses</h2>
-        <p className="text-xs text-warmgrey">{formatMoney(total)} total</p>
+        <p className="text-xs text-warmgrey">{formatMoney(total)} all-time total</p>
       </div>
       {expenses.length === 0 ? (
         <p className="text-sm text-warmgrey py-6 text-center">No expenses yet — add your first one above.</p>
@@ -127,7 +127,7 @@ function StaffPayCard({ staff, onSave }) {
   return (
     <section className="bg-white rounded-3xl border border-lightstone shadow-soft p-5 sm:p-6">
       <h2 className="font-heading text-lg font-bold text-charcoal">Staff pay</h2>
-      <p className="mt-0.5 text-xs text-warmgrey mb-4">Used to work out real profit per job. Not payroll.</p>
+      <p className="mt-0.5 text-xs text-warmgrey mb-4">Current rates used to estimate staff cost per job. Not payroll.</p>
       {staff.length === 0 ? (
         <p className="text-sm text-warmgrey py-6 text-center">No team members yet — add them on the Team page.</p>
       ) : (
@@ -166,7 +166,7 @@ function CostPerJobCard({ items }) {
   return (
     <section className="bg-white rounded-3xl border border-lightstone shadow-soft p-5 sm:p-6">
       <h2 className="font-heading text-lg font-bold text-charcoal">Cost per job</h2>
-      <p className="mt-0.5 text-xs text-warmgrey mb-4">Average over the last 30 days, using the pay rates above.</p>
+      <p className="mt-0.5 text-xs text-warmgrey mb-4">Average per completed job in the last 30 days, including direct marketplace visits. Staff cost uses current pay rates and booked duration. Other costs include only expenses linked to that job.</p>
       {items.length === 0 ? (
         <p className="text-sm text-warmgrey py-6 text-center">No completed jobs in the last 30 days yet.</p>
       ) : (
@@ -175,13 +175,13 @@ function CostPerJobCard({ items }) {
             <div key={j.label} className="rounded-2xl border border-lightstone bg-warmlinen/40 p-4 flex flex-col">
               <p className="text-xs font-bold text-charcoal">{j.label}</p>
               <div className="mt-3 space-y-1.5 text-xs">
-                <p className="flex justify-between"><span className="text-warmgrey">You earn</span><span className="font-semibold text-charcoal">S${j.earn}</span></p>
-                <p className="flex justify-between"><span className="text-warmgrey">Staff pay</span><span className="text-warmgrey">−S${j.staff}</span></p>
-                <p className="flex justify-between"><span className="text-warmgrey">Supplies and other</span><span className="text-warmgrey">−S${j.supplies}</span></p>
+                <p className="flex justify-between"><span className="text-warmgrey">You earn</span><span className="font-semibold text-charcoal">{formatMoney(j.earn)}</span></p>
+                <p className="flex justify-between"><span className="text-warmgrey">Staff pay</span><span className="text-warmgrey">−{formatMoney(j.staff)}</span></p>
+                <p className="flex justify-between"><span className="text-warmgrey">Supplies and other</span><span className="text-warmgrey">−{formatMoney(j.supplies)}</span></p>
               </div>
               <div className="mt-3 pt-3 border-t border-lightstone/70 flex items-end justify-between">
-                <p className="font-heading text-xl font-bold text-charcoal">S${j.net}</p>
-                <p className="text-xs font-bold text-sage">{j.margin}%</p>
+                <p className="font-heading text-xl font-bold text-charcoal">{formatMoney(j.net)}</p>
+                <p className={`text-xs font-bold ${j.margin < 0 ? 'text-danger' : 'text-sage'}`}>{j.margin}%</p>
               </div>
             </div>
           ))}
@@ -192,9 +192,8 @@ function CostPerJobCard({ items }) {
 }
 
 export default function Expenses() {
-  const { profile, home } = useOutletContext()
+  const { home } = useOutletContext()
   const { token } = useAuth()
-  const [category, setCategory] = useState('all')
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -217,7 +216,6 @@ export default function Expenses() {
     load()
   }, [load])
 
-  const categories = useMemo(() => profile?.vendor?.categories || [], [profile])
   const alerts = home?.needsAttention || []
 
   const addExpense = async ({ category: cat, note, amount, jobId }) => {
@@ -259,6 +257,7 @@ export default function Expenses() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(patch),
       })
+      await load()
     } catch (err) {
       setData(prev)
       setError(err.message || 'Failed to save pay rate.')
@@ -267,7 +266,7 @@ export default function Expenses() {
 
   return (
     <div className="space-y-6 max-w-6xl">
-      <MoneyHeader title="Expenses and staff cost" categories={categories} category={category} onCategory={setCategory} />
+      <MoneyHeader title="Expenses and staff cost" />
 
       {alerts.length > 0 && (
         <div className="space-y-3">

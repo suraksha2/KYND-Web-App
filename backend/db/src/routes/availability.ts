@@ -1,36 +1,11 @@
 import { Router } from 'express';
 import pool from '../lib/mysql';
-import { parseSgt } from '../lib/sgt';
-import { skillTagsForService } from '../lib/providerSkills';
+import { skillTagsForService, providerSupportsServices } from '../lib/providerSkills';
+import { parseDurationMinutes, providerWorkingHours, isFreeAt, loadProviderSchedule } from '../lib/providerSchedule';
 
 const router = Router();
 
-const DEFAULT_WORKING_HOURS = {
-  mon: { start: '09:00', end: '18:00' },
-  tue: { start: '09:00', end: '18:00' },
-  wed: { start: '09:00', end: '18:00' },
-  thu: { start: '09:00', end: '18:00' },
-  fri: { start: '09:00', end: '18:00' },
-  sat: { start: '09:00', end: '18:00' },
-  sun: { start: '09:00', end: '18:00' },
-};
-
-const DAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
 const SLOT_STEP_MIN = 30;
-
-function parseDurationMinutes(str: unknown): number | null {
-  if (!str) return null;
-  const s = String(str).toLowerCase();
-  const hourMatch = s.match(/(\d+(?:\.\d+)?)\s*(?:hour|hr|hrs|h)/);
-  if (hourMatch) return Math.round(parseFloat(hourMatch[1]) * 60);
-  const minMatch = s.match(/(\d+)\s*(?:min|mins|minute|minutes|m)/);
-  if (minMatch) return parseInt(minMatch[1], 10);
-  const n = parseFloat(s.replace(/[^0-9.]/g, ''));
-  if (Number.isFinite(n)) {
-    return n < 20 ? Math.round(n * 60) : Math.round(n);
-  }
-  return null;
-}
 
 function sgtDate(date: string, time: string): Date {
   return new Date(`${date}T${time}:00+08:00`);
@@ -59,14 +34,7 @@ function providerSlots(
   durationMin: number,
   existingBookings: any[]
 ): string[] {
-  const raw = provider.working_hours;
-  let hours: any = DEFAULT_WORKING_HOURS;
-  try {
-    if (raw) {
-      const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
-      if (parsed && typeof parsed === 'object') hours = parsed;
-    }
-  } catch { /* empty */ }
+  const hours = providerWorkingHours(provider);
 
   const day = sgtDayKey(date);
   const window = hours[day];
@@ -84,25 +52,7 @@ function providerSlots(
 
   for (let t = start.getTime(); t + durationMs <= end.getTime(); t += stepMs) {
     const candidateStart = new Date(t);
-    const candidateEnd = new Date(t + durationMs);
-
-    const busy = existingBookings.some((b) => {
-      if (!b.scheduled_at) return false;
-      const existingStart = parseSgt(b.scheduled_at);
-      if (!existingStart) return false;
-      let existingDuration = durationMin;
-      try {
-        const items = typeof b.items === 'string' ? JSON.parse(b.items) : b.items;
-        if (Array.isArray(items)) {
-          const total = items.reduce((sum, it) => sum + (parseDurationMinutes(it.duration) || 60), 0);
-          if (total > 0) existingDuration = total;
-        }
-      } catch { /* empty */ }
-      const existingEnd = new Date(existingStart.getTime() + existingDuration * 60 * 1000);
-      return candidateStart < existingEnd && candidateEnd > existingStart;
-    });
-
-    if (!busy) {
+    if (isFreeAt(provider, hours, candidateStart, durationMin, existingBookings)) {
       slots.push(sgtTime(candidateStart));
     }
   }
@@ -115,7 +65,12 @@ router.get('/', async (req, res) => {
     const service = typeof req.query.service === 'string' ? req.query.service : '';
     const city = typeof req.query.city === 'string' ? req.query.city : '';
     const date = typeof req.query.date === 'string' ? req.query.date : '';
-    let duration = typeof req.query.duration === 'string' ? parseDurationMinutes(req.query.duration) : null;
+    // The storefront always sends minutes ("15", "90"). parseDurationMinutes
+    // would read a bare "15" as 15 *hours* (its <20-is-hours heuristic exists
+    // for the catalog's mixed-unit duration strings), so parse the query param
+    // as a plain number; only the catalog fallback below needs that heuristic.
+    const durationParam = typeof req.query.duration === 'string' ? Number(req.query.duration) : NaN;
+    let duration = Number.isFinite(durationParam) && durationParam > 0 ? durationParam : null;
 
     if (!service || !city || !date) {
       return res.status(400).json({ error: 'service, city and date are required' });
@@ -133,9 +88,11 @@ router.get('/', async (req, res) => {
     }
 
     const [providers]: any = await pool.query(
-      `SELECT id, working_hours, services
-       FROM service_providers
-       WHERE LOWER(city) = LOWER(?) AND status = 'active'`,
+      `SELECT sp.id, sp.working_hours, sp.services
+       FROM service_providers sp
+       LEFT JOIN vendors v ON v.id = sp.vendor_id
+       WHERE LOWER(sp.city) = LOWER(?) AND sp.status = 'active'
+         AND (sp.vendor_id IS NULL OR v.status = 'active')`,
       [city]
     );
 
@@ -144,49 +101,18 @@ router.get('/', async (req, res) => {
     // (vendor Partner OS members) — match on all so a member tagged "Makeup"
     // can serve "Party Makeup" and one tagged "Wellness @ Home" covers
     // "Body Massage 60 min".
-    const skillTags = new Set(
-      (await skillTagsForService(service)).map((t) => t.toLowerCase())
-    );
-    const matched = providers.filter((p: any) => {
-      try {
-        const list = typeof p.services === 'string' ? JSON.parse(p.services) : p.services;
-        return Array.isArray(list) && list.some((s: string) => skillTags.has(String(s).trim().toLowerCase()));
-      } catch {
-        return false;
-      }
-    });
+    const skillTags = await skillTagsForService(service);
+    const matched = providers.filter((p: any) => providerSupportsServices(p, [skillTags]));
 
     if (matched.length === 0) {
       return res.status(200).json({ slots: [] });
     }
 
-    // Vendor members on leave that day can't take visits — drop them before
-    // slot generation so the calendar stops selling their hours.
-    const providerIds = matched.map((p: any) => p.id);
-    const placeholders = providerIds.map(() => '?').join(',');
-    const [leaveRows]: any = await pool.query(
-      `SELECT provider_id FROM team_member_leave
-        WHERE provider_id IN (${placeholders}) AND start_date <= ? AND end_date >= ?`,
-      [...providerIds, date, date]
-    );
-    const onLeave = new Set((leaveRows as any[]).map((r) => r.provider_id));
-    const free = matched.filter((p: any) => !onLeave.has(p.id));
-    if (free.length === 0) {
-      return res.status(200).json({ slots: [] });
-    }
-
-    const freeIds = free.map((p: any) => p.id);
-    const freePlaceholders = freeIds.map(() => '?').join(',');
-    const [bookings]: any = await pool.query(
-      `SELECT provider_id, scheduled_at, items
-       FROM bookings
-       WHERE provider_id IN (${freePlaceholders}) AND status != 'cancelled' AND DATE(scheduled_at) = ?`,
-      [...freeIds, date]
-    );
+    const bookings = await loadProviderSchedule(matched.map((p: any) => p.id), [date]);
 
     const slotSet = new Set<string>();
-    for (const p of free) {
-      for (const slot of providerSlots(p, date, duration, bookings.filter((b: any) => b.provider_id === p.id))) {
+    for (const p of matched) {
+      for (const slot of providerSlots(p, date, duration, bookings)) {
         slotSet.add(slot);
       }
     }

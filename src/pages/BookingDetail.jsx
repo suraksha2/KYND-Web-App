@@ -242,6 +242,7 @@ export default function BookingDetail() {
                   <span className="text-sm text-charcoal">
                     <span className="text-warmgrey mr-2">#{v.seq}</span>
                     {v.scheduledAt ? new Date(v.scheduledAt).toLocaleString('en-SG', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', ...sgt }) : '—'}
+                    <span className="block text-xs text-warmgrey mt-1">{v.providerName || 'Awaiting provider assignment'}</span>
                   </span>
                   <div className="flex items-center gap-3 shrink-0">
                     {v.status === 'upcoming' && (

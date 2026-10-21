@@ -154,6 +154,7 @@ function OpenOfferCard({ offer, onAccept, onDecline, busy, innerRef }) {
 // Status line under each member's name in the picker: leave and clashes are
 // warnings (assigning anyway is still allowed), otherwise how busy they are.
 function memberStatus(m) {
+  if (m.qualified === false) return { warn: true, text: 'No matching skill' }
   if (m.onLeave?.length) {
     const l = m.onLeave[0]
     return { warn: true, text: `On leave ${l.startDate === l.endDate ? l.startDate : `${l.startDate} – ${l.endDate}`}` }
@@ -195,7 +196,11 @@ function AcceptAssignModal({ offer, token, busy, onConfirm, onClose }) {
       setLoadError('This offer is missing a scheduled time.')
       return
     }
-    vendorFetch(`/vendor/team/availability?at=${encodeURIComponent(at)}&durationMin=${durationMin}`, token)
+    const params = new URLSearchParams({ at, durationMin: String(durationMin) })
+    if (offer.bookingId) params.set('bookingId', String(offer.bookingId))
+    if (offer.serviceLabel) params.set('serviceLabel', offer.serviceLabel)
+    if (offer.category) params.set('category', offer.category)
+    vendorFetch(`/vendor/team/availability?${params}`, token)
       .then((d) => { if (!cancelled) setMembers(d.members || []) })
       .catch((err) => { if (!cancelled) setLoadError(err.message || 'Failed to load team.') })
     return () => { cancelled = true }
@@ -247,7 +252,7 @@ function AcceptAssignModal({ offer, token, busy, onConfirm, onClose }) {
                 <button
                   key={m.id}
                   onClick={() => setSelected(isSel ? null : m.id)}
-                  disabled={busy}
+                  disabled={busy || m.qualified === false}
                   className={`w-full flex items-center gap-3 rounded-2xl border px-4 py-3 text-left transition-colors disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-terracotta/40 ${
                     isSel
                       ? 'border-terracotta bg-accent-100/60'

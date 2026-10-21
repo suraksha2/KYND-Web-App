@@ -104,19 +104,19 @@ export default function BookingCard({ booking, updating, onUpdate }) {
             {updating ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
             Mark completed
           </button>
-          <button
+          {booking.canCancel !== false && <button
             disabled={updating}
             onClick={() => onUpdate(booking.id, 'cancelled')}
             className="inline-flex items-center justify-center gap-2 rounded-xl bg-white border border-lightstone hover:bg-warmlinen disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-terracotta/30 text-charcoal text-sm font-semibold px-6 py-3 transition-all"
           >
             <XCircle className="w-4 h-4" />
             Cancel
-          </button>
+          </button>}
         </div>
       )}
 
       {/* Messaging section - available for bookings with upcoming or completed occurrences */}
-      {hasUpcoming && (
+      {hasUpcoming && booking.canMessage !== false && (
         <div className="border-t border-lightstone p-4 sm:p-5 bg-white">
           <BookingMessaging bookingId={booking.id} />
         </div>

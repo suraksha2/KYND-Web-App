@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useLayoutEffect, useMemo, useRef } from "react";
+import { createPortal } from "react-dom";
 import {
   Search, Eye, X, CheckCircle, XCircle, CalendarClock,
   ShoppingCart, DollarSign, Clock, Ban, AlertTriangle,
@@ -7,6 +8,7 @@ import {
 import clsx from "clsx";
 import { apiFetch } from "@/lib/api";
 import { parseSgt } from "@/lib/sgt";
+import BookingAssignment from "@/components/BookingAssignment";
 
 const statusCfg: Record<string, { cls: string; dot: string; label: string }> = {
   Upcoming:  { cls: "bg-accent-50 text-terracotta ring-1 ring-terracotta/20",        dot: "bg-terracotta",    label: "Upcoming"  },
@@ -55,18 +57,72 @@ export default function BookingsPage() {
   const [loading, setLoading]           = useState(true);
   const [activeTab, setActiveTab]       = useState(0);
   const [search, setSearch]             = useState("");
+  const [page, setPage]                 = useState(1);
+  const [pageSize, setPageSize]         = useState(10);
   const [selected, setSelected]         = useState<any | null>(null);
   const [menuOpenId, setMenuOpenId]     = useState<string | null>(null);
   const [updatingId, setUpdatingId]     = useState<string | null>(null);
   const [tick, setTick]                 = useState(0);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const menuTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const [menuPosition, setMenuPosition] = useState<React.CSSProperties>({});
+
+  useLayoutEffect(() => {
+    if (!menuOpenId) return;
+
+    function positionMenu() {
+      const trigger = menuTriggerRef.current;
+      const menu = menuRef.current;
+      if (!trigger || !menu) return;
+      const rect = trigger.getBoundingClientRect();
+      const margin = 8;
+      const gap = 4;
+      const viewportHeight = window.innerHeight;
+      const viewportWidth = document.documentElement.clientWidth;
+      if (rect.bottom < 0 || rect.top > viewportHeight || rect.right < 0 || rect.left > viewportWidth) {
+        setMenuOpenId(null);
+        return;
+      }
+      const below = Math.max(0, viewportHeight - rect.bottom - gap - margin);
+      const above = Math.max(0, rect.top - gap - margin);
+      const height = menu.scrollHeight + 2;
+      const openAbove = below < height && above > below;
+      const maxHeight = openAbove ? above : below;
+      setMenuPosition({
+        left: Math.max(margin, Math.min(rect.right - menu.offsetWidth, viewportWidth - menu.offsetWidth - margin)),
+        top: openAbove ? Math.max(margin, rect.top - gap - Math.min(height, maxHeight)) : rect.bottom + gap,
+        maxHeight,
+      });
+    }
+
+    function handleScroll(e: Event) {
+      if (!menuRef.current?.contains(e.target as Node)) positionMenu();
+    }
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        setMenuOpenId(null);
+        menuTriggerRef.current?.focus();
+      }
+    }
+    positionMenu();
+    window.addEventListener("resize", positionMenu);
+    document.addEventListener("scroll", handleScroll, true);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("resize", positionMenu);
+      document.removeEventListener("scroll", handleScroll, true);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [menuOpenId]);
 
   useEffect(() => {
     fetchBookings();
     // Re-check "missed" every minute while the page stays open.
     const timer = setInterval(() => setTick(n => n + 1), 60000);
     function handleClickOutside(e: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpenId(null);
+      if (menuRef.current && !menuRef.current.contains(e.target as Node) && !menuTriggerRef.current?.contains(e.target as Node)) {
+        setMenuOpenId(null);
+      }
     }
     document.addEventListener("mousedown", handleClickOutside);
     return () => {
@@ -108,6 +164,8 @@ export default function BookingsPage() {
             dueAt:    dueAtOf(order),
             provider: order.providerName || "Unassigned",
             providerRating: order.providerRating || null,
+            occurrences: order.occurrences || [],
+            history: typeof order.history === "string" ? JSON.parse(order.history) : (order.history || []),
             amount:   Number(order.amount || order.total || 0),
             status,
             date: parseSgt(order.date || order.placed_at)?.toLocaleString("en-IN", {
@@ -118,6 +176,7 @@ export default function BookingsPage() {
           };
         });
         setBookings(mapped);
+        setSelected((prev: any) => prev ? mapped.find((b: any) => b.dbId === prev.dbId) || null : null);
       }
     } catch (err) {
       console.error("Failed to fetch bookings", err);
@@ -158,6 +217,19 @@ export default function BookingsPage() {
     return matchSearch && matchTab;
   });
 
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const pageStart = (currentPage - 1) * pageSize;
+  const paginatedBookings = filtered.slice(pageStart, pageStart + pageSize);
+
+  useEffect(() => {
+    setPage(p => Math.min(p, totalPages));
+  }, [totalPages]);
+
+  useEffect(() => {
+    setMenuOpenId(null);
+  }, [currentPage, pageSize, activeTab, search]);
+
   // Slots that have passed with the job still unmarked — most overdue first.
   const missedJobs = useMemo(
     () => bookings.filter(isMissed).sort((a, b) => a.dueAt.getTime() - b.dueAt.getTime()),
@@ -190,7 +262,7 @@ export default function BookingsPage() {
             </p>
           </div>
           <button
-            onClick={() => setActiveTab(1)}
+            onClick={() => { setActiveTab(1); setPage(1); }}
             className="shrink-0 rounded-xl bg-terracotta hover:bg-accent-600 text-white text-xs font-semibold px-4 py-2 transition-colors"
           >
             Review upcoming
@@ -234,7 +306,7 @@ export default function BookingsPage() {
               return (
                 <button
                   key={tab.label}
-                  onClick={() => setActiveTab(i)}
+                  onClick={() => { setActiveTab(i); setPage(1); }}
                   className={clsx(
                     "flex items-center gap-2 px-4 py-3.5 text-sm font-semibold border-b-2 transition whitespace-nowrap",
                     activeTab === i
@@ -258,7 +330,7 @@ export default function BookingsPage() {
               type="text"
               placeholder="Search bookings…"
               value={search}
-              onChange={e => setSearch(e.target.value)}
+              onChange={e => { setSearch(e.target.value); setPage(1); }}
               className="pl-8 pr-4 py-2 text-sm bg-gray-50 border border-lightstone rounded-xl focus:outline-none focus:ring-2 focus:ring-terracotta/30 w-56 transition"
             />
           </div>
@@ -287,7 +359,7 @@ export default function BookingsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-lightstone/50">
-                {filtered.map((b, i) => {
+                {paginatedBookings.map((b, i) => {
                   const st = statusCfg[b.status] ?? statusCfg["Upcoming"];
                   const isUpdating = updatingId === b.id;
                   return (
@@ -295,7 +367,7 @@ export default function BookingsPage() {
                       <td className="px-4 py-3 font-semibold text-terracotta whitespace-nowrap text-xs">{b.id}</td>
                       <td className="px-4 py-3 whitespace-nowrap">
                         <div className="flex items-center gap-2.5">
-                          <div className={clsx("w-7 h-7 rounded-lg flex items-center justify-center text-white text-[10px] font-bold shrink-0", avatarColors[i % avatarColors.length])}>
+                          <div className={clsx("w-7 h-7 rounded-lg flex items-center justify-center text-white text-[10px] font-bold shrink-0", avatarColors[(pageStart + i) % avatarColors.length])}>
                             {getInitials(b.customer)}
                           </div>
                           <div>
@@ -338,8 +410,14 @@ export default function BookingsPage() {
                           </button>
                           <div className="relative">
                             <button
-                              onClick={() => setMenuOpenId(menuOpenId === b.id ? null : b.id)}
+                              onClick={(e) => {
+                                menuTriggerRef.current = e.currentTarget;
+                                setMenuOpenId(menuOpenId === b.id ? null : b.id);
+                              }}
                               disabled={isUpdating}
+                              aria-label={`Actions for booking ${b.id}`}
+                              aria-expanded={menuOpenId === b.id}
+                              aria-controls={menuOpenId === b.id ? "booking-actions" : undefined}
                               className="p-1.5 rounded-lg hover:bg-accent-50 text-warmgrey hover:text-warmgrey transition disabled:opacity-40"
                               title="Actions"
                             >
@@ -348,8 +426,13 @@ export default function BookingsPage() {
                                 : <span className="text-sm leading-none font-bold tracking-widest">···</span>
                               }
                             </button>
-                            {menuOpenId === b.id && (
-                              <div ref={menuRef} className="absolute right-0 z-30 mt-1 w-44 bg-white rounded-xl shadow-lg border border-lightstone py-1 text-sm">
+                            {menuOpenId === b.id && createPortal(
+                              <div
+                                id="booking-actions"
+                                ref={menuRef}
+                                style={menuPosition}
+                                className="fixed z-[60] w-44 max-w-[calc(100vw-16px)] overflow-y-auto bg-white rounded-xl shadow-lg border border-lightstone py-1 text-sm"
+                              >
                                 <button onClick={() => { setSelected(b); setMenuOpenId(null); }}
                                   className="w-full flex items-center gap-2 px-3 py-2 text-warmgrey hover:bg-accent-50">
                                   <Eye size={13} className="text-terracotta" /> View Details
@@ -367,7 +450,8 @@ export default function BookingsPage() {
                                   className="w-full flex items-center gap-2 px-3 py-2 text-rosewood hover:bg-dustyrose/10 disabled:opacity-40 disabled:cursor-not-allowed">
                                   <XCircle size={13} className="text-rosewood" /> Cancel
                                 </button>
-                              </div>
+                              </div>,
+                              document.body
                             )}
                           </div>
                         </div>
@@ -386,9 +470,44 @@ export default function BookingsPage() {
           </div>
         )}
         {/* Footer */}
-        {!loading && filtered.length > 0 && (
-          <div className="px-4 py-3 border-t border-lightstone/50 text-xs text-warmgrey">
-            Showing <span className="font-semibold text-warmgrey">{filtered.length}</span> of <span className="font-semibold text-warmgrey">{bookings.length}</span> bookings
+        {!loading && (
+          <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-t border-lightstone/50 text-xs text-warmgrey">
+            <p aria-live="polite">
+              Showing <span className="font-semibold">{filtered.length ? pageStart + 1 : 0}–{Math.min(pageStart + pageSize, filtered.length)}</span> of{" "}
+              <span className="font-semibold">{filtered.length}</span> bookings
+              {filtered.length !== bookings.length && ` (${bookings.length} total)`}
+            </p>
+            <div className="flex flex-wrap items-center gap-4">
+              <label className="flex items-center gap-2">
+                Rows per page
+                <select
+                  value={pageSize}
+                  onChange={e => { setPageSize(Number(e.target.value)); setPage(1); }}
+                  className="rounded-lg border border-lightstone bg-white px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-terracotta/30"
+                >
+                  {[10, 25, 50].map(size => <option key={size} value={size}>{size}</option>)}
+                </select>
+              </label>
+              <nav aria-label="Orders pagination" className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPage(currentPage - 1)}
+                  disabled={currentPage === 1}
+                  className="rounded-lg border border-lightstone px-3 py-1.5 font-semibold hover:bg-accent-50 transition disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Previous
+                </button>
+                <span>Page {currentPage} of {totalPages}</span>
+                <button
+                  type="button"
+                  onClick={() => setPage(currentPage + 1)}
+                  disabled={currentPage === totalPages}
+                  className="rounded-lg border border-lightstone px-3 py-1.5 font-semibold hover:bg-accent-50 transition disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Next
+                </button>
+              </nav>
+            </div>
           </div>
         )}
       </div>
@@ -493,6 +612,12 @@ export default function BookingsPage() {
                     )}
                   </div>
                 </div>
+                {selected.status === "Upcoming" && (
+                  <BookingAssignment key={selected.dbId} booking={selected} onSaved={fetchBookings} />
+                )}
+                {(selected.history || []).filter((h: any) => h.type === "provider_reassigned").slice(-3).reverse().map((h: any, i: number) => (
+                  <p key={i} className="mt-2 text-xs text-warmgrey">{h.at} · {h.note}</p>
+                ))}
               </div>
             </div>
 
