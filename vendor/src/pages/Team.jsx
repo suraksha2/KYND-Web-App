@@ -18,8 +18,11 @@ const normalizeSgMobile = (value) => {
 // Skill chips come from the vendor's own service listings — exact catalog
 // subcategory names — so a picked tag always matches what /api/availability
 // and booking auto-assign look for. No free text: a typed-but-wrong tag
-// silently produces zero slots. `extra` keeps a member's existing tags
-// visible even when they aren't among the current listings.
+// silently produces zero slots. Rejected listings are skipped — the admin
+// declined them, so they can never win marketplace work — while draft and
+// under_review stay so members can be pre-tagged ahead of approval. `extra`
+// keeps a member's existing tags visible even when they aren't among the
+// current listings.
 function useSkillOptions(token, extra = []) {
   const [listings, setListings] = useState(null)
   useEffect(() => {
@@ -32,7 +35,7 @@ function useSkillOptions(token, extra = []) {
   return useMemo(
     () => (listings === null
       ? null
-      : [...new Set([...listings.map((c) => c.name).filter(Boolean), ...extra])]),
+      : [...new Set([...listings.filter((c) => c.status !== 'rejected').map((c) => c.name).filter(Boolean), ...extra])]),
     [listings, extra]
   )
 }

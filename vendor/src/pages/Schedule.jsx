@@ -364,6 +364,7 @@ export default function Schedule() {
           categories={categories}
           services={data?.services || []}
           team={team}
+          categoryTags={data?.categoryTags}
           onClose={() => setQuickAddOpen(false)}
           onCreated={() => { load(); reload?.() }}
         />

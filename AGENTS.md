@@ -89,7 +89,7 @@ is written for **MySQL 8**, where:
 - expression defaults need parentheses: `DEFAULT (CURRENT_DATE)`.
 
 `mysql` aborts on the first error, so a mistake leaves a half-created schema that
-surfaces as `500`s from `/api/*`. A clean import creates **35 tables**.
+surfaces as `500`s from `/api/*`. A clean import creates **42 tables**.
 
 `DATETIME` columns hold **Singapore wall-clock time**, but mysql2 hands them back
 as JS `Date`s built in the *process* timezone. Doing date maths on such a value
@@ -218,6 +218,14 @@ today is the Home-screen slice:
   admin `POST/PUT /service-providers`), which rejects non-catalog names —
   the vendor Team picker offers the vendor's `vendor_service_categories`
   subcategory names as chips, so a typo'd tag can never reach the DB.
+  When a job's skill requirement resolves to a bare *category* (an own job
+  with a free-text label), `skillRequirementsForJob` expands it via
+  `skillTagsForCategory` to every tag nested under the category — otherwise
+  subcategory-tagged members like "Nail Art" would never qualify for a
+  "Beauty Services" job. `GET /vendor/jobs` and `GET /vendor/jobs/:id` ship
+  the same expansion as `categoryTags` so the quick-add "Assign to" picker
+  applies the identical rule client-side (an unmapped chip = custom work,
+  no skill check).
 - `jobs` is the vendor-side work item (accepted Kynd offer or the vendor's own
   customer booking) — it owns its own status machine
   (`accepted → assigned → in_progress → completed → paid`), independent of
@@ -292,14 +300,42 @@ today is the Home-screen slice:
   work-list figure for a vendor must merge `marketplaceMemberWork()` —
   bookings/occurrences assigned to the vendor's `service_providers` rows never
   become `jobs` rows; `GET /vendor/home`, `/vendor/jobs` and `/vendor/money`
-  all do this merge (visits are valued at the booking total where `jobs` use
-  `net`).
+  all do this merge using **vendor net earnings**, never the customer total.
+- **Vendor finance**: `src/lib/vendorFinance.ts` resolves exact service variants
+  from live `vendor_service_categories` / `vendor_service_category_items`.
+  Approved vendor amounts × quantity, plus explicitly configured add-on
+  `partner_cost`, form the vendor's earnings. Customer discounts do not change
+  the independently approved vendor amount. Missing approved service/add-on rates
+  prevent new vendor assignments; no customer-price fallback is permitted.
+  `vendor_booking_financials` captures customer total, vendor gross, and net
+  earnings per visit. Key 0 is the single visit or recurring template; top-ups
+  copy the template, same-vendor cover preserves rates, cross-vendor cover
+  reprices only open visits. `payouts.ts` merges these completed financial rows
+  with legacy Kynd jobs, excluding duplicates and recurring templates. Batching
+  and marking paid share a MySQL named lock. Existing jobs retain their saved
+  amounts. The retired vendor-listing booking endpoint returns 410; all customer
+  pricing goes through the storefront. A
+  `flat` catalog pricing rule is the final approved customer price — checkout
+  must charge it without applying partner-cost markup; the vendor's approved
+  rate is resolved separately. Before running the updated API on an existing
+  DB, from `backend/db` run `npm run build`, then
+  `node scripts/migrate-vendor-finance.mjs` to inspect and
+  `node scripts/migrate-vendor-finance.mjs --apply` to create the table and
+  snapshot open visits. `node scripts/reconcile-flat-booking-prices.mjs`
+  reports old flat-price bookings that were marked up; `--apply` rewrites only
+  unpaid upcoming cash bookings matching the known bug. Completed legacy visits
+  without snapshots stay flagged for review and are excluded from earnings and
+  payouts. The migration scripts are idempotent and never rewrite
+  completed/settled earnings.
+  `node --test scripts/test-vendor-finance.mjs` verifies finance in a disposable
+  database (requires CREATE DATABASE permission); the assignment regression
+  script continues to use connection-local temporary tables.
 - Money overview's weekly chart uses completed work and completion dates, like
   its earned total. `marketplaceMemberWork` accepts `dateBasis: 'completed'`
   for financial windows (`'activity'` combines completions with upcoming work
-  on Home). Single-booking completion dates come from the last "Marked
-  completed" audit entry, falling back to the slot/placed time for legacy
-  rows; recurring visits use `booking_occurrences.completed_at`. Expenses
+  on Home). Completion dates use the saved finance timestamp; legacy rows
+  fall back to occurrence completion or the last "Marked completed" audit entry,
+  then slot/placed time. Expenses
   includes these direct visits in cost-per-job averages. Staff costs are
   estimates using current pay rates and booked duration; only job-linked
   expenses are allocated. The overview labels category totals as revenue,
@@ -309,9 +345,8 @@ today is the Home-screen slice:
   for local testing — it is **not** part of `db.sql` (schema only, no seed
   rows). Run it after importing the schema, then sign in to `/vendor` with the
   email/password it prints.
-- Home, Jobs, Offers, Team, Schedule and the owner-only Money/Forecast/
-  Expenses/Payouts/Services pages are backed by `vendor.ts` routes; Invoices
-  is still a placeholder (no `invoices` table exists).
+- Home, Jobs, Team, Schedule and the owner-only Money/Forecast/
+  Expenses/Payouts/Services/Invoices pages are backed by `vendor.ts` routes.
 
 ## Pre-launch gate
 

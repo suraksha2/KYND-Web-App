@@ -268,7 +268,7 @@ export default function JobDetail() {
   const roleLabel = job.category && /clean/i.test(job.category) ? 'Cleaner' : 'Service pro'
 
   return (
-    <div className="space-y-5 max-w-4xl">
+    <div className="space-y-5 max-w-6xl">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <Link to="/jobs" className="inline-flex items-center gap-1.5 text-sm font-semibold text-warmgrey hover:text-charcoal">
@@ -440,7 +440,7 @@ export default function JobDetail() {
         </section>
       )}
 
-      <div className={`grid grid-cols-1 gap-4 items-start ${job.readOnly ? 'max-w-xl' : 'lg:grid-cols-2'}`}>
+      <div className="grid grid-cols-1 gap-4 items-start lg:grid-cols-2">
         {!job.readOnly && (
           <div className="space-y-4">
             <section className="bg-white rounded-3xl border border-lightstone shadow-soft p-5 sm:p-6">
@@ -485,7 +485,7 @@ export default function JobDetail() {
           </div>
         )}
 
-        <div className="space-y-4">
+        <div className={job.readOnly ? 'contents' : 'space-y-4'}>
           <section className="bg-white rounded-3xl border border-lightstone shadow-soft p-5 sm:p-6">
             <div className="flex items-center justify-between gap-4 mb-3">
               <h2 className="font-heading text-base font-bold text-charcoal">Assigned to</h2>
@@ -568,10 +568,16 @@ export default function JobDetail() {
               <p className="mt-2 text-xs text-warmgrey">Kynd booking <span className="font-semibold text-charcoal">{job.bookingRef}</span></p>
             )}
             {canSeeMoney && (
-              <p className="mt-3 pt-3 border-t border-lightstone text-sm">
-                <span className="text-warmgrey">You earn </span>
-                <span className="font-bold text-sage">{formatMoney(job.net)}</span>
-              </p>
+              <div className="mt-3 pt-3 border-t border-lightstone text-sm space-y-2">
+                {job.pricingPending ? (
+                  <p className="text-amber-800">Vendor earnings need review. No approved amount has been recorded for this visit.</p>
+                ) : (
+                  <>
+                    <p className="flex justify-between"><span className="text-warmgrey">You earn</span><span className="font-bold text-sage">{formatMoney(job.net)}</span></p>
+                    <p className="text-xs text-warmgrey">Before staff pay and other expenses.</p>
+                  </>
+                )}
+              </div>
             )}
           </section>
 
@@ -618,6 +624,7 @@ export default function JobDetail() {
           categories={profile?.vendor?.categories?.length ? profile.vendor.categories : (data?.job?.category ? [data.job.category] : [])}
           services={[]}
           team={team}
+          categoryTags={data?.categoryTags}
           onClose={() => setQuickAddOpen(false)}
           onCreated={() => reload?.()}
         />

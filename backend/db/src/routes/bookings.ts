@@ -8,6 +8,7 @@ import { normalizeRecurrence } from '../lib/recurrence';
 import { createOccurrences, withOccurrences, topUpOccurrences } from '../lib/occurrences';
 import { sgtDateTime, parseSgt } from '../lib/sgt';
 import { priceOrder, PricingError } from '../lib/pricing';
+import { approvedVendorQuote, assignVendorFinancials, VendorPricingError } from '../lib/vendorFinance';
 import { verifyCardPaymentForBooking, PaymentVerificationError } from '../lib/paymentVerification';
 // Offer inbox deferred until the multi-vendor stage.
 // import { fanOutOffersForBooking } from '../lib/offers';
@@ -220,7 +221,7 @@ router.post('/', async (req, res) => {
       // Lock the city's eligible roster before checking schedules so concurrent
       // customer bookings cannot both claim the same free worker.
       const [rows]: any = await conn.query(
-        `SELECT sp.id, sp.name, sp.rating, sp.total_jobs, sp.avatar, sp.working_hours, sp.services
+        `SELECT sp.id, sp.vendor_id, sp.name, sp.rating, sp.total_jobs, sp.avatar, sp.working_hours, sp.services
            FROM service_providers sp
            LEFT JOIN vendors v ON v.id = sp.vendor_id
           WHERE LOWER(sp.city) = LOWER(?) AND sp.status = 'active'
@@ -229,9 +230,25 @@ router.post('/', async (req, res) => {
           FOR UPDATE`,
         [contact.city]
       );
-      const candidates = rows.filter((p: any) => providerSupportsServices(p, serviceTags));
+      const [[savedBooking]]: any = await conn.query('SELECT id, items, total FROM bookings WHERE id = ? FOR UPDATE', [bookingDbId]);
+      const approved = new Map<number, boolean>();
+      const candidates: any[] = [];
+      for (const p of rows) {
+        if (!providerSupportsServices(p, serviceTags)) continue;
+        if (p.vendor_id && !approved.has(Number(p.vendor_id))) {
+          try {
+            await approvedVendorQuote(Number(p.vendor_id), savedBooking.items, conn, true);
+            approved.set(Number(p.vendor_id), true);
+          } catch (error) {
+            if (!(error instanceof VendorPricingError)) throw error;
+            approved.set(Number(p.vendor_id), false);
+          }
+        }
+        if (!p.vendor_id || approved.get(Number(p.vendor_id))) candidates.push(p);
+      }
       provider = await findAvailableProvider(candidates, visits, durationMin, conn);
       if (provider) {
+        await assignVendorFinancials(conn, savedBooking, provider.vendor_id ?? null);
         await conn.query(
           'UPDATE bookings SET provider_id = ?, assigned_at = ? WHERE id = ?',
           [provider.id, sgtDateTime(new Date()), bookingDbId]

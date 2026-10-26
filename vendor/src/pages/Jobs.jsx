@@ -291,6 +291,7 @@ export default function Jobs() {
           categories={categories}
           services={services}
           team={team}
+          categoryTags={data?.categoryTags}
           onClose={() => setQuickAddOpen(false)}
           onCreated={() => { load(); reload?.() }}
         />

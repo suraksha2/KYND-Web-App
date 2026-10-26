@@ -1,8 +1,6 @@
 import { Router } from 'express';
 import pool from '../lib/mysql';
-import { getSession } from '../http/session';
 import { hasAdminAccess } from '../lib/auth';
-import { sgtDateTime } from '../lib/sgt';
 
 const router = Router();
 
@@ -26,102 +24,10 @@ router.get('/live', async (_req, res) => {
   }
 });
 
-// Book a specific vendor's live listing directly — a separate, simpler path
-// from POST /api/bookings: price is already fixed by the approved listing
-// (no priceOrder() catalog lookup), payment is collected by the partner
-// on-site ('cod'), and the resulting `jobs` row goes straight to that vendor
-// instead of the general service_providers matching/offer fan-out.
-// Allowlisted (POST, this path only) in http/session.ts — requires a signed-in
-// customer session, same as POST /api/bookings, but not an admin one.
-router.post('/:id/book', async (req, res) => {
-  const conn = await pool.getConnection();
-  try {
-    const session = await getSession(req);
-    if (!session) {
-      conn.release();
-      return res.status(401).json({ error: 'Authentication required.' });
-    }
-
-    const [rows]: any = await conn.query(
-      `SELECT vsp.id, vsp.vendor_id, vsp.category, vsp.unit, vsp.price, vsp.status,
-              v.name AS vendor_name, v.status AS vendor_status
-         FROM vendor_service_prices vsp
-         JOIN vendors v ON v.id = vsp.vendor_id
-        WHERE vsp.id = ?`,
-      [req.params.id]
-    );
-    const listing = rows?.[0];
-    if (!listing || listing.status !== 'live' || listing.vendor_status !== 'active') {
-      conn.release();
-      return res.status(404).json({ error: 'This listing is not available.' });
-    }
-
-    const { contact, scheduledAt, quantity, notes } = req.body || {};
-    const { name, phone, address, city, pincode, area } = contact || {};
-    const isValidPincode = (v: unknown) => typeof v === 'string' && /^\d{6}$/.test(v);
-    if (!name?.trim() || !phone?.trim() || !address?.trim() || !city?.trim() || !area?.trim() || !isValidPincode(pincode)) {
-      conn.release();
-      return res.status(400).json({ error: 'Missing or invalid contact/address details.' });
-    }
-    const scheduled = scheduledAt ? sgtDateTime(scheduledAt) : null;
-    if (!scheduled) {
-      conn.release();
-      return res.status(400).json({ error: 'A valid date and time is required.' });
-    }
-
-    const qty = Math.min(Math.max(Number(quantity) || 1, 1), 50);
-    const total = Math.round(Number(listing.price) * qty * 100) / 100;
-    const trimmedNotes = typeof notes === 'string' ? notes.trim().slice(0, 500) : '';
-    const bookingRef = `VP-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
-    const placedAt = sgtDateTime(new Date());
-    const itemLabel = `${listing.category} (per ${listing.unit})`;
-
-    await conn.beginTransaction();
-
-    const [result]: any = await conn.query(
-      `INSERT INTO bookings (
-        booking_id, items, total, schedule, scheduled_at,
-        contact_name, contact_phone, contact_address, contact_city, contact_pincode, contact_area,
-        notes, payment, placed_at, status, history, user_id, vendor_id
-      ) VALUES (?, ?, ?, 'scheduled', ?, ?, ?, ?, ?, ?, ?, ?, 'cod', ?, 'upcoming', ?, ?, ?)`,
-      [
-        bookingRef,
-        JSON.stringify([{ name: itemLabel, price: listing.price, qty }]),
-        total,
-        scheduled,
-        name.trim(), phone.trim(), address.trim(), city.trim(), pincode, area.trim(),
-        trimmedNotes || null,
-        placedAt,
-        JSON.stringify([{ at: placedAt, type: 'created', note: `Booked directly with ${listing.vendor_name}` }]),
-        session.id,
-        listing.vendor_id,
-      ]
-    );
-    const bookingDbId = result.insertId;
-
-    const feePct = 15;
-    const net = Math.round(total * (1 - feePct / 100) * 100) / 100;
-    await conn.query(
-      `INSERT INTO jobs (vendor_id, booking_id, source, status, customer_name, customer_phone,
-                         customer_address, customer_area, service_label, category,
-                         window_start, window_end, gross, fee_pct, net)
-       VALUES (?, ?, 'kynd', 'accepted', ?, ?, ?, ?, ?, ?, ?, DATE_ADD(?, INTERVAL 2 HOUR), ?, ?, ?)`,
-      [
-        listing.vendor_id, bookingDbId, name.trim(), phone.trim(), address.trim(), area.trim(),
-        listing.category, listing.category, scheduled, scheduled,
-        total, feePct, net,
-      ]
-    );
-
-    await conn.commit();
-    return res.status(201).json({ success: true, bookingId: bookingDbId, bookingRef });
-  } catch (error) {
-    try { await conn.rollback(); } catch { /* already rolled back */ }
-    console.error('[POST /api/vendor-services/:id/book]', error);
-    return res.status(500).json({ error: 'Failed to create booking.' });
-  } finally {
-    conn.release();
-  }
+// The retired /partners page used vendor rates as customer prices. All new
+// customer bookings must use the storefront catalog and its server pricing.
+router.post('/:id/book', (_req, res) => {
+  return res.status(410).json({ error: 'Please book this service through the storefront catalog.' });
 });
 
 // ---- Superadmin review (default apiAuthGate admin requirement applies) ----

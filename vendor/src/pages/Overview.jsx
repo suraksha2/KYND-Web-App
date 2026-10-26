@@ -57,6 +57,7 @@ function TotalEarnedCard({ earned }) {
       ) : (
         <>
           <p className="font-heading text-4xl font-bold text-charcoal">{formatMoney(d.total)}</p>
+          <p className="mt-1 text-xs text-warmgrey">Before staff pay and other expenses.</p>
           <p className="mt-1 text-sm text-warmgrey">
             {d.rangeLabel}
             {d.aheadOfLast !== 0 && (
@@ -315,6 +316,11 @@ export default function Overview() {
   return (
     <div className="space-y-6 max-w-6xl">
       <MoneyHeader title="Money" />
+      {data?.pricingPending > 0 && (
+        <p className="rounded-2xl bg-amber-50 border border-amber-200 px-5 py-4 text-sm text-amber-900">
+          {data.pricingPending} completed visits need vendor rate review and are excluded from earnings. Contact Kynd support to confirm their amounts.
+        </p>
+      )}
 
       {alerts.length > 0 && (
         <div className="space-y-3">

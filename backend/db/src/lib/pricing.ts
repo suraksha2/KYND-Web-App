@@ -156,28 +156,44 @@ export async function priceOrder(input: {
   let base = 0;
   for (const { service, qty, raw } of resolvedServices) {
     const rule = ruleMap.get(Number(service.id));
-    let partnerCost: number | null = null;
+    let unit: number | null = null;
 
-    if (rule && rule.strategy !== 'custom_quote') {
-      const durationHours = parseDurationHours(raw.duration || service.duration);
-      partnerCost = computePartnerCostFromRule(rule, {
-        durationHours,
-        partySize: qty,
-        startTime,
-      });
-    }
-
-    if (partnerCost === null || !Number.isFinite(partnerCost)) {
-      const fallback = service.default_partner_cost !== null ? Number(service.default_partner_cost) : null;
-      if (fallback === null || !Number.isFinite(fallback)) {
+    if (rule?.strategy === 'flat') {
+      const amount = Number(rule.params?.amount);
+      if (!Number.isFinite(amount) || amount <= 0) {
+        throw new PricingError(`Service "${service.name}" does not have a valid customer price.`);
+      }
+      unit = roundMoney(amount);
+    } else {
+      if (rule?.strategy === 'custom_quote') {
         throw new PricingError(
           `Service "${service.name}" requires a custom quote and cannot be booked online.`
         );
       }
-      partnerCost = fallback;
+
+      let partnerCost: number | null = null;
+      if (rule) {
+        const durationHours = parseDurationHours(raw.duration || service.duration);
+        partnerCost = computePartnerCostFromRule(rule, {
+          durationHours,
+          partySize: qty,
+          startTime,
+        });
+      }
+
+      if (partnerCost === null || !Number.isFinite(partnerCost)) {
+        const fallback = service.default_partner_cost !== null ? Number(service.default_partner_cost) : null;
+        if (fallback === null || !Number.isFinite(fallback)) {
+          throw new PricingError(
+            `Service "${service.name}" requires a custom quote and cannot be booked online.`
+          );
+        }
+        partnerCost = fallback;
+      }
+
+      unit = Math.round(partnerCost * (1 + markupPct(service.markup_pct_override)));
     }
 
-    const unit = Math.round(partnerCost * (1 + markupPct(service.markup_pct_override)));
     base += unit * qty;
     pricedItems.push({
       catalogId: Number(service.id),

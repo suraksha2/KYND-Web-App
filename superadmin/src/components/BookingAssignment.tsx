@@ -68,7 +68,7 @@ export default function BookingAssignment({ booking, onSaved }: { booking: any; 
           className="mt-1 w-full rounded-lg border border-lightstone bg-white p-2 text-sm">
           <option value="">{loading ? "Checking availability…" : "Select a provider"}</option>
           {providers.map(p => <option key={p.id} value={p.id} disabled={!p.available || p.current}>
-            {p.name} · {p.vendorName}{p.current ? " — current" : !p.available ? " — unavailable" : ""}
+            {p.name} · {p.vendorName}{p.current ? " — current" : !p.available ? ` — ${p.reason || "unavailable"}` : ""}
           </option>)}
         </select>
       </label>
@@ -86,7 +86,7 @@ export default function BookingAssignment({ booking, onSaved }: { booking: any; 
         className="w-full rounded-xl bg-terracotta px-3 py-2 text-sm font-semibold text-white disabled:opacity-40">
         {saving ? "Saving…" : "Confirm reassignment"}
       </button>
-      <p className="text-xs text-warmgrey">Unavailable providers are on leave, outside working hours or already booked. Availability is checked again when you confirm.</p>
+      <p className="text-xs text-warmgrey">Providers need availability and approved vendor rates for every booked service. Both are checked again when you confirm.</p>
     </form>
   );
 }

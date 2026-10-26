@@ -44,6 +44,30 @@ adding new artwork is just `git push` + `up -d --build backend`.
 
 ## 1. Prerequisites
 
+For an existing installation upgrading to approved vendor earnings, create the
+new finance table **before restarting the API with the new code**:
+
+```bash
+docker compose --env-file .env.docker build backend
+docker compose --env-file .env.docker run --rm backend node scripts/migrate-vendor-finance.mjs
+docker compose --env-file .env.docker run --rm backend node scripts/migrate-vendor-finance.mjs --apply
+docker compose --env-file .env.docker run --rm backend node scripts/reconcile-flat-booking-prices.mjs
+docker compose --env-file .env.docker run --rm backend node scripts/reconcile-flat-booking-prices.mjs --apply
+docker compose --env-file .env.docker up -d --build
+```
+
+The first run reports missing approved rates and historical visits. `--apply`
+creates `vendor_booking_financials` and captures rates only for open direct
+bookings/visits. It does not reprice completed visits, legacy jobs or paid
+payouts. Re-running it preserves already saved rates. New installations get the
+table from `db.sql`.
+
+The booking-price reconciliation fixes open, unpaid cash bookings created before
+flat catalog prices stopped being marked up. It only rewrites rows whose saved
+item price exactly matches the old cost-plus-markup result, then reports
+completed/cancelled/payment-linked bookings for manual review instead of
+rewriting history.
+
 Docker Engine + Compose v2 **and buildx** on the host (Compose refuses to build
 without the buildx plugin):
 

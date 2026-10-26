@@ -394,7 +394,7 @@ function PricingPanel({ category, canManage, onSubmitted }) {
     <div className="border-t border-lightstone px-5 sm:px-6 py-5">
       {editable && (
         <p className="mb-4 rounded-xl bg-amber-50 border border-amber-100 text-amber-800 text-xs px-4 py-2.5">
-          Add a price for each service you offer in this category, then submit for Kynd's review.
+          Enter your vendor amount for each service variant, then submit for Kynd's approval. Customer storefront prices are set separately.
         </p>
       )}
       {category.status === 'rejected' && category.reviewNote && (

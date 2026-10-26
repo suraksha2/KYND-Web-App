@@ -7,6 +7,7 @@ import { providerSupportsServices, skillTagsForService } from './providerSkills'
 import { bookingDurationMinutes, loadProviderSchedule, isFreeAt, providerWorkingHours } from './providerSchedule';
 import { parseSgt, sgtDateTime } from './sgt';
 import { sendProviderAssignmentWhatsApp } from './whatsapp';
+import { approvedVendorQuote, assignVendorFinancials, VendorPricingError } from './vendorFinance';
 
 export class AssignmentError extends Error {
   constructor(public status: number, message: string) { super(message); }
@@ -82,15 +83,37 @@ export async function assignmentContext(
     candidates.map((p: any) => p.id), dates, db, occurrenceId ?? -1, occurrenceId ? -1 : bookingId
   );
   const duration = bookingDurationMinutes(items);
+  const rateErrors = new Map<number, string>();
+  for (const p of candidates) {
+    if (!p.vendor_id || rateErrors.has(Number(p.vendor_id))) continue;
+    // Existing same-vendor commitments keep their saved approved rate.
+    const keys = [...visits.map((v: any) => Number(v.id) || 0), ...(!occurrenceId ? [0] : [])];
+    const [saved]: any = await db.query(
+      `SELECT occurrence_key FROM vendor_booking_financials WHERE booking_id = ? AND vendor_id = ?
+        AND occurrence_key IN (?)`, [bookingId, p.vendor_id, keys]
+    );
+    if (new Set(saved.map((r: any) => Number(r.occurrence_key))).size === new Set(keys).size) {
+      rateErrors.set(Number(p.vendor_id), '');
+      continue;
+    }
+    try {
+      await approvedVendorQuote(Number(p.vendor_id), booking.items, db, lock);
+      rateErrors.set(Number(p.vendor_id), '');
+    } catch (error) {
+      if (!(error instanceof VendorPricingError)) throw error;
+      rateErrors.set(Number(p.vendor_id), error.message);
+    }
+  }
   const providers = candidates.map((p: any) => {
-    const available = visits.every((v: any) => {
+    const pricingError = rateErrors.get(Number(p.vendor_id)) || '';
+    const available = !pricingError && visits.every((v: any) => {
       const at = parseSgt(v.scheduled_at);
       return at && isFreeAt(p, providerWorkingHours(p), at, duration, busy);
     });
     return {
       id: p.id, name: p.name, vendorName: p.vendor_name || 'Independent provider',
       available, current: currentProviders.every((id: any) => Number(id) === Number(p.id)),
-      reason: available ? '' : 'On leave, outside working hours or already booked for a visit.',
+      reason: pricingError || (available ? '' : 'On leave, outside working hours or already booked for a visit.'),
     };
   });
   return { booking, visits, providers, roster };
@@ -105,9 +128,19 @@ export async function saveAssignment(
   const provider = providers.find((p: any) => Number(p.id) === providerId);
   if (!provider) throw new AssignmentError(400, 'Choose an active, qualified provider in the booking city.');
   if (provider.current && (occurrenceId || Number(booking.provider_id) === providerId)) {
+    const vendorId = roster.find((p: any) => Number(p.id) === providerId)?.vendor_id ?? null;
+    if (!occurrenceId) await assignVendorFinancials(db, booking, vendorId);
+    for (const visit of visits) {
+      if (visit.id) await assignVendorFinancials(db, booking, vendorId, Number(visit.id));
+    }
     return { ...context, unchanged: true, provider: roster.find((p: any) => Number(p.id) === providerId) };
   }
-  if (!provider.available) throw new AssignmentError(409, 'That provider is no longer available for every selected visit. Choose another provider.');
+  if (!provider.available) throw new AssignmentError(409, provider.reason || 'That provider is no longer available for every selected visit.');
+  const vendorId = roster.find((p: any) => Number(p.id) === providerId)?.vendor_id ?? null;
+  if (!occurrenceId) await assignVendorFinancials(db, booking, vendorId);
+  for (const visit of visits) {
+    if (visit.id) await assignVendorFinancials(db, booking, vendorId, Number(visit.id));
+  }
   const at = sgtDateTime(new Date());
   const history = array(booking.history);
   history.push({
@@ -183,7 +216,7 @@ export async function handleBookingAssignment(req: Request, res: Response) {
     });
   } catch (error) {
     if (db) await db.rollback();
-    if (error instanceof AssignmentError) return res.status(error.status).json({ error: error.message });
+    if (error instanceof AssignmentError || error instanceof VendorPricingError) return res.status(error.status).json({ error: error.message });
     console.error('[booking assignment]', error);
     return res.status(500).json({ error: 'Failed to update assignment. Please try again.' });
   } finally {

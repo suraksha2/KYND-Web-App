@@ -2,6 +2,7 @@ import { Router } from 'express';
 import pool from '../lib/mysql';
 import { skillTagsForService, providerSupportsServices } from '../lib/providerSkills';
 import { parseDurationMinutes, providerWorkingHours, isFreeAt, loadProviderSchedule } from '../lib/providerSchedule';
+import { approvedVendorQuote, VendorPricingError } from '../lib/vendorFinance';
 
 const router = Router();
 
@@ -88,7 +89,7 @@ router.get('/', async (req, res) => {
     }
 
     const [providers]: any = await pool.query(
-      `SELECT sp.id, sp.working_hours, sp.services
+      `SELECT sp.id, sp.vendor_id, sp.working_hours, sp.services
        FROM service_providers sp
        LEFT JOIN vendors v ON v.id = sp.vendor_id
        WHERE LOWER(sp.city) = LOWER(?) AND sp.status = 'active'
@@ -102,7 +103,21 @@ router.get('/', async (req, res) => {
     // can serve "Party Makeup" and one tagged "Wellness @ Home" covers
     // "Body Massage 60 min".
     const skillTags = await skillTagsForService(service);
-    const matched = providers.filter((p: any) => providerSupportsServices(p, [skillTags]));
+    const approved = new Map<number, boolean>();
+    const matched: any[] = [];
+    for (const p of providers) {
+      if (!providerSupportsServices(p, [skillTags])) continue;
+      if (p.vendor_id && !approved.has(Number(p.vendor_id))) {
+        try {
+          await approvedVendorQuote(Number(p.vendor_id), [{ name: service, qty: 1 }]);
+          approved.set(Number(p.vendor_id), true);
+        } catch (error) {
+          if (!(error instanceof VendorPricingError)) throw error;
+          approved.set(Number(p.vendor_id), false);
+        }
+      }
+      if (!p.vendor_id || approved.get(Number(p.vendor_id))) matched.push(p);
+    }
 
     if (matched.length === 0) {
       return res.status(200).json({ slots: [] });

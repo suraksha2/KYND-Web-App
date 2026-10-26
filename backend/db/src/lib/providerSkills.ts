@@ -83,6 +83,37 @@ export async function skillTagsForService(serviceName: string, db: typeof pool |
 }
 
 /**
+ * Every skill tag that lives under a catalog category — the category's own
+ * name, its subcategory names and the service names beneath them. A job that
+ * only knows its category (a vendor's own free-text job) is servable by a
+ * member tagged at any level inside it; [] for names that aren't a canonical
+ * catalog category.
+ */
+export async function skillTagsForCategory(
+  categoryName: unknown,
+  db: typeof pool | PoolConnection = pool
+): Promise<string[]> {
+  const name = String(categoryName || '').trim();
+  if (!name) return [];
+  const [rows]: any = await db.query(
+    `SELECT c.name AS category_name, sc.name AS subcategory_name, s.name AS service_name
+       FROM catalog_categories c
+       LEFT JOIN catalog_subcategories sc ON sc.category_id = c.id
+       LEFT JOIN catalog_services s ON s.subcategory_id = sc.id
+      WHERE LOWER(c.name) = LOWER(?)`,
+    [name]
+  );
+  const tags: string[] = [];
+  for (const row of rows as any[]) {
+    for (const tag of [row.category_name, row.subcategory_name, row.service_name]) {
+      const t = String(tag || '').trim();
+      if (t && !tags.some((x) => x.toLowerCase() === t.toLowerCase())) tags.push(t);
+    }
+  }
+  return tags;
+}
+
+/**
  * Validates a proposed provider `services` list against real catalog names —
  * a tag only matches bookings when it is exactly a service, subcategory or
  * category name, so free-text typos must never be stored. Returns the
@@ -159,6 +190,12 @@ export async function skillRequirementsForJob(
   const serviceTags = await catalogSkillTagsForService({ name: job?.service_label }, db);
   if (serviceTags.length) return [serviceTags];
 
+  // Only a category is known (own job, free-text label): any member tagged
+  // with the category or a skill nested under it qualifies. canonicalSkillTags
+  // still covers a `category` value that is actually a subcategory/service
+  // name.
   const { tags: categoryTags } = await canonicalSkillTags([job?.category], db);
-  return categoryTags.length ? [categoryTags] : [];
+  const nestedTags = await skillTagsForCategory(job?.category, db);
+  const merged = [...new Set([...categoryTags, ...nestedTags])];
+  return merged.length ? [merged] : [];
 }

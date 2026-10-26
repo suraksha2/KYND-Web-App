@@ -1,12 +1,13 @@
 import pool from './mysql';
+import { PAYOUT_WORK_SQL } from './vendorFinance';
 
 // ---------------------------------------------------------------------------
 // Vendor payout pipeline. `vendor_payouts` rows are never keyed in by hand —
-// a batch run sweeps the vendor's completed Kynd-sourced jobs and groups them
-// into Mon–Sun weekly periods:
+// a batch run sweeps completed Kynd jobs and snapshotted direct booking visits,
+// grouping them into Mon–Sun weekly periods:
 //
-//   - A job is "batched" once `jobs.payout_id` is stamped with the payout row
-//     that settles it; `payout_id IS NULL` means still owed to the vendor.
+//   - `payout_id` on jobs or vendor_booking_financials links each work item to
+//     its settlement; NULL means still owed. Series templates are excluded.
 //   - Only `source = 'kynd'` jobs are paid out — the marketplace collected the
 //     customer's money and owes the vendor its `net`. A vendor's 'own' jobs are
 //     their own revenue (they invoice the customer themselves).
@@ -54,20 +55,32 @@ export async function attachPeriodJobs(
         AND DATE(COALESCE(completed_at, paid_at)) BETWEEN ? AND ?`,
     [payoutId, vendorId, periodStart, periodEnd]
   );
+  const [visits]: any = await q.query(
+    `UPDATE vendor_booking_financials f
+       JOIN bookings b ON b.id = f.booking_id
+       LEFT JOIN booking_occurrences o ON o.id = f.occurrence_key AND o.booking_id = b.id
+       SET f.payout_id = ?
+     WHERE f.vendor_id = ? AND f.payout_id IS NULL AND f.completed_at IS NOT NULL
+       AND DATE(f.completed_at) BETWEEN ? AND ?
+       AND ((f.occurrence_key = 0 AND b.schedule <> 'recurring') OR o.id IS NOT NULL)
+       AND COALESCE(o.status, b.status) = 'completed'
+       AND (b.status <> 'cancelled' OR o.status = 'completed') AND b.vendor_id IS NULL
+       AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.booking_id = b.id)`,
+    [payoutId, vendorId, periodStart, periodEnd]
+  );
   await recomputePayoutTotals(q, payoutId);
-  return Number(result?.affectedRows) || 0;
+  return (Number(result?.affectedRows) || 0) + (Number(visits?.affectedRows) || 0);
 }
 
 export async function recomputePayoutTotals(q: Queryable, payoutId: number): Promise<void> {
-  await q.query(
-    `UPDATE vendor_payouts p SET
-        p.jobs  = (SELECT COUNT(*) FROM jobs j WHERE j.payout_id = p.id),
-        p.gross = (SELECT COALESCE(SUM(j.gross), 0) FROM jobs j WHERE j.payout_id = p.id),
-        p.net   = (SELECT COALESCE(SUM(j.net), 0) FROM jobs j WHERE j.payout_id = p.id),
-        p.fee   = (SELECT COALESCE(SUM(j.gross - j.net), 0) FROM jobs j WHERE j.payout_id = p.id)
-      WHERE p.id = ?`,
+  const [[sums]]: any = await q.query(
+    `SELECT COUNT(*) AS jobs, COALESCE(SUM(gross), 0) AS gross,
+            COALESCE(SUM(net), 0) AS net, COALESCE(SUM(gross - net), 0) AS fee
+       FROM (${PAYOUT_WORK_SQL}) work WHERE payout_id = ?`,
     [payoutId]
   );
+  await q.query('UPDATE vendor_payouts SET jobs = ?, gross = ?, net = ?, fee = ? WHERE id = ?',
+    [sums.jobs, sums.gross, sums.net, sums.fee, payoutId]);
 }
 
 export interface PayoutRunResult {
@@ -99,7 +112,7 @@ export async function runVendorPayoutBatch(): Promise<PayoutRunResult> {
               DATE_ADD(${WEEK_START_SQL}, INTERVAL 6 DAY) AS period_end,
               (DATE_ADD(${WEEK_START_SQL}, INTERVAL 6 DAY) < CURDATE()) AS is_closed,
               COUNT(*) AS job_count
-         FROM jobs
+         FROM (${PAYOUT_WORK_SQL}) work
         WHERE source = 'kynd' AND status IN ('completed', 'paid') AND payout_id IS NULL
           AND COALESCE(completed_at, paid_at) IS NOT NULL
         GROUP BY vendor_id, period_start, period_end, is_closed`
@@ -153,7 +166,7 @@ export async function runVendorPayoutBatch(): Promise<PayoutRunResult> {
         const [sums]: any = await conn.query(
           `SELECT COUNT(*) AS cnt, COALESCE(SUM(gross), 0) AS gross,
                   COALESCE(SUM(gross - net), 0) AS fee, COALESCE(SUM(net), 0) AS net
-             FROM jobs
+             FROM (${PAYOUT_WORK_SQL}) work
             WHERE vendor_id = ? AND payout_id IS NULL AND source = 'kynd'
               AND status IN ('completed', 'paid')
               AND COALESCE(completed_at, paid_at) IS NOT NULL
@@ -182,6 +195,22 @@ export async function runVendorPayoutBatch(): Promise<PayoutRunResult> {
       }
     }
 
+    // A completion can be reopened/cancelled before settlement. Refresh even
+    // empty provisional periods so stale accruals cannot become overpayments.
+    const [scheduledRows]: any = await conn.query(
+      "SELECT id, vendor_id, period_start, period_end FROM vendor_payouts WHERE status = 'scheduled'"
+    );
+    for (const p of scheduledRows) {
+      const [[sums]]: any = await conn.query(
+        `SELECT COUNT(*) AS jobs, COALESCE(SUM(gross), 0) AS gross,
+                COALESCE(SUM(gross - net), 0) AS fee, COALESCE(SUM(net), 0) AS net
+           FROM (${PAYOUT_WORK_SQL}) work
+          WHERE vendor_id = ? AND payout_id IS NULL AND DATE(completed_at) BETWEEN ? AND ?`,
+        [p.vendor_id, dayOf(p.period_start), dayOf(p.period_end)]
+      );
+      await conn.query('UPDATE vendor_payouts SET jobs = ?, gross = ?, fee = ?, net = ? WHERE id = ?',
+        [sums.jobs, sums.gross, sums.fee, sums.net, p.id]);
+    }
     result.vendors = vendorIds.size;
     return result;
   } finally {
@@ -201,9 +230,9 @@ export async function payoutMemberJobs(payout: {
   period_end: string;
 }): Promise<any[]> {
   const [rows]: any = await pool.query(
-    `SELECT id, service_label, customer_name, customer_area, window_start,
+    `SELECT work_id AS id, service_label, customer_name, customer_area, window_start,
             gross, fee_pct, net, status, source
-       FROM jobs
+       FROM (${PAYOUT_WORK_SQL}) work
       WHERE payout_id = ?
       ORDER BY window_start`,
     [payout.id]
@@ -211,9 +240,9 @@ export async function payoutMemberJobs(payout: {
   if ((rows as any[]).length > 0) return rows;
 
   const [provisional]: any = await pool.query(
-    `SELECT id, service_label, customer_name, customer_area, window_start,
+    `SELECT work_id AS id, service_label, customer_name, customer_area, window_start,
             gross, fee_pct, net, status, source
-       FROM jobs
+       FROM (${PAYOUT_WORK_SQL}) work
       WHERE vendor_id = ? AND payout_id IS NULL AND source = 'kynd'
         AND status IN ('completed', 'paid')
         AND COALESCE(completed_at, paid_at) IS NOT NULL

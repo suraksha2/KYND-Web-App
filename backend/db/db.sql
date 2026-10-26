@@ -1276,3 +1276,27 @@ CREATE TABLE IF NOT EXISTS job_messages (
   KEY idx_job_messages_job (job_id, created_at),
   FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE
 );
+
+-- Approved vendor rates captured at assignment, separately from customer prices.
+-- occurrence_key = 0 is a single visit or the template for a recurring series.
+-- Recurring templates never enter payouts; each occurrence has its own row.
+CREATE TABLE IF NOT EXISTS vendor_booking_financials (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  booking_id INT NOT NULL,
+  occurrence_key INT NOT NULL DEFAULT 0,
+  vendor_id INT NOT NULL,
+  customer_total DECIMAL(10,2) NOT NULL,
+  gross DECIMAL(10,2) NOT NULL,
+  fee_pct DECIMAL(5,2) NOT NULL,
+  fee DECIMAL(10,2) NOT NULL,
+  net DECIMAL(10,2) NOT NULL,
+  rate_items JSON NOT NULL,
+  completed_at DATETIME NULL,
+  payout_id INT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_vendor_booking_visit (booking_id, occurrence_key),
+  KEY idx_vendor_financial_payout (vendor_id, payout_id, completed_at),
+  FOREIGN KEY (booking_id) REFERENCES bookings(id),
+  FOREIGN KEY (vendor_id) REFERENCES vendors(id),
+  FOREIGN KEY (payout_id) REFERENCES vendor_payouts(id)
+);

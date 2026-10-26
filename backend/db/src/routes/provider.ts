@@ -4,6 +4,8 @@ import { hasAdminAccess } from '../lib/auth';
 import { getSession } from '../http/session';
 import { withOccurrences, completeNextOccurrence } from '../lib/occurrences';
 import { sgtDateTime } from '../lib/sgt';
+import type { PoolConnection } from 'mysql2/promise';
+import { recordVendorCompletion, VendorPricingError } from '../lib/vendorFinance';
 
 const router = Router();
 
@@ -58,6 +60,7 @@ router.get('/bookings', async (req, res) => {
 
 // PUT update the status of a booking assigned to the authenticated provider.
 router.put('/bookings/:id', async (req, res) => {
+  let db: PoolConnection | undefined;
   try {
     const session = await getSession(req);
     if (!session) {
@@ -149,9 +152,15 @@ router.put('/bookings/:id', async (req, res) => {
           AND (o.provider_id IS NULL OR o.provider_id != ?))` : '';
     const ownershipParams = isProvider ? [session.id, session.id] : [];
     const entry = JSON.stringify(history[history.length - 1]);
+    db = await pool.getConnection();
+    await db.beginTransaction();
+    await db.query('SELECT id FROM bookings WHERE id = ? FOR UPDATE', [req.params.id]);
+    if (booking.schedule !== 'recurring') {
+      await recordVendorCompletion(db, Number(req.params.id), 0, status === 'completed');
+    }
     let updated: any;
     if (status === 'cancelled') {
-      [updated] = await pool.query(
+      [updated] = await db.query(
         `UPDATE bookings
             SET status = ?, cancelled_by = ?, cancelled_at = ?,
                 history = JSON_ARRAY_APPEND(COALESCE(history, JSON_ARRAY()), '$', JSON_EXTRACT(?, '$'))
@@ -160,7 +169,7 @@ router.put('/bookings/:id', async (req, res) => {
       );
     } else {
       // Re-opening or completing clears any stale cancellation metadata.
-      [updated] = await pool.query(
+      [updated] = await db.query(
         `UPDATE bookings
             SET status = ?, cancelled_by = NULL, cancelled_at = NULL, cancel_reason = NULL,
                 history = JSON_ARRAY_APPEND(COALESCE(history, JSON_ARRAY()), '$', JSON_EXTRACT(?, '$'))
@@ -169,13 +178,19 @@ router.put('/bookings/:id', async (req, res) => {
       );
     }
     if (!updated.affectedRows) {
+      await db.rollback();
       return res.status(409).json({ error: 'The assignment changed. Refresh your tasks before continuing.' });
     }
+    await db.commit();
 
     return res.status(200).json({ success: true, status });
   } catch (error) {
+    if (db) await db.rollback();
+    if (error instanceof VendorPricingError) return res.status(error.status).json({ error: error.message });
     console.error('[PUT /api/provider/bookings/[id]]', error);
     return res.status(500).json({ error: 'Failed to update booking status' });
+  } finally {
+    db?.release();
   }
 });
 

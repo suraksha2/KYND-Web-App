@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import pool from '../lib/mysql';
 import { withOccurrences } from '../lib/occurrences';
+import { recordVendorCompletion, VendorPricingError } from '../lib/vendorFinance';
 
 const router = Router();
 
@@ -45,16 +46,32 @@ router.get('/', async (_req, res) => {
 
 // Update an existing booking's status
 router.patch('/', async (req, res) => {
+  const db = await pool.getConnection();
   try {
     const { id, status } = req.body;
     if (!id || !status) {
       return res.status(400).json({ error: "id and status are required." });
     }
-    await pool.query(`UPDATE bookings SET status = ? WHERE id = ?`, [status, id]);
+    if (!['upcoming', 'completed', 'cancelled'].includes(status)) {
+      return res.status(400).json({ error: 'Invalid booking status.' });
+    }
+    await db.beginTransaction();
+    const [[booking]]: any = await db.query('SELECT schedule FROM bookings WHERE id = ? FOR UPDATE', [id]);
+    if (!booking) {
+      await db.rollback();
+      return res.status(404).json({ error: 'Booking not found.' });
+    }
+    if (booking.schedule !== 'recurring') await recordVendorCompletion(db, Number(id), 0, status === 'completed');
+    await db.query(`UPDATE bookings SET status = ? WHERE id = ?`, [status, id]);
+    await db.commit();
     return res.status(200).json({ success: true });
   } catch (err) {
+    await db.rollback();
+    if (err instanceof VendorPricingError) return res.status(err.status).json({ error: err.message });
     console.error("[PATCH /api/orders]", err);
     return res.status(500).json({ error: "Failed to update order." });
+  } finally {
+    db.release();
   }
 });
 

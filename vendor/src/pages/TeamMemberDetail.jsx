@@ -371,6 +371,7 @@ export default function TeamMemberDetail() {
           categories={jobsCategories}
           services={jobsCtx.services || []}
           team={jobsCtx.team || []}
+          categoryTags={jobsCtx.categoryTags}
           defaultAssigneeId={member.id}
           onClose={() => setQuickAddOpen(false)}
           onCreated={load}

@@ -133,10 +133,23 @@ test('direct assignment respects skills and the combined provider schedule', asy
       city VARCHAR(100), services JSON, working_hours JSON, total_jobs INT DEFAULT 0
     )`);
     await conn.query('CREATE TEMPORARY TABLE vendors (id INT PRIMARY KEY, name VARCHAR(50), status VARCHAR(20))');
-    await conn.query('CREATE TEMPORARY TABLE catalog_services (name VARCHAR(100), subcategory_id INT)');
+    await conn.query('CREATE TEMPORARY TABLE catalog_services (id INT, name VARCHAR(100), subcategory_id INT)');
     await conn.query('CREATE TEMPORARY TABLE catalog_subcategories (id INT, name VARCHAR(100), category_id INT)');
     await conn.query('CREATE TEMPORARY TABLE catalog_categories (id INT, name VARCHAR(100))');
-    await conn.query("INSERT INTO catalog_services VALUES ('Head Massage 60 min', 1)");
+    await conn.query("INSERT INTO catalog_services VALUES (1, 'Head Massage 60 min', 1)");
+    await conn.query(`CREATE TEMPORARY TABLE vendor_booking_financials (
+      id INT AUTO_INCREMENT PRIMARY KEY, booking_id INT, occurrence_key INT,
+      vendor_id INT, customer_total DECIMAL(10,2), gross DECIMAL(10,2),
+      fee_pct DECIMAL(5,2), fee DECIMAL(10,2), net DECIMAL(10,2), rate_items JSON,
+      completed_at DATETIME, payout_id INT, UNIQUE KEY (booking_id, occurrence_key)
+    )`);
+    await conn.query(`CREATE TEMPORARY TABLE vendor_service_categories
+      (id INT, vendor_id INT, status VARCHAR(20), reviewed_at DATETIME)`);
+    await conn.query(`CREATE TEMPORARY TABLE vendor_service_category_items
+      (id INT, vendor_category_id INT, catalog_service_id INT, price DECIMAL(10,2))`);
+    await conn.query("INSERT INTO vendor_service_categories VALUES (1,1,'live',NOW()),(2,2,'live',NOW())");
+    await conn.query('INSERT INTO vendor_service_category_items VALUES (1,1,1,80),(2,2,1,90)');
+    await conn.query('ALTER TABLE bookings ADD total DECIMAL(10,2) DEFAULT 100');
     await conn.query("INSERT INTO catalog_subcategories VALUES (1, 'Head Massage', 1)");
     await conn.query("INSERT INTO catalog_categories VALUES (1, 'Wellness @ Home')");
     await conn.query("INSERT INTO vendors VALUES (1, 'Vendor A', 'active'), (2, 'Vendor B', 'active'), (3, 'Paused', 'inactive')");

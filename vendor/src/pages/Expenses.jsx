@@ -166,7 +166,7 @@ function CostPerJobCard({ items }) {
   return (
     <section className="bg-white rounded-3xl border border-lightstone shadow-soft p-5 sm:p-6">
       <h2 className="font-heading text-lg font-bold text-charcoal">Cost per job</h2>
-      <p className="mt-0.5 text-xs text-warmgrey mb-4">Average per completed job in the last 30 days, including direct marketplace visits. Staff cost uses current pay rates and booked duration. Other costs include only expenses linked to that job.</p>
+      <p className="mt-0.5 text-xs text-warmgrey mb-4">Average per completed job in the last 30 days. Staff cost uses current pay rates and booked duration. Other costs include only expenses linked to that job.</p>
       {items.length === 0 ? (
         <p className="text-sm text-warmgrey py-6 text-center">No completed jobs in the last 30 days yet.</p>
       ) : (
@@ -267,6 +267,11 @@ export default function Expenses() {
   return (
     <div className="space-y-6 max-w-6xl">
       <MoneyHeader title="Expenses and staff cost" />
+      {data?.pricingPending > 0 && (
+        <p className="rounded-2xl bg-amber-50 border border-amber-200 px-5 py-4 text-sm text-amber-900">
+          {data.pricingPending} visits need vendor rate review and are excluded from cost-per-job averages.
+        </p>
+      )}
 
       {alerts.length > 0 && (
         <div className="space-y-3">

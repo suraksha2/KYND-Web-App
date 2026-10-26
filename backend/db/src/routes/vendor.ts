@@ -9,7 +9,7 @@ import { getSession } from '../http/session';
 import { sgtDateTime } from '../lib/sgt';
 import { payoutMemberJobs } from '../lib/payouts';
 import { buildPayoutStatementPdf } from '../lib/pdfStatement';
-import { canonicalSkillTags, providerSupportsServices, skillRequirementsForJob } from '../lib/providerSkills';
+import { canonicalSkillTags, providerSupportsServices, skillRequirementsForJob, skillTagsForCategory } from '../lib/providerSkills';
 import { handleBookingAssignment } from '../lib/bookingAssignment';
 
 const router = Router();
@@ -115,6 +115,28 @@ async function jobSkillState(job: any, provider: any, db: typeof pool | PoolConn
     checked,
     qualified: requirements.length ? providerSupportsServices(provider, requirements) : !bookingBound,
   };
+}
+
+// Category chip → member skill tags that satisfy it, for the quick-add "Assign
+// to" picker — a member tagged with a subcategory or service nested under the
+// category must not read "No matching skill" (same expansion
+// skillRequirementsForJob applies server-side). Names that aren't canonical
+// catalog categories get no entry: those chips are custom work with no skill
+// check at all.
+async function quickAddCategoryTags(vendorId: any, extraNames: unknown[] = []) {
+  const [vendorRows]: any = await pool.query('SELECT categories FROM vendors WHERE id = ?', [vendorId]);
+  let vendorCategories: any[] = [];
+  try {
+    const parsed = typeof vendorRows?.[0]?.categories === 'string'
+      ? JSON.parse(vendorRows[0].categories)
+      : vendorRows?.[0]?.categories;
+    if (Array.isArray(parsed)) vendorCategories = parsed;
+  } catch { /* treat an unparseable column as no configured categories */ }
+  const names = [...new Set(
+    [...vendorCategories, ...extraNames].map((n) => String(n || '').trim()).filter(Boolean)
+  )];
+  const pairs = await Promise.all(names.map(async (n) => [n, await skillTagsForCategory(n)] as const));
+  return Object.fromEntries(pairs.filter(([, tags]) => tags.length > 0));
 }
 
 // Default job checklist, seeded once per job (see GET /jobs/:id). Cleaning
@@ -401,8 +423,8 @@ router.get('/home', async (req, res) => {
 
       // Marketplace visits hold their money only in bookings/occurrences —
       // they never reach `jobs` — so each figure below adds them separately.
-      // A visit's value is the booking's `total` (per-visit for recurring —
-      // the cadence discount is priced in at creation); completed visits
+      // A visit's value is its saved approved vendor amount less platform
+      // fees, independently of the customer's discounts; completed visits
       // count in the week they were done (occurrence completed_at, else the
       // slot), upcoming ones count as booked pipeline.
       const nowSgtStr = sgtDateTime(new Date()) || '';
@@ -418,13 +440,19 @@ router.get('/home', async (req, res) => {
       const weekEndNext = String(sgtDateTime(new Date(new Date(`${weekEnd}T00:00:00+08:00`).getTime() + 86400000)) || '').slice(0, 10);
       const in30dSgt = sgtDateTime(new Date(Date.now() + 30 * 86400000)) || '';
 
-      const sumGross = (list: any[]) => list.reduce((s, v) => s + (v.gross || 0), 0);
-      const mktEarnedWeek = sumGross(mktWork.filter((v) => v.status === 'completed' && earnDay(v) >= weekStart && earnDay(v) <= weekEnd && earnDay(v) <= todaySgtStr));
+      const sumNet = (list: any[]) => list.reduce((s, v) => s + (v.net || 0), 0);
+      const mktEarnedWeek = sumNet(mktWork.filter((v) => v.status === 'completed' && earnDay(v) >= weekStart && earnDay(v) <= weekEnd && earnDay(v) <= todaySgtStr));
       const lastWeekNow = sgtDateTime(new Date(Date.now() - 7 * 86400000)) || '';
-      const mktEarnedLastWeek = sumGross(mktWork.filter((v) => v.status === 'completed' && (v.completedAt || v.windowStart) >= lastWeekStart && (v.completedAt || v.windowStart) < lastWeekNow));
-      const mktBookedWeek = sumGross(mktWork.filter((v) => v.status !== 'cancelled' && v.status !== 'completed' && v.windowStart > nowSgtStr && v.windowStart <= `${weekEndNext} 00:00:00`));
-      const mktBooked30d = sumGross(mktWork.filter((v) => v.status !== 'cancelled' && v.status !== 'completed' && v.windowStart > nowSgtStr && v.windowStart <= in30dSgt));
-      const mktEarned30d = sumGross(mktWork.filter((v) => v.status === 'completed' && earnDay(v) >= mktFrom30d.slice(0, 10)));
+      const mktEarnedLastWeek = sumNet(mktWork.filter((v) => v.status === 'completed' && (v.completedAt || v.windowStart) >= lastWeekStart && (v.completedAt || v.windowStart) < lastWeekNow));
+      const mktBookedWeek = sumNet(mktWork.filter((v) => v.status !== 'cancelled' && v.status !== 'completed' && v.windowStart > nowSgtStr && v.windowStart <= `${weekEndNext} 00:00:00`));
+      const mktBooked30d = sumNet(mktWork.filter((v) => v.status !== 'cancelled' && v.status !== 'completed' && v.windowStart > nowSgtStr && v.windowStart <= in30dSgt));
+      const mktEarned30d = sumNet(mktWork.filter((v) => v.status === 'completed' && earnDay(v) >= mktFrom30d.slice(0, 10)));
+      const pricingPending = mktWork.filter((v) => v.pricingPending).length;
+      if (pricingPending) needsAttention.push({
+        type: 'pricing', title: `${pricingPending} visits need vendor rate review`,
+        detail: 'Their earnings are excluded until an approved vendor amount is recorded. Contact Kynd support.',
+        href: '/jobs',
+      });
 
       const kyndTotal = money(Number(earned.kynd_total) + mktEarnedWeek);
       const ownTotal = money(earned.own_total);
@@ -511,7 +539,7 @@ router.get('/home', async (req, res) => {
         weeks.push({
           label: new Date(weekStartI).toLocaleDateString('en-SG', { day: 'numeric', month: 'short' }),
           weekStart: weekStartI,
-          amount: money(Number(sums.amount) + sumGross(wkMkt)),
+          amount: money(Number(sums.amount) + sumNet(wkMkt)),
           jobsCount: (Number(sums.jobs_count) || 0) + wkMkt.length,
           needsMore,
         });
@@ -537,7 +565,7 @@ router.get('/home', async (req, res) => {
 // Money / Overview page: owner-only earnings breakdown computed from `jobs`
 // (completed/paid work, split Kynd vs own), marketplace bookings/occurrences
 // assigned to the vendor's team (they never become `jobs` rows — same merge
-// as /vendor/home, valued at the booking total where jobs use `net`), and
+// as /vendor/home, using the saved approved vendor rate less fees), and
 // `vendor_payouts`. Revenue is before staff pay and logged expenses.
 router.get('/money', async (req, res) => {
   try {
@@ -591,7 +619,7 @@ router.get('/money', async (req, res) => {
 
     // Marketplace visits assigned to the vendor's team never become `jobs`
     // rows — add them on top of each figure, same as /vendor/home. A visit's
-    // value is the booking total (jobs use `net`); its day is the
+    // value is the saved vendor net; its day is the
     // completion timestamp, with the scheduled slot as a legacy fallback.
     // Filter by completion, so late/early completions stay in the right period.
     const mktWork = await marketplaceMemberWork(vendorId, {
@@ -604,7 +632,7 @@ router.get('/money', async (req, res) => {
       mktWork.reduce((s: number, v: any) => {
         const d = String(v.completedAt || v.windowStart);
         return v.status === 'completed' && d >= String(start) && d < String(end)
-          ? s + (v.gross || 0)
+          ? s + (v.net || 0)
           : s;
       }, 0);
     const weekMkt = mktEarnedBetween(weekStart, weekBounds.now);
@@ -658,7 +686,7 @@ router.get('/money', async (req, res) => {
       const row = weekMap.get(ws);
       const mktWk = mktWork.reduce((s: number, v: any) => {
         const d = mktDay(v);
-        return v.status === 'completed' && d >= ws && d < we ? s + (v.gross || 0) : s;
+        return v.status === 'completed' && d >= ws && d < we ? s + (v.net || 0) : s;
       }, 0);
       weeklyRevenue.push({
         label: shortLabel(ws),
@@ -707,7 +735,7 @@ router.get('/money', async (req, res) => {
     // Marketplace visits completed in the same 30-day window — categorised
     // by the first booked service's catalog category, matching what
     // `offers.category` (and therefore `jobs.category`) carries.
-    const mktDone30d = mktWork.filter((v: any) => String(v.completedAt || v.windowStart) >= weekBounds.last30_start);
+    const mktDone30d = mktWork.filter((v: any) => !v.pricingPending && String(v.completedAt || v.windowStart) >= weekBounds.last30_start);
     const mktCatalogIds = [...new Set(mktDone30d.flatMap((v: any) => v.catalogIds || []))] as number[];
     const catNameByService = new Map<number, string>();
     if (mktCatalogIds.length) {
@@ -727,7 +755,7 @@ router.get('/money', async (req, res) => {
     }
     for (const v of mktDone30d) {
       const name = catNameByService.get(Number(v.catalogIds?.[0])) || 'Other';
-      catTotals.set(name, (catTotals.get(name) || 0) + (v.gross || 0));
+      catTotals.set(name, (catTotals.get(name) || 0) + (v.net || 0));
     }
     const revenueByCategory = [...catTotals.entries()]
       .map(([name, amount]) => ({ name, amount: money(amount) }))
@@ -754,7 +782,7 @@ router.get('/money', async (req, res) => {
     for (const v of mktDone30d) {
       if (!v.providerId) continue;
       const e = memberTotals.get(Number(v.providerId)) || { name: v.assignee?.name || 'Team member', amount: 0 };
-      e.amount += v.gross || 0;
+      e.amount += v.net || 0;
       memberTotals.set(Number(v.providerId), e);
     }
     const teamRevenue = [...memberTotals.values()]
@@ -773,7 +801,8 @@ router.get('/money', async (req, res) => {
       count: Number(invoiceTotals.count),
       overdue: Number(invoiceTotals.overdue),
     };
-    return res.json({ earned, weeklyRevenue, payouts, revenueByCategory, teamRevenue, outstandingInvoices });
+    return res.json({ earned, weeklyRevenue, payouts, revenueByCategory, teamRevenue, outstandingInvoices,
+      pricingPending: mktWork.filter((v) => v.pricingPending).length });
   } catch (error) {
     console.error('[GET /api/vendor/money]', error);
     return res.status(500).json({ error: 'Failed to load vendor money.' });
@@ -822,7 +851,7 @@ router.get('/forecast', async (req, res) => {
     );
     // Marketplace bookings assigned to the vendor's team never become `jobs`
     // rows — merge them the same way /vendor/home and /vendor/money do,
-    // valued at the booking total where jobs use `net`. The window covers the
+    // valued at the saved vendor net, like jobs. The window covers the
     // trailing 8 weeks (averages) through the end of the 4 forecast weeks.
     const nmMs = new Date(`${String(nextMonday).slice(0, 10)}T00:00:00+08:00`).getTime();
     const mktAvgFrom = (sgtDateTime(new Date(nmMs - 8 * 7 * 86400000)) || '').slice(0, 10);
@@ -841,7 +870,7 @@ router.get('/forecast', async (req, res) => {
     const mktWeekdaySum = new Map<number, number>();
     for (const v of mktTrailing) {
       const dow = new Date(`${String(v.windowStart).slice(0, 10)}T00:00:00Z`).getUTCDay();
-      mktWeekdaySum.set(dow, (mktWeekdaySum.get(dow) || 0) + (v.gross || 0));
+      mktWeekdaySum.set(dow, (mktWeekdaySum.get(dow) || 0) + (v.net || 0));
     }
     // Category name per visit for the capacity notes' "top category" label —
     // resolved once from every visit's first booked service, matching the
@@ -859,7 +888,7 @@ router.get('/forecast', async (req, res) => {
       for (const r of svcRows as any[]) catNameByService.set(Number(r.id), r.category_name);
     }
 
-    const avgWeeklyAmount = money(Number(avgRow.avg_weekly_amount) + mktTrailing.reduce((s, v) => s + (v.gross || 0), 0) / 8);
+    const avgWeeklyAmount = money(Number(avgRow.avg_weekly_amount) + mktTrailing.reduce((s, v) => s + (v.net || 0), 0) / 8);
     const avgWeeklyJobs = (Number(avgRow.avg_weekly_jobs) || 0) + mktTrailing.length / 8;
 
     // Trailing-8-occurrences average for each weekday (0=Sun..6=Sat in
@@ -904,7 +933,7 @@ router.get('/forecast', async (req, res) => {
             AND window_start >= ? AND window_start < DATE_ADD(?, INTERVAL 7 DAY)`,
         [vendorId, weekStart, weekStart]
       );
-      const booked = money(Number(sums.booked) + mktWeek.reduce((s, v) => s + (v.gross || 0), 0));
+      const booked = money(Number(sums.booked) + mktWeek.reduce((s, v) => s + (v.net || 0), 0));
       const bookedJobs = (Number(sums.booked_jobs) || 0) + mktWeek.length;
 
       // Likely ceiling: for each day of the week, how much headroom is left
@@ -1218,7 +1247,7 @@ router.post('/offers/:id/accept', async (req, res) => {
       }
     }
 
-    const net = money(Number(offer.price) * (1 - (Number(offer.fee_pct) || 0) / 100));
+    const net = money(Number(offer.price));
     const [jobRes]: any = await conn.query(
       `INSERT INTO jobs (vendor_id, offer_id, booking_id, source, status, assignee_provider_id,
                          customer_name, customer_phone, customer_address, customer_area,
@@ -1227,7 +1256,7 @@ router.post('/offers/:id/accept', async (req, res) => {
       [
         session.vendorId, offer.id, offer.booking_id, assigneeId ? 'assigned' : 'accepted', assigneeId,
         customerName, customerPhone, customerAddress, customerArea, offer.service_label, offer.category,
-        offer.window_start, offer.window_end, offer.price, offer.fee_pct, net,
+        offer.window_start, offer.window_end, offer.price, 0, net,
       ]
     );
 
@@ -1324,7 +1353,7 @@ router.get('/jobs', async (req, res) => {
         LIMIT 300`,
       [vendorId]
     );
-    const jobs = (jobRows as any[]).map((j) => ({
+    const jobs: any[] = (jobRows as any[]).map((j) => ({
       id: j.id,
       status: j.status,
       source: j.source,
@@ -1351,7 +1380,7 @@ router.get('/jobs', async (req, res) => {
       to: '9999-12-31 23:59:59',
       providerIds: session.role === 'vendor_field' ? [session.providerId || -1] : undefined,
     });
-    jobs.push(...marketplaceJobs.map(j => ({ ...j, category: null, net: j.gross, hasIssue: false })));
+    jobs.push(...marketplaceJobs.map(j => ({ ...j, category: null, hasIssue: false })));
     jobs.sort((a, b) => new Date(a.windowStart || 0).getTime() - new Date(b.windowStart || 0).getTime());
 
     const [teamRows]: any = await pool.query(
@@ -1398,19 +1427,42 @@ router.get('/jobs', async (req, res) => {
         LIMIT 40`,
       [vendorId]
     );
+    // Fetch approved vendor pricing for catalog services to auto-populate QuickAddJob
+    const [vendorPriceRows]: any = await pool.query(
+      `SELECT s.name AS service_label, sc.name AS category, i.price
+         FROM vendor_service_category_items i
+         JOIN vendor_service_categories c ON c.id = i.vendor_category_id
+         JOIN catalog_services s ON s.id = i.catalog_service_id
+         JOIN catalog_subcategories sc ON sc.id = c.subcategory_id
+        WHERE c.vendor_id = ? AND c.status = 'live' AND i.price IS NOT NULL`,
+      [vendorId]
+    );
+    const vendorPriceMap = new Map<string, number>();
+    for (const row of vendorPriceRows as any[]) {
+      const key = `${row.service_label}|${row.category || ''}`;
+      vendorPriceMap.set(key, Number(row.price));
+    }
     const services = await Promise.all((serviceRows as any[]).map(async (s) => {
       const requirements = await skillRequirementsForJob(
         { service_label: s.service_label, category: s.category, source: 'own' }
       );
+      const priceKey = `${s.service_label}|${s.category || ''}`;
       return {
         label: s.service_label,
         category: s.category,
         hours: Number(s.hours) || 2,
         skillTags: requirements[0] || [],
+        price: vendorPriceMap.get(priceKey) || null,
       };
     }));
 
-    return res.json({ jobs, team, services });
+    const visibleJobs = canSeeVendorMoney(session.role) ? jobs
+      : jobs.map((job) => ({ ...job, gross: null, net: null }));
+    const categoryTags = await quickAddCategoryTags(vendorId, [
+      ...(jobRows as any[]).map((r: any) => r.category),
+      ...(serviceRows as any[]).map((s: any) => s.category),
+    ]);
+    return res.json({ jobs: visibleJobs, team, services, categoryTags });
   } catch (error) {
     console.error('[GET /api/vendor/jobs]', error);
     return res.status(500).json({ error: 'Failed to load jobs.' });
@@ -1653,7 +1705,8 @@ async function marketplaceMemberWork(
   const params: any[] = [vendorId, vendorId, opts.from, opts.to];
   if (providerClause) params.push(opts.providerIds);
   const [rows]: any = await pool.query(
-    `SELECT src.*, sp.name AS assignee_name, sp.pay_mode, sp.pay_rate FROM (
+    `SELECT src.*, sp.name AS assignee_name, sp.pay_mode, sp.pay_rate,
+            f.gross AS vendor_gross, f.net AS vendor_net, f.completed_at AS finance_completed_at FROM (
         SELECT b.provider_id, NULL AS visit_id, COALESCE(b.scheduled_at, b.placed_at) AS scheduled_at, b.status AS visit_status,
                b.id AS booking_pk, b.items, b.total, NULL AS completed_at, b.history,
                b.contact_name, b.contact_area, b.contact_phone, b.contact_address
@@ -1667,23 +1720,25 @@ async function marketplaceMemberWork(
                b2.contact_name, b2.contact_area, b2.contact_phone, b2.contact_address
           FROM booking_occurrences o
           JOIN bookings b2 ON b2.id = o.booking_id
-         WHERE o.status != 'cancelled' AND b2.status != 'cancelled' AND b2.vendor_id IS NULL
+         WHERE o.status != 'cancelled' AND (b2.status != 'cancelled' OR o.status = 'completed') AND b2.vendor_id IS NULL
            AND NOT EXISTS (SELECT 1 FROM jobs jx WHERE jx.booking_id = b2.id)
            AND COALESCE(o.provider_id, b2.provider_id) IN (SELECT id FROM service_providers WHERE vendor_id = ?)
       ) src
       JOIN service_providers sp ON sp.id = src.provider_id
+      LEFT JOIN vendor_booking_financials f ON f.booking_id = src.booking_pk
+        AND f.occurrence_key = COALESCE(src.visit_id, 0) AND f.vendor_id = sp.vendor_id
      WHERE ((${dateColumn} >= ? AND ${dateColumn} < ?) ${historyClause}) ${providerClause} ${completedClause}
      ORDER BY src.scheduled_at`,
     params
   );
   return (rows as any[]).map((r) => {
     let items: any[] = [];
-    let completedAt = r.completed_at ? String(r.completed_at) : null;
+    let completedAt = r.finance_completed_at || (r.completed_at ? String(r.completed_at) : null);
     try {
       const parsed = typeof r.items === 'string' ? JSON.parse(r.items) : r.items;
       if (Array.isArray(parsed)) items = parsed;
     } catch { /* empty */ }
-    if (!r.visit_id && r.visit_status === 'completed') {
+    if (!completedAt && !r.visit_id && r.visit_status === 'completed') {
       try {
         const history = typeof r.history === 'string' ? JSON.parse(r.history) : r.history;
         const completion = Array.isArray(history)
@@ -1708,7 +1763,9 @@ async function marketplaceMemberWork(
       customerArea: r.contact_area,
       customerPhone: r.contact_phone,
       customerAddress: r.contact_address,
-      gross: money(r.total),
+      gross: r.vendor_gross == null ? null : money(r.vendor_gross),
+      net: r.vendor_net == null ? null : money(r.vendor_net),
+      pricingPending: r.vendor_net == null,
       ...(opts.includeStaffCost ? {
         staffCost: money(r.pay_mode === 'job' ? r.pay_rate : Number(r.pay_rate || 0) * durationMin / 60),
       } : {}),
@@ -1776,10 +1833,13 @@ router.get(['/jobs/mkt-:bookingId(\\d+)', '/jobs/mkt-:bookingId(\\d+)-:occurrenc
               COALESCE(o.scheduled_at, b.scheduled_at) AS scheduled_at,
               b.contact_name, b.contact_phone, b.contact_address, b.contact_area,
               sp.id AS assignee_id, sp.name AS assignee_name, sp.mobile AS assignee_mobile,
-              sp.rating AS assignee_rating, sp.vendor_id
+              sp.rating AS assignee_rating, sp.vendor_id,
+              f.gross AS vendor_gross, f.net AS vendor_net
          FROM bookings b
          LEFT JOIN booking_occurrences o ON o.booking_id = b.id AND o.id = ?
          JOIN service_providers sp ON sp.id = COALESCE(o.provider_id, b.provider_id)
+         LEFT JOIN vendor_booking_financials f ON f.booking_id = b.id
+           AND f.occurrence_key = COALESCE(o.id, 0) AND f.vendor_id = sp.vendor_id
         WHERE b.id = ? AND (? IS NULL OR o.id IS NOT NULL)
           AND b.vendor_id IS NULL
           AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.booking_id = b.id)`,
@@ -1818,9 +1878,9 @@ router.get(['/jobs/mkt-:bookingId(\\d+)', '/jobs/mkt-:bookingId(\\d+)-:occurrenc
       customerPhoneMasked: false,
       customerAddress: b.contact_address,
       customerArea: b.contact_area,
-      gross: canSeeMoney ? money(b.total) : null,
-      feePct: null,
-      net: canSeeMoney ? money(b.total) : null,
+      gross: canSeeMoney && b.vendor_gross != null ? money(b.vendor_gross) : null,
+      net: canSeeMoney && b.vendor_net != null ? money(b.vendor_net) : null,
+      pricingPending: b.vendor_net == null,
       issueType: null,
       issueNote: null,
       hasIssue: false,
@@ -1933,7 +1993,6 @@ router.get('/jobs/:id', async (req, res) => {
       customerAddress: j.customer_address,
       customerArea: j.customer_area,
       gross: canSeeMoney ? money(j.gross) : null,
-      feePct: canSeeMoney ? Number(j.fee_pct) || 0 : null,
       net: canSeeMoney ? money(j.net) : null,
       issueType: j.issue_resolved_at ? null : j.issue_type,
       issueNote: j.issue_resolved_at ? null : j.issue_note,
@@ -2002,11 +2061,13 @@ router.get('/jobs/:id', async (req, res) => {
       };
     });
 
+    const categoryTags = await quickAddCategoryTags(session.vendorId, [j.category]);
     return res.json({
       job,
       team,
       canSeeMoney,
       canManageTeam: canManageVendorTeam(session.role),
+      categoryTags,
     });
   } catch (error) {
     console.error('[GET /api/vendor/jobs/:id]', error);
@@ -2980,9 +3041,10 @@ router.get('/expenses', async (req, res) => {
       from: costBounds.start, to: costBounds.end, dateBasis: 'completed', includeStaffCost: true,
     });
     for (const visit of marketplace) {
+      if (visit.pricingPending) continue;
       const r = costs.get(visit.serviceLabel) || { label: visit.serviceLabel, jobCount: 0, earn: 0, staff: 0, supplies: 0 };
       r.jobCount++;
-      r.earn += visit.gross;
+      r.earn += visit.net || 0;
       r.staff += visit.staffCost || 0;
       costs.set(r.label, r);
     }
@@ -3009,6 +3071,7 @@ router.get('/expenses', async (req, res) => {
       linkableJobs,
       staff,
       costPerJob,
+      pricingPending: marketplace.filter((visit) => visit.pricingPending).length,
     });
   } catch (error) {
     console.error('[GET /api/vendor/expenses]', error);
@@ -3303,7 +3366,6 @@ router.get('/payouts/:id', async (req, res) => {
       customerArea: j.customer_area,
       day: shortLabel(j.window_start),
       gross: money(j.gross),
-      fee: money(Number(j.gross) - Number(j.net)),
       net: money(j.net),
       status: j.status,
     }));
@@ -3355,7 +3417,6 @@ router.get('/payouts/:id/statement', async (req, res) => {
       service: j.service_label || 'Service',
       customer: j.customer_name || '',
       gross: money(j.gross),
-      fee: money(Number(j.gross) - Number(j.net)),
       net: money(j.net),
     }));
     // With no member jobs (a legacy/manually created row) the computed sums
@@ -3363,10 +3424,10 @@ router.get('/payouts/:id/statement', async (req, res) => {
     // statement still agrees with the payout list.
     const totals = statementJobs.length > 0
       ? statementJobs.reduce(
-          (acc, j) => ({ gross: acc.gross + j.gross, fee: acc.fee + j.fee, net: acc.net + j.net }),
-          { gross: 0, fee: 0, net: 0 }
+          (acc, j) => ({ gross: acc.gross + j.gross, net: acc.net + j.net }),
+          { gross: 0, net: 0 }
         )
-      : { gross: money(payout.gross), fee: money(payout.fee), net: money(payout.net) };
+      : { gross: money(payout.gross), net: money(payout.net) };
 
     const statusLabel = payout.status.charAt(0).toUpperCase() + payout.status.slice(1);
     const pdf = await buildPayoutStatementPdf({
@@ -3385,7 +3446,6 @@ router.get('/payouts/:id/statement', async (req, res) => {
           : null,
       jobs: statementJobs,
       totalGross: totals.gross,
-      totalFee: totals.fee,
       totalNet: totals.net,
     });
 
@@ -3808,6 +3868,7 @@ router.get('/service-categories/:id/items', async (req, res) => {
 // Bulk price update — only while the category hasn't been submitted (draft)
 // or was sent back (rejected), same editable window as vendor_service_prices.
 router.patch('/service-categories/:id/items', async (req, res) => {
+  let db: PoolConnection | undefined;
   try {
     const session = await requireVendorSession(req, res);
     if (!session) return;
@@ -3815,8 +3876,10 @@ router.patch('/service-categories/:id/items', async (req, res) => {
       return res.status(403).json({ error: 'Only owners and managers can manage pricing.' });
     }
 
-    const [cat]: any = await pool.query(
-      `SELECT id, status FROM vendor_service_categories WHERE id = ? AND vendor_id = ?`,
+    db = await pool.getConnection();
+    await db.beginTransaction();
+    const [cat]: any = await db.query(
+      `SELECT id, status FROM vendor_service_categories WHERE id = ? AND vendor_id = ? FOR UPDATE`,
       [req.params.id, session.vendorId]
     );
     if (!cat.length) return res.status(404).json({ error: 'Category not found.' });
@@ -3828,15 +3891,22 @@ router.patch('/service-categories/:id/items', async (req, res) => {
     for (const item of items) {
       const price = Number(item?.price);
       if (!Number.isFinite(price) || price <= 0) continue;
-      await pool.query(
+      await db.query(
         `UPDATE vendor_service_category_items SET price = ? WHERE id = ? AND vendor_category_id = ?`,
         [price, item.id, req.params.id]
       );
     }
+    await db.commit();
     return res.json({ success: true });
   } catch (error) {
     console.error('[PATCH /api/vendor/service-categories/:id/items]', error);
     return res.status(500).json({ error: 'Failed to update prices.' });
+  } finally {
+    if (db) {
+      // Also releases the lock for validation returns before commit.
+      await db.rollback();
+      db.release();
+    }
   }
 });
 

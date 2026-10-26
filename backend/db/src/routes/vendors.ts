@@ -289,6 +289,10 @@ router.post('/payouts/run', async (_req, res) => {
 router.patch('/payouts/:id', async (req, res) => {
   const conn = await pool.getConnection();
   try {
+    const [[lock]]: any = await conn.query("SELECT GET_LOCK('vendor_payout_run', 15) AS acquired");
+    if (Number(lock.acquired) !== 1) {
+      return res.status(409).json({ error: 'A payout update is in progress. Please try again.' });
+    }
     const next = String(req.body?.status || '');
     if (!['pending', 'paid'].includes(next)) {
       return res.status(400).json({ error: 'Status must be "pending" or "paid".' });
@@ -326,6 +330,7 @@ router.patch('/payouts/:id', async (req, res) => {
     console.error('[PATCH /api/vendors/payouts/:id]', error);
     return res.status(500).json({ error: 'Failed to update payout.' });
   } finally {
+    try { await conn.query("SELECT RELEASE_LOCK('vendor_payout_run')"); } catch { /* connection releases it */ }
     conn.release();
   }
 });

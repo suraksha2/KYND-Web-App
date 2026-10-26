@@ -68,7 +68,7 @@ export default function VendorServicesPage() {
     <div className="space-y-5 pb-6">
       <div>
         <h1 className="text-2xl font-bold text-charcoal">Vendor pricing</h1>
-        <p className="text-sm text-warmgrey mt-0.5">Review partner category pricing before it goes live on the customer storefront.</p>
+        <p className="text-sm text-warmgrey mt-0.5">Approve vendor service amounts. These determine vendor earnings; customer storefront prices are set separately in the catalog.</p>
       </div>
 
       <div className="inline-flex items-center gap-1 rounded-xl bg-warmlinen p-1">

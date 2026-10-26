@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Loader2, X } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { vendorFetch } from '../lib/api'
@@ -18,7 +18,7 @@ const START_OPTIONS = Array.from({ length: 14 }, (_, i) => {
 
 const inputCls = 'w-full rounded-xl border border-lightstone bg-white px-4 py-2.5 text-sm text-charcoal placeholder:text-warmgrey/60 focus:outline-none focus:ring-2 focus:ring-terracotta/40 focus:border-terracotta'
 
-export default function QuickAddJob({ categories, services, team, onClose, onCreated, defaultAssigneeId }) {
+export default function QuickAddJob({ categories, services, team, categoryTags, onClose, onCreated, defaultAssigneeId }) {
   const { token } = useAuth()
   const [form, setForm] = useState({
     customerName: '', phone: '', address: '',
@@ -41,6 +41,19 @@ export default function QuickAddJob({ categories, services, team, onClose, onCre
     const match = categoryServices.find((s) => s.label === form.serviceLabel)
     return match?.hours || 2
   }, [categoryServices, form.serviceLabel])
+
+  // Auto-populate price when a service is selected from the catalog
+  const suggestedPrice = useMemo(() => {
+    const match = categoryServices.find((s) => s.label === form.serviceLabel)
+    return match?.price
+  }, [categoryServices, form.serviceLabel])
+
+  // Update price when service label changes and a catalog price exists
+  useEffect(() => {
+    if (suggestedPrice && (form.price === '' || Number(form.price) === 0)) {
+      setForm((f) => ({ ...f, price: String(suggestedPrice) }))
+    }
+  }, [suggestedPrice, form.price])
 
   // Flag a team member as clashing when one of their booked windows overlaps
   // the slot currently picked in the modal.
@@ -82,8 +95,12 @@ export default function QuickAddJob({ categories, services, team, onClose, onCre
   const requiredSkillTags = useMemo(() => {
     const exact = categoryServices.find((s) => normalizeSkill(s.label) === normalizeSkill(form.serviceLabel))
     if (exact?.skillTags?.length) return exact.skillTags
+    // A catalog category chip qualifies a member tagged with the category or
+    // any subcategory/service nested under it (mirrors the API's expansion);
+    // a chip absent from the map is custom work the API doesn't skill-check.
+    if (categoryTags) return categoryTags[form.category] || []
     return form.category ? [form.category] : []
-  }, [categoryServices, form.serviceLabel, form.category])
+  }, [categoryServices, form.serviceLabel, form.category, categoryTags])
 
   const unqualified = useMemo(() => {
     const required = new Set(requiredSkillTags.map(normalizeSkill))
@@ -217,7 +234,18 @@ export default function QuickAddJob({ categories, services, team, onClose, onCre
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <label className="block">
               <span className="block text-xs font-semibold text-charcoal mb-1.5">Price (S$)</span>
-              <input type="number" min="0" step="0.01" value={form.price} onChange={set('price')} placeholder="120" className={inputCls} />
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={form.price}
+                onChange={set('price')}
+                placeholder={suggestedPrice ? String(suggestedPrice) : '120'}
+                className={inputCls}
+              />
+              {suggestedPrice && (
+                <p className="mt-1 text-xs text-warmgrey">Your catalog price: S${suggestedPrice}</p>
+              )}
             </label>
             <label className="block">
               <span className="block text-xs font-semibold text-charcoal mb-1.5">Assign to</span>

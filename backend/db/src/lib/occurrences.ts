@@ -2,6 +2,7 @@ import pool from './mysql';
 import type { PoolConnection } from 'mysql2/promise';
 import { PLANNED_OCCURRENCES, anchorWallMs, nextWeekdayVisits, type Recurrence } from './recurrence';
 import { sgtDateTime } from './sgt';
+import { inheritVisitFinancials, recordVendorCompletion } from './vendorFinance';
 
 // Rows written to booking_occurrences: one per visit of a recurring booking.
 // `INSERT IGNORE` leans on the (booking_id, seq) unique key so a retried
@@ -19,6 +20,7 @@ async function insertOccurrences(
      VALUES ${rows.map(() => '(?, ?, ?, ?)').join(', ')}`,
     rows.flatMap((v) => [bookingDbId, v.seq, v.at, providerId])
   );
+  await inheritVisitFinancials(db, bookingDbId);
   return result?.affectedRows || 0;
 }
 
@@ -208,6 +210,7 @@ export async function completeNextOccurrence(bookingDbId: number, providerId?: n
     const next = rows[0];
     if (next) {
       await db.query("UPDATE booking_occurrences SET status = 'completed', completed_at = NOW() WHERE id = ?", [next.id]);
+      await recordVendorCompletion(db, bookingDbId, Number(next.id), true);
       await topUpLocked(bookingDbId, db);
     }
     await db.commit();

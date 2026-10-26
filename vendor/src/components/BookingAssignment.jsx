@@ -61,7 +61,7 @@ export default function BookingAssignment({ job, onSaved }) {
         <select required value={providerId} onChange={e => setProviderId(e.target.value)} disabled={loading || saving} className={inputCls}>
           <option value="">{loading ? 'Checking availability…' : 'Select a team member'}</option>
           {providers.map(p => <option key={p.id} value={p.id} disabled={!p.available || p.current}>
-            {p.name}{p.current ? ' — current' : !p.available ? ' — unavailable' : ''}
+            {p.name}{p.current ? ' — current' : !p.available ? ` — ${p.reason || 'unavailable'}` : ''}
           </option>)}
         </select>
       </label>
@@ -78,7 +78,7 @@ export default function BookingAssignment({ job, onSaved }) {
         className="w-full rounded-xl bg-terracotta px-3 py-2.5 text-sm font-semibold text-white disabled:opacity-40">
         {saving ? 'Saving…' : 'Confirm reassignment'}
       </button>
-      <p className="text-xs text-warmgrey">Unavailable members are on leave, outside working hours or already booked. Only admin can arrange cover outside your team.</p>
+      <p className="text-xs text-warmgrey">Members need availability and approved vendor rates for the booked services. Only admin can arrange cover outside your team.</p>
     </form>
   )
 }

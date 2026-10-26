@@ -863,9 +863,9 @@ router.get('/services/:id/quote', async (req, res) => {
     }
     const rule = { ...rules[0], params: safeJson(rules[0].params, {}) };
 
-    const { cost: baseCost, rate } = computeBaseCost(rule, duration, partySize, startTime);
+    const { cost: ruleCost, rate } = computeBaseCost(rule, duration, partySize, startTime);
 
-    if (rule.strategy === 'custom_quote' || baseCost === null) {
+    if (rule.strategy === 'custom_quote' || (rule.strategy !== 'flat' && ruleCost === null)) {
       return res.status(200).json({
         service_id: serviceId,
         strategy: rule.strategy,
@@ -875,7 +875,15 @@ router.get('/services/:id/quote', async (req, res) => {
     }
 
     const markup = markupPct(service.markup_pct_override);
-    const baseSell = Math.round(baseCost * (1 + markup));
+    const baseCost = rule.strategy === 'flat'
+      ? (service.default_partner_cost !== null ? Number(service.default_partner_cost) : null)
+      : ruleCost;
+    const baseSell = rule.strategy === 'flat'
+      ? roundMoney(Number(rule.params?.amount))
+      : Math.round(Number(ruleCost) * (1 + markup));
+    if (!Number.isFinite(baseSell) || baseSell <= 0) {
+      return res.status(400).json({ error: 'No valid customer price configured for this service.' });
+    }
 
     let addonCost = 0;
     let addonSell = 0;

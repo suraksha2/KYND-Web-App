@@ -22,7 +22,6 @@ export interface StatementJob {
   service: string;
   customer: string;
   gross: number;
-  fee: number;
   net: number;
 }
 
@@ -38,7 +37,6 @@ export interface StatementInput {
   statusNote?: string | null; // "Paid 15 Oct 2026" / "Expected 15 Oct 2026"
   jobs: StatementJob[];
   totalGross: number;
-  totalFee: number;
   totalNet: number;
 }
 
@@ -52,8 +50,7 @@ const COLS = {
   service: { x: 118, w: 168 },
   customer: { x: 292, w: 98 },
   gross: { x: 392, w: 48 },
-  fee: { x: 444, w: 44 },
-  net: { x: 492, w: 53 },
+  net: { x: 444, w: 101 },
 } as const;
 
 export function buildPayoutStatementPdf(input: StatementInput): Promise<Buffer> {
@@ -105,7 +102,6 @@ export function buildPayoutStatementPdf(input: StatementInput): Promise<Buffer> 
     doc.text('JOB', COLS.service.x, y + 6, { width: COLS.service.w });
     doc.text('CUSTOMER', COLS.customer.x, y + 6, { width: COLS.customer.w });
     doc.text('GROSS', COLS.gross.x, y + 6, { width: COLS.gross.w, align: 'right' });
-    doc.text('FEE', COLS.fee.x, y + 6, { width: COLS.fee.w, align: 'right' });
     doc.text('NET', COLS.net.x, y + 6, { width: COLS.net.w, align: 'right' });
     return y + 18;
   };
@@ -136,8 +132,6 @@ export function buildPayoutStatementPdf(input: StatementInput): Promise<Buffer> 
       .text(job.customer, COLS.customer.x, ty, { width: COLS.customer.w, ellipsis: true });
     doc.fillColor(COLORS.charcoal);
     doc.text(money(job.gross), COLS.gross.x, ty, { width: COLS.gross.w, align: 'right' });
-    doc.fillColor(COLORS.warmgrey)
-      .text(money(job.fee), COLS.fee.x, ty, { width: COLS.fee.w, align: 'right' });
     doc.fillColor(COLORS.charcoal)
       .text(money(job.net), COLS.net.x, ty, { width: COLS.net.w, align: 'right' });
     y += rowHeight;
@@ -150,12 +144,10 @@ export function buildPayoutStatementPdf(input: StatementInput): Promise<Buffer> 
     .text(`${input.jobs.length} job${input.jobs.length === 1 ? '' : 's'}`, COLS.date.x, y, { width: COLS.service.w + COLS.date.w });
   doc.text('Total', COLS.customer.x, y, { width: COLS.customer.w, align: 'right' });
   doc.text(money(input.totalGross), COLS.gross.x, y, { width: COLS.gross.w, align: 'right' });
-  doc.fillColor(COLORS.warmgrey).text(money(input.totalFee), COLS.fee.x, y, { width: COLS.fee.w, align: 'right' });
-  doc.fontSize(10).fillColor(COLORS.terracotta).text(money(input.totalNet), COLS.net.x - 10, y - 1, { width: COLS.net.w + 10, align: 'right' });
+  doc.fontSize(10).fillColor(COLORS.terracotta).text(money(input.totalNet), COLS.net.x, y, { width: COLS.net.w, align: 'right' });
 
   // ---- Footer ---------------------------------------------------------------
   doc.font('Helvetica').fontSize(7.5).fillColor(COLORS.warmgrey).text(
-    'The net amount is what Kynd transfers to the vendor — the platform fee shown has already been deducted from each job\'s gross. ' +
     'Payouts are batched weekly (Mon–Sun) and typically land within 3 working days of the period end.',
     PAGE.margin,
     PAGE.height - PAGE.margin - 26,
