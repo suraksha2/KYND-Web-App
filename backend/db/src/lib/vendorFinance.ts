@@ -43,6 +43,12 @@ export async function approvedVendorQuote(vendorId: number, rawItems: any, db: D
         `SELECT id, name, partner_cost AS price FROM addons WHERE id = ? ${lock ? 'FOR UPDATE' : ''}`,
         [item.addonId]
       );
+    } else if (item.addonServiceId) {
+      [rows] = await db.query(
+        `SELECT id AS catalog_service_id, name, default_partner_cost AS price
+           FROM catalog_services WHERE id = ? ${lock ? 'FOR UPDATE' : ''}`,
+        [item.addonServiceId]
+      );
     } else {
       const serviceId = Number(item.catalogId);
       [rows] = await db.query(
@@ -57,12 +63,13 @@ export async function approvedVendorQuote(vendorId: number, rawItems: any, db: D
       );
     }
     if (rows.length !== 1 || rows[0].price == null || !Number.isFinite(Number(rows[0].price)) ||
-        Number(rows[0].price) < 0 || (!item.addonId && Number(rows[0].price) === 0)) {
+        Number(rows[0].price) < 0 || (!item.addonId && !item.addonServiceId && Number(rows[0].price) === 0)) {
       throw new VendorPricingError(`No approved vendor rate for ${item.name || item.serviceName || 'this service'}.`);
     }
     const row = rows[0];
     lines.push({
       catalogId: row.catalog_service_id ?? null, addonId: item.addonId ?? null,
+      addonServiceId: item.addonServiceId ?? null,
       approvalId: row.approval_id ?? null, approvedAt: row.reviewed_at ?? null,
       name: row.name, qty, unitRate: Number(row.price), amount: money(Number(row.price) * qty),
     });

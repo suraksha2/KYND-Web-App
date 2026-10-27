@@ -7,10 +7,8 @@ import Orders from './pages/Orders'
 import Addons from './pages/Addons'
 import CatalogServices from './pages/CatalogServices'
 import Pro from './pages/Pro'
-import Vendors from './pages/Vendors'
+import VendorManagement from './pages/VendorManagement'
 import VendorDetail from './pages/VendorDetail'
-import VendorPayouts from './pages/VendorPayouts'
-import VendorServices from './pages/VendorServices'
 import Analytics from './pages/Analytics'
 import CityServices from './pages/CityServices'
 import ServiceSubcategories from './pages/ServiceSubcategories'
@@ -32,11 +30,11 @@ export default function App() {
         <Route path="/addons" element={<Addons />} />
         <Route path="/help-moments" element={<ServiceSubcategories />} />
         <Route path="/pro" element={<Pro />} />
-        <Route path="/vendors" element={<Vendors />} />
+        <Route path="/vendors" element={<VendorManagement />} />
         <Route path="/vendors/:id" element={<VendorDetail />} />
-        {/* <Route path="/vendors/:id" element={<VendorDetail />} /> */}
-        <Route path="/vendor-services" element={<VendorServices />} />
-        <Route path="/vendor-payouts" element={<VendorPayouts />} />
+        {/* Legacy links land on the matching tab of the consolidated page. */}
+        <Route path="/vendor-services" element={<Navigate to="/vendors?tab=pricing" replace />} />
+        <Route path="/vendor-payouts" element={<Navigate to="/vendors?tab=payouts" replace />} />
         <Route path="/analytics" element={<Analytics />} />
         <Route path="/city-services" element={<CityServices />} />
         <Route path="/settings" element={<Settings />} />

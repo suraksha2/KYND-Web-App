@@ -3,8 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { Star, MessageCircle, Calendar, Clock, RotateCcw, SkipForward, Eye, Plus, Sparkles, X, AlertTriangle } from 'lucide-react'
 import { useBookings } from '../context/BookingsContext'
 import { useAuth } from '../context/AuthContext'
-import { useServices } from '../context/ServicesContext'
-import { API_BASE, serviceImageUrl } from '../lib/api'
+import { API_BASE } from '../lib/api'
 import { openPicker } from '../lib/openPicker'
 
 const SGT = { timeZone: 'Asia/Singapore' }
@@ -166,36 +165,6 @@ function UserRating({ booking }) {
   )
 }
 
-function UpsellCard({ booking, service, onAdd }) {
-  const mainName = booking.items?.[0]?.name
-  if (!mainName || !service) return null
-
-  return (
-    <div className="rounded-2xl bg-[#F5E3DA] p-4">
-      <div className="text-[10px] font-bold text-terracotta uppercase tracking-wide mb-3">
-        Goes well with your {mainName}
-      </div>
-      <div className="flex items-center gap-4">
-        <img
-          src={service.img}
-          alt={service.name}
-          className="w-16 h-16 rounded-xl object-cover bg-lightstone shrink-0"
-          onError={(e) => { e.target.style.display = 'none' }}
-        />
-        <div className="flex-1 min-w-0">
-          <h3 className="font-heading font-bold text-charcoal">{service.name}</h3>
-          <p className="text-xs text-warmgrey mt-0.5">from {service.pricingFrom} · never booked before</p>
-        </div>
-        <button
-          onClick={onAdd}
-          className="shrink-0 rounded-full bg-terracotta hover:bg-charcoal text-white font-semibold px-5 py-2 text-sm transition"
-        >
-          Add
-        </button>
-      </div>
-    </div>
-  )
-}
 
 function RecurringCta({ serviceName, count }) {
   const navigate = useNavigate()
@@ -487,7 +456,6 @@ function PastCard({ booking }) {
 
 export default function Bookings() {
   const { upcoming, past, cancelBooking, rescheduleBooking } = useBookings()
-  const { services } = useServices()
   const { sessionExpired, isAuthenticated } = useAuth()
   const navigate = useNavigate()
   const [tab, setTab] = useState('upcoming')
@@ -500,13 +468,6 @@ export default function Bookings() {
   }, [isAuthenticated, navigate])
 
   const list = tab === 'upcoming' ? upcoming : past
-
-  const firstUpcoming = upcoming[0]
-  const upsellService = useMemo(() => {
-    if (!firstUpcoming || !services.length) return null
-    const mainName = firstUpcoming.items?.[0]?.name?.toLowerCase()
-    return services.find(s => s.name.toLowerCase() !== mainName)
-  }, [firstUpcoming, services])
 
   const recurringCta = useMemo(() => {
     // Only services actually delivered should drive the "make it recurring"
@@ -561,14 +522,6 @@ export default function Bookings() {
 
         <div className="mt-5 space-y-4">
           {tab === 'past' && recurringCta && <RecurringCta {...recurringCta} />}
-
-          {tab === 'upcoming' && firstUpcoming && upsellService && (
-            <UpsellCard
-              booking={firstUpcoming}
-              service={upsellService}
-              onAdd={() => navigate(`/services/${upsellService.slug}`)}
-            />
-          )}
 
           {list.length === 0 ? (
             <div className="rounded-2xl bg-white ring-1 ring-lightstone p-8 text-center">

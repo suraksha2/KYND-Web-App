@@ -89,7 +89,7 @@ is written for **MySQL 8**, where:
 - expression defaults need parentheses: `DEFAULT (CURRENT_DATE)`.
 
 `mysql` aborts on the first error, so a mistake leaves a half-created schema that
-surfaces as `500`s from `/api/*`. A clean import creates **42 tables**.
+surfaces as `500`s from `/api/*`. A clean import creates **45 tables**.
 
 `DATETIME` columns hold **Singapore wall-clock time**, but mysql2 hands them back
 as JS `Date`s built in the *process* timezone. Doing date maths on such a value
@@ -232,6 +232,15 @@ today is the Home-screen slice:
   `bookings.status`. `offers` is the not-yet-accepted Kynd fan-out;
   `vendor_payouts` and `team_member_certs` back the "pending payout" and
   "training expiring" alerts.
+- Vendor `own` jobs assigned to a member also surface in the provider app:
+  `GET /api/provider/bookings` merges `jobs WHERE assignee_provider_id =
+  session.id AND source = 'own'` (30-day lookback) into booking-shaped cards
+  keyed `job-<id>`, and `PUT /api/provider/bookings/job-<id>` completes them
+  (accepted/assigned/in_progress → completed; workers can never cancel or
+  reopen them — that's a desk-seat action). `source = 'kynd'` jobs are
+  excluded since their linked `bookings` row already shows. Cards carry
+  `vendorJob`/`vendorName`, hide money (field seats don't see gross/net), and
+  disable messaging + cancel (`canMessage`/`canCancel: false`).
 - **Offer fan-out**: `fanOutOffersForBooking` (`backend/db/src/lib/offers.ts`),
   **currently deferred for the single-vendor stage**. The booking fan-out call,
   vendor inbox endpoints, expiry endpoint, demo offer seeding and frontend

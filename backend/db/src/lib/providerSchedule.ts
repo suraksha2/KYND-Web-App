@@ -26,7 +26,7 @@ export function bookingDurationMinutes(raw: unknown): number {
   // Add-ons aren't separate appointments. Quantity can represent additional
   // cleaners working together, so it doesn't multiply the visit's duration.
   return Array.isArray(items)
-    ? items.filter((item) => !item.addonId).reduce(
+    ? items.filter((item) => !item.addonId && !item.addonServiceId).reduce(
       (sum, item) => sum + parseDurationMinutes(item.duration), 0
     ) || 60
     : 60;

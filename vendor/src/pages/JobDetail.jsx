@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useOutletContext, useParams } from 'react-router-dom'
 import {
-  AlertCircle, ArrowLeft, Banknote, Camera, Check, CheckCircle2, Flag, Info, Loader2,
+  AlertCircle, ArrowLeft, ArrowLeftRight, Banknote, Camera, Check, CheckCircle2, Flag, Info, Loader2,
   MapPin, Phone, Play, Plus, Send, Star, User, X,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
@@ -9,7 +9,7 @@ import { vendorFetch } from '../lib/api'
 import { formatMoney, formatTime12h, formatJobDay, durationLabel, parseSgt, initials } from '../lib/format'
 import StatusBadge from '../components/StatusBadge'
 import QuickAddJob from '../components/QuickAddJob'
-import BookingAssignment from '../components/BookingAssignment'
+import ReassignModal from '../components/ReassignModal'
 
 const STEPS = [
   { key: 'offered', label: 'Offered' },
@@ -18,14 +18,6 @@ const STEPS = [
   { key: 'in_progress', label: 'In progress' },
   { key: 'completed', label: 'Completed' },
   { key: 'paid', label: 'Paid out' },
-]
-
-// Marketplace bookings only ever carry two of the statuses above (they have
-// no `jobs` row to track offer/assignment/payout against), so the stepper
-// collapses to a simple two-stage view for those.
-const MARKETPLACE_STEPS = [
-  { key: 'assigned', label: 'Upcoming' },
-  { key: 'completed', label: 'Completed' },
 ]
 
 const ISSUE_TYPES = ['Late start', 'Customer unavailable', 'Customer complaint', 'Access problem', 'Other']
@@ -79,10 +71,13 @@ export default function JobDetail() {
   const [issueType, setIssueType] = useState(ISSUE_TYPES[0])
   const [issueNote, setIssueNote] = useState('')
   const [reassignOpen, setReassignOpen] = useState(false)
+  const [assignNote, setAssignNote] = useState('')
   const [quickAddOpen, setQuickAddOpen] = useState(false)
   const [photoBusy, setPhotoBusy] = useState(false)
   const [messageText, setMessageText] = useState('')
   const [messageBusy, setMessageBusy] = useState(false)
+  const [notesText, setNotesText] = useState('')
+  const [notesBusy, setNotesBusy] = useState(false)
   const photoInputRef = useRef(null)
 
   const load = useCallback(async () => {
@@ -92,6 +87,7 @@ export default function JobDetail() {
       const d = await vendorFetch(`/vendor/jobs/${id}`, token)
       setData(d)
       setAssigneeId(d.job.assignee ? String(d.job.assignee.id) : '')
+      setNotesText(d.job.notes || '')
     } catch (err) {
       setError(err.message || 'Failed to load job.')
     } finally {
@@ -214,6 +210,24 @@ export default function JobDetail() {
     }
   }
 
+  const saveNotes = async () => {
+    setNotesBusy(true)
+    setActionError('')
+    try {
+      const res = await vendorFetch(`/vendor/jobs/${id}/notes`, token, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notes: notesText }),
+      })
+      setNotesText(res.notes || '')
+      setData((d) => d && { ...d, job: { ...d.job, notes: res.notes || '' } })
+    } catch (err) {
+      setActionError(err.message || 'Failed to save notes.')
+    } finally {
+      setNotesBusy(false)
+    }
+  }
+
   if (loading && !data) {
     return (
       <div className="flex items-center justify-center h-40">
@@ -254,13 +268,21 @@ export default function JobDetail() {
   }
   const memberLabel = (m) => `${m.name}${memberTag(m) ? ` — ${memberTag(m)}` : ''}`
 
+  const isMarketplace = job.source === 'marketplace'
+
+  // Reassign opens the member-picker modal. Marketplace visits can only move
+  // while the booking is still upcoming (their job status stays 'assigned');
+  // the API enforces that again on write.
+  const canReassign = canManage && open && !!job.assignee
+    && (isMarketplace ? job.status === 'assigned' : ['accepted', 'assigned'].includes(job.status))
+
   // Single contextual primary action for the card header, mirroring the
-  // mockup's one top-right button per stage. Marketplace bookings are
-  // read-only here — their lifecycle is driven elsewhere.
-  const primaryAction = job.readOnly || !job.assignee ? null
+  // mockup's one top-right button per stage. KYND jobs bookings stop at
+  // completed — Kynd settles their payout.
+  const primaryAction = !job.assignee ? null
     : (job.status === 'accepted' || job.status === 'assigned') ? { key: 'in_progress', label: 'Mark started', icon: Play, cls: 'bg-terracotta hover:bg-accent-600 text-white shadow-soft' }
     : job.status === 'in_progress' ? { key: 'completed', label: 'Mark completed', icon: CheckCircle2, cls: 'bg-sage hover:bg-sage/90 text-white shadow-soft' }
-    : (job.status === 'completed' && canSeeMoney) ? { key: 'paid', label: 'Mark paid', icon: Banknote, cls: 'bg-terracotta hover:bg-accent-600 text-white shadow-soft' }
+    : (job.status === 'completed' && canSeeMoney && !isMarketplace) ? { key: 'paid', label: 'Mark paid', icon: Banknote, cls: 'bg-terracotta hover:bg-accent-600 text-white shadow-soft' }
     : null
 
   const checklist = job.checklist || []
@@ -307,7 +329,7 @@ export default function JobDetail() {
             <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${
               job.source === 'kynd' ? 'bg-accent-50 text-terracotta' : job.source === 'marketplace' ? 'bg-dustyrose/15 text-rosewood' : 'bg-sage/15 text-sage'
             }`}>
-              {job.source === 'kynd' ? 'Kynd job' : job.source === 'marketplace' ? 'Marketplace job' : 'Own job'}
+              {job.source === 'kynd' ? 'Kynd job' : job.source === 'marketplace' ? 'KYND job' : 'External job'}
             </span>
             <StatusBadge status={job.hasIssue ? 'issue' : job.status === 'accepted' && !job.assignee ? 'needs_assignee' : job.status} />
             {job.category && (
@@ -338,11 +360,11 @@ export default function JobDetail() {
         {job.status === 'cancelled' ? (
           <p className="text-sm text-warmgrey">This job was cancelled.</p>
         ) : (
-          <StatusStepper status={job.status} steps={job.readOnly ? MARKETPLACE_STEPS : STEPS} />
+          <StatusStepper status={job.status} steps={STEPS} />
         )}
       </section>
 
-      {job.readOnly && (
+      {isMarketplace && (
         <div className="rounded-2xl bg-lightstone/40 border border-lightstone px-5 py-4 flex items-start gap-3">
           <Info className="w-5 h-5 text-warmgrey shrink-0 mt-0.5" />
           <p className="text-sm text-warmgrey">
@@ -365,7 +387,7 @@ export default function JobDetail() {
         </div>
       )}
 
-      {open && !job.readOnly && (
+      {open && !isMarketplace && (
         <section className="bg-white rounded-3xl border border-lightstone shadow-soft p-5 sm:p-6 space-y-4">
           {!job.assignee && (
             <div className="flex items-end gap-3 flex-wrap">
@@ -441,67 +463,84 @@ export default function JobDetail() {
       )}
 
       <div className="grid grid-cols-1 gap-4 items-start lg:grid-cols-2">
-        {!job.readOnly && (
-          <div className="space-y-4">
-            <section className="bg-white rounded-3xl border border-lightstone shadow-soft p-5 sm:p-6">
-              <div className="flex items-center justify-between gap-4 mb-3">
-                <h2 className="font-heading text-base font-bold text-charcoal">Checklist</h2>
-                <span className="text-xs font-semibold text-warmgrey">{checklistDone} of {checklist.length} done</span>
-              </div>
-              <ul className="space-y-2">
-                {checklist.map((item) => (
-                  <li key={item.id}>
-                    <label className="flex items-center gap-3 cursor-pointer group">
-                      <input
-                        type="checkbox"
-                        checked={item.done}
-                        onChange={() => toggleChecklistItem(item)}
-                        className="w-4 h-4 rounded border-lightstone text-terracotta focus:ring-terracotta/40"
-                      />
-                      <span className={`text-sm ${item.done ? 'text-warmgrey line-through' : 'text-charcoal'}`}>{item.label}</span>
-                    </label>
-                  </li>
-                ))}
-              </ul>
-            </section>
-
-            <section className="bg-white rounded-3xl border border-lightstone shadow-soft p-5 sm:p-6">
-              <h2 className="font-heading text-base font-bold text-charcoal mb-3">Photos</h2>
-              <div className="grid grid-cols-3 sm:grid-cols-4 gap-2.5">
-                {(job.photos || []).map((photo) => (
-                  <img key={photo.id} src={photo.url} alt="Job" className="w-full aspect-square object-cover rounded-xl border border-lightstone" />
-                ))}
-                <button
-                  onClick={() => photoInputRef.current?.click()}
-                  disabled={photoBusy}
-                  className="aspect-square rounded-xl border-2 border-dashed border-lightstone flex flex-col items-center justify-center gap-1 text-warmgrey hover:text-terracotta hover:border-terracotta/40 transition-colors disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-terracotta/40"
-                >
-                  {photoBusy ? <Loader2 className="w-5 h-5 animate-spin" /> : <Camera className="w-5 h-5" />}
-                  <span className="text-[11px] font-semibold">Add photo</span>
-                </button>
-                <input ref={photoInputRef} type="file" accept="image/*" onChange={addPhoto} className="hidden" />
-              </div>
-            </section>
-          </div>
-        )}
-
-        <div className={job.readOnly ? 'contents' : 'space-y-4'}>
+        <div className="space-y-4">
           <section className="bg-white rounded-3xl border border-lightstone shadow-soft p-5 sm:p-6">
             <div className="flex items-center justify-between gap-4 mb-3">
-              <h2 className="font-heading text-base font-bold text-charcoal">Assigned to</h2>
-              {canManage && open && ['accepted', 'assigned'].includes(job.status) && job.assignee && (
-                <button onClick={() => setReassignOpen((v) => !v)} className="text-xs font-semibold text-terracotta hover:text-accent-600 focus:outline-none focus:ring-2 focus:ring-terracotta/40 rounded-lg px-1">
-                  Reassign
-                </button>
-              )}
+              <h2 className="font-heading text-base font-bold text-charcoal">Checklist</h2>
+              <span className="text-xs font-semibold text-warmgrey">{checklistDone} of {checklist.length} done</span>
             </div>
+            <ul className="space-y-2">
+              {checklist.map((item) => (
+                <li key={item.id}>
+                  <label className="flex items-center gap-3 cursor-pointer group">
+                    <input
+                      type="checkbox"
+                      checked={item.done}
+                      onChange={() => toggleChecklistItem(item)}
+                      className="w-4 h-4 rounded border-lightstone text-terracotta focus:ring-terracotta/40"
+                    />
+                    <span className={`text-sm ${item.done ? 'text-warmgrey line-through' : 'text-charcoal'}`}>{item.label}</span>
+                  </label>
+                </li>
+              ))}
+            </ul>
+          </section>
+
+          <section className="bg-white rounded-3xl border border-lightstone shadow-soft p-5 sm:p-6">
+            <h2 className="font-heading text-base font-bold text-charcoal mb-3">Photos</h2>
+            <div className="grid grid-cols-3 sm:grid-cols-4 gap-2.5">
+              {(job.photos || []).map((photo) => (
+                <img key={photo.id} src={photo.url} alt="Job" className="w-full aspect-square object-cover rounded-xl border border-lightstone" />
+              ))}
+              <button
+                onClick={() => photoInputRef.current?.click()}
+                disabled={photoBusy}
+                className="aspect-square rounded-xl border-2 border-dashed border-lightstone flex flex-col items-center justify-center gap-1 text-warmgrey hover:text-terracotta hover:border-terracotta/40 transition-colors disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-terracotta/40"
+              >
+                {photoBusy ? <Loader2 className="w-5 h-5 animate-spin" /> : <Camera className="w-5 h-5" />}
+                <span className="text-[11px] font-semibold">Add photo</span>
+              </button>
+              <input ref={photoInputRef} type="file" accept="image/*" onChange={addPhoto} className="hidden" />
+            </div>
+          </section>
+
+          <section className="bg-white rounded-3xl border border-lightstone shadow-soft p-5 sm:p-6">
+            <h2 className="font-heading text-base font-bold text-charcoal mb-3">Notes</h2>
+            {job.customerNotes && (
+              <div className="mb-3 rounded-xl bg-warmlinen/60 border border-lightstone px-3.5 py-2.5">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-warmgrey">Customer instructions</p>
+                <p className="mt-0.5 text-sm text-charcoal whitespace-pre-line">{job.customerNotes}</p>
+              </div>
+            )}
+            <textarea
+              value={notesText}
+              onChange={(e) => setNotesText(e.target.value)}
+              placeholder="Add a note for whoever does this job"
+              rows={3}
+              maxLength={5000}
+              className={`${inputCls} resize-y bg-warmlinen/40`}
+            />
+            {notesText !== (job.notes || '') && (
+              <div className="mt-2 flex justify-end gap-2">
+                <button onClick={() => setNotesText(job.notes || '')} disabled={notesBusy} className={`${btn} bg-white border border-lightstone text-warmgrey`}>Discard</button>
+                <button onClick={saveNotes} disabled={notesBusy} className={`${btn} bg-terracotta hover:bg-accent-600 text-white shadow-soft`}>
+                  {notesBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Save note'}
+                </button>
+              </div>
+            )}
+          </section>
+        </div>
+
+        <div className="space-y-4">
+          <section className="bg-white rounded-3xl border border-lightstone shadow-soft p-5 sm:p-6">
+            <p className="text-[11px] font-semibold uppercase tracking-widest text-warmgrey mb-4">Assigned to</p>
             {job.assignee ? (
-              <div className="flex items-center gap-3">
-                <span className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-accent-100 text-terracotta text-xs font-bold shrink-0">
+              <div className="flex items-center gap-3.5">
+                <span className="inline-flex items-center justify-center w-11 h-11 rounded-full bg-sage/15 text-sage text-xs font-bold shrink-0">
                   {initials(job.assignee.name)}
                 </span>
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold text-charcoal truncate">{job.assignee.name}</p>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-bold text-charcoal truncate">{job.assignee.name}</p>
                   <p className="text-xs text-warmgrey flex items-center gap-1.5">
                     {roleLabel}
                     {job.assignee.rating > 0 && (
@@ -509,6 +548,15 @@ export default function JobDetail() {
                     )}
                   </p>
                 </div>
+                {canReassign && (
+                  <button
+                    onClick={() => setReassignOpen(true)}
+                    className="shrink-0 inline-flex items-center gap-1.5 rounded-full border border-lightstone bg-white px-4 py-2 text-sm font-semibold text-charcoal hover:border-terracotta hover:text-terracotta transition-colors focus:outline-none focus:ring-2 focus:ring-terracotta/40"
+                  >
+                    <ArrowLeftRight className="w-4 h-4" />
+                    Reassign
+                  </button>
+                )}
               </div>
             ) : (
               <p className="text-sm text-warmgrey">Not assigned yet.</p>
@@ -518,37 +566,10 @@ export default function JobDetail() {
                 {job.assignee.name} does not have the skill required for this job. Reassign it before starting.
               </p>
             )}
-            {canManage && job.source === 'marketplace' && job.status === 'assigned' && reassignOpen && (
-              <BookingAssignment key={job.id} job={job} onSaved={async () => {
-                const updated = await vendorFetch(`/vendor/jobs/${id}`, token)
-                setData(updated)
-                await reload?.()
-              }} />
+            {canReassign && (
+              <p className="mt-3 text-xs text-warmgrey">You can change who does this job any time before it's completed.</p>
             )}
-            {canManage && open && !job.readOnly && job.assignee && (
-              <p className="mt-2 text-xs text-warmgrey">You can change who does this job any time before it's completed.</p>
-            )}
-            {canManage && open && !job.readOnly && job.assignee && reassignOpen && (
-              <div className="mt-4 flex items-end gap-2 flex-wrap">
-                <label className="block flex-1 min-w-48">
-                  <span className="block text-xs font-semibold text-charcoal mb-1.5">Reassign to</span>
-                  <select value={assigneeId} onChange={(e) => { setAssigneeId(e.target.value); setAssignConflict(false) }} className={inputCls}>
-                    {team.map((m) => {
-                      const tag = memberTag(m)
-                      return <option key={m.id} value={m.id} disabled={job.skillChecked && m.qualified === false}>{m.name}{tag ? ` — ${tag}` : ''}</option>
-                    })}
-                  </select>
-                </label>
-                <button onClick={() => assign()} disabled={!assigneeId || busy === 'assign'} className={`${btn} bg-white border border-terracotta text-terracotta hover:bg-accent-50`}>
-                  {busy === 'assign' ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Save'}
-                </button>
-                {assignConflict && (
-                  <button onClick={() => assign(true)} disabled={!assigneeId || busy === 'assign'} className={`${btn} bg-amber-700 hover:bg-amber-800 text-white`}>
-                    Assign anyway
-                  </button>
-                )}
-              </div>
-            )}
+            {assignNote && <p className="mt-2 text-xs font-semibold text-amber-700">{assignNote}</p>}
           </section>
 
           <section className="bg-white rounded-3xl border border-lightstone shadow-soft p-5 sm:p-6">
@@ -581,27 +602,29 @@ export default function JobDetail() {
             )}
           </section>
 
-          {!job.readOnly && (
-            <section className="bg-white rounded-3xl border border-lightstone shadow-soft p-5 sm:p-6">
-              <div className="flex items-center justify-between gap-4 mb-3">
-                <h2 className="font-heading text-base font-bold text-charcoal">Messages</h2>
-                <span className="text-xs text-warmgrey">Kynd customer chat</span>
-              </div>
-              <div className="space-y-2 max-h-56 overflow-y-auto mb-3">
-                {(job.messages || []).length === 0 ? (
-                  <p className="text-sm text-warmgrey">No messages yet.</p>
-                ) : (
-                  job.messages.map((m) => (
-                    <div key={m.id} className={`flex ${m.senderType === 'vendor' ? 'justify-end' : 'justify-start'}`}>
-                      <div className={`max-w-[80%] rounded-2xl px-3.5 py-2 text-sm ${
-                        m.senderType === 'vendor' ? 'bg-terracotta text-white' : 'bg-warmlinen text-charcoal'
-                      }`}>
-                        {m.body}
-                      </div>
+          <section className="bg-white rounded-3xl border border-lightstone shadow-soft p-5 sm:p-6">
+            <div className="flex items-center justify-between gap-4 mb-3">
+              <h2 className="font-heading text-base font-bold text-charcoal">Messages</h2>
+              <span className="text-xs text-warmgrey">Kynd customer chat</span>
+            </div>
+            <div className="space-y-2 max-h-56 overflow-y-auto mb-3">
+              {(job.messages || []).length === 0 ? (
+                <p className="text-sm text-warmgrey">No messages yet.</p>
+              ) : (
+                job.messages.map((m) => (
+                  <div key={m.id} className={`flex ${m.senderType === 'vendor' ? 'justify-end' : 'justify-start'}`}>
+                    <div className={`max-w-[80%] rounded-2xl px-3.5 py-2 text-sm ${
+                      m.senderType === 'vendor' ? 'bg-terracotta text-white' : 'bg-warmlinen text-charcoal'
+                    }`}>
+                      {m.body}
                     </div>
-                  ))
-                )}
-              </div>
+                  </div>
+                ))
+              )}
+            </div>
+            {job.canMessage === false ? (
+              <p className="text-xs text-warmgrey">Messaging is closed for this booking.</p>
+            ) : (
               <form onSubmit={sendMessage} className="flex items-center gap-2">
                 <input
                   value={messageText}
@@ -614,8 +637,8 @@ export default function JobDetail() {
                   {messageBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                 </button>
               </form>
-            </section>
-          )}
+            )}
+          </section>
         </div>
       </div>
 
@@ -627,6 +650,18 @@ export default function JobDetail() {
           categoryTags={data?.categoryTags}
           onClose={() => setQuickAddOpen(false)}
           onCreated={() => reload?.()}
+        />
+      )}
+
+      {reassignOpen && job.assignee && (
+        <ReassignModal
+          job={job}
+          onClose={() => setReassignOpen(false)}
+          onSaved={async (result) => {
+            setReassignOpen(false)
+            setAssignNote(result?.warning || '')
+            await Promise.all([load(), reload?.()])
+          }}
         />
       )}
     </div>

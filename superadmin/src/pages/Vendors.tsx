@@ -15,6 +15,7 @@ type Vendor = {
   city: string;
   categories: string[];
   status: "active" | "inactive";
+  onboardingStatus: "pending" | "submitted" | "approved";
   createdAt: string;
   teamCount: number;
   owner: { id: number; name: string; email: string } | null;
@@ -462,7 +463,7 @@ export default function VendorsPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-lightstone">
-                  {["Company", "Categories", "City", "Owner", "Team", "Status", "Joined", ""].map((h) => (
+                  {["Company", "Categories", "City", "Owner", "Team", "Status", "Setup", "Joined", ""].map((h) => (
                     <th key={h} className="px-4 py-3 text-left text-[11px] font-semibold text-warmgrey uppercase tracking-wide whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -492,6 +493,17 @@ export default function VendorsPage() {
                     <td className="px-4 py-3 whitespace-nowrap">
                       <span className={clsx("inline-flex items-center px-2 py-0.5 rounded-lg text-[11px] font-semibold capitalize", statusCfg[v.status])}>
                         {v.status}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <span className={clsx(
+                        "inline-flex items-center px-2 py-0.5 rounded-lg text-[11px] font-semibold",
+                        v.onboardingStatus === "approved" ? "bg-sage/10 text-sage" :
+                          v.onboardingStatus === "submitted" ? "bg-amber-100 text-amber-800" :
+                            "bg-accent-100 text-terracotta"
+                      )}>
+                        {v.onboardingStatus === "approved" ? "Dashboard live" :
+                          v.onboardingStatus === "submitted" ? "Awaiting review" : "Setup needed"}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-warmgrey whitespace-nowrap">{new Date(v.createdAt).toLocaleDateString("en-SG")}</td>

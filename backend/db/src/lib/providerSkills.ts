@@ -169,7 +169,7 @@ export async function skillRequirementsForJob(
     } catch { /* Fall through to the job's own labels below. */ }
     const requirements = await Promise.all(
       items
-        .filter((item) => !item?.addonId)
+        .filter((item) => !item?.addonId && !item?.addonServiceId)
         .map(async (item) => {
           const tags = await catalogSkillTagsForService(
             {

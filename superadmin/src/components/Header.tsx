@@ -9,7 +9,7 @@ interface HeaderProps {
 const pageTitles: Record<string, string> = {
   "/dashboard": "Dashboard",
   "/clients": "Clients",
-  "/orders": "Orders",
+  "/orders": "Jobs",
   "/catalog-services": "Catalog",
   "/addons": "Add-ons",
   "/help-moments": "Help Moments",

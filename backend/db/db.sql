@@ -184,7 +184,10 @@ CREATE TABLE IF NOT EXISTS analytics (
 CREATE TABLE IF NOT EXISTS service_providers (
   id INT AUTO_INCREMENT PRIMARY KEY,
   name VARCHAR(255) NOT NULL,
-  email VARCHAR(255) NOT NULL UNIQUE,
+  -- NULL for vendor-team members onboarded with only a name and phone (their
+  -- email/skills get filled in later from the vendor Team page). UNIQUE still
+  -- applies to every non-NULL value; MySQL allows multiple NULLs.
+  email VARCHAR(255) NULL UNIQUE,
   password_hash VARCHAR(255),
   mobile VARCHAR(20) NOT NULL,
   services JSON NOT NULL,
@@ -865,10 +868,28 @@ CREATE TABLE IF NOT EXISTS vendors (
   city VARCHAR(100),
   categories JSON,
   status ENUM('active', 'inactive') DEFAULT 'active',
+  -- First-login setup wizard state for vendors created by a superadmin after
+  -- this shipped: 'pending' = wizard not finished (sees only setup pages),
+  -- 'submitted' = waiting on Kynd's price review (sees only the holding
+  -- page), 'approved' = full dashboard. NULL = a vendor that predates the
+  -- wizard — treated as 'approved' everywhere so existing accounts are
+  -- untouched.
+  onboarding_status ENUM('pending', 'submitted', 'approved', 'not_started', 'in_progress', 'rejected') NULL DEFAULT NULL,
   payout_details JSON,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
+
+-- Migration for databases created before onboarding_status existed. Rows get
+-- NULL, which every reader treats as 'approved' — pre-wizard vendors keep
+-- their dashboard and never see setup.
+SET @stmt := IF(
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'vendors'
+      AND COLUMN_NAME = 'onboarding_status') = 0,
+  "ALTER TABLE vendors ADD COLUMN onboarding_status ENUM('pending','submitted','approved','not_started','in_progress','rejected') NULL DEFAULT NULL AFTER status",
+  "ALTER TABLE vendors MODIFY COLUMN onboarding_status ENUM('pending','submitted','approved','not_started','in_progress','rejected') NULL DEFAULT NULL");
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- Seats on a vendor's Partner OS account. `owner`/`manager` are desk roles;
 -- `field` seats are linked to a `service_providers` row for mobile job access.
@@ -1198,6 +1219,18 @@ SET @stmt := IF(
   'DO 0');
 PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
+-- Migration: the vendor onboarding wizard adds team members with only a name
+-- and phone ("Skills, hours and leave can come later"), so email has to be
+-- nullable for vendor-owned rows. UNIQUE is kept — MySQL permits multiple
+-- NULLs — and provider-login's `WHERE email = ?` simply never matches them.
+SET @stmt := IF(
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'service_providers'
+      AND COLUMN_NAME = 'email' AND IS_NULLABLE = 'NO') > 0,
+  'ALTER TABLE service_providers MODIFY email VARCHAR(255) NULL',
+  'DO 0');
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
 -- A vendor's own out-of-pocket costs (supplies, chemicals, transport, etc.),
 -- optionally linked to the job they were for. Feeds the Expenses page and
 -- the Money page's "Profit by service" margin.
@@ -1275,6 +1308,56 @@ CREATE TABLE IF NOT EXISTS job_messages (
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   KEY idx_job_messages_job (job_id, created_at),
   FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE
+);
+
+-- Migration: free-text note on a job for whoever does it (Job detail > Notes).
+SET @stmt := IF(
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'jobs'
+      AND COLUMN_NAME = 'notes') = 0,
+  'ALTER TABLE jobs ADD COLUMN notes TEXT NULL AFTER issue_resolved_at',
+  'DO 0');
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- Vendor-side work state for KYND marketplace visits (bookings matched to a
+-- vendor's own team member, which have no `jobs` row). One row per visit:
+-- occurrence_key = booking_occurrences.id, or 0 for a single booking (same
+-- convention as vendor_booking_financials). Created lazily the first time the
+-- vendor opens the visit. started_at backs the "In progress" step, since
+-- bookings/booking_occurrences only know upcoming/completed/cancelled.
+CREATE TABLE IF NOT EXISTS booking_visit_work (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  booking_id INT NOT NULL,
+  occurrence_key INT NOT NULL DEFAULT 0,
+  notes TEXT NULL,
+  started_at DATETIME NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY unique_booking_visit_work (booking_id, occurrence_key),
+  FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE CASCADE
+);
+
+-- Checklist + photos for a marketplace visit, mirroring job_checklist_items /
+-- job_photos (customer chat for these visits uses the booking `messages` table).
+CREATE TABLE IF NOT EXISTS booking_visit_checklist_items (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  visit_work_id INT NOT NULL,
+  label VARCHAR(255) NOT NULL,
+  position INT NOT NULL DEFAULT 0,
+  done TINYINT(1) NOT NULL DEFAULT 0,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_visit_checklist (visit_work_id, position),
+  FOREIGN KEY (visit_work_id) REFERENCES booking_visit_work(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS booking_visit_photos (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  visit_work_id INT NOT NULL,
+  image_id INT NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_visit_photos (visit_work_id),
+  FOREIGN KEY (visit_work_id) REFERENCES booking_visit_work(id) ON DELETE CASCADE,
+  FOREIGN KEY (image_id) REFERENCES images(id) ON DELETE CASCADE
 );
 
 -- Approved vendor rates captured at assignment, separately from customer prices.

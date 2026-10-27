@@ -82,7 +82,7 @@ function VendorServicesDetail({ vendorId }: { vendorId: string }) {
 
   return (
     <div className="space-y-5 pb-6">
-      <Link to="/vendors" className="inline-flex items-center gap-2 text-sm font-semibold text-terracotta hover:underline">
+      <Link to="/vendors?tab=directory" className="inline-flex items-center gap-2 text-sm font-semibold text-terracotta hover:underline">
         <ArrowLeft size={16} /> Back to vendors
       </Link>
       <div>

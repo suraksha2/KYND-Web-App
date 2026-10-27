@@ -1,5 +1,5 @@
 import {
-  Loader2, Calendar, Clock, MapPin, Phone, User, IndianRupee, CheckCircle2, XCircle, StickyNote,
+  Loader2, Calendar, Clock, MapPin, Phone, User, IndianRupee, CheckCircle2, XCircle, StickyNote, Briefcase,
 } from 'lucide-react'
 import { STATUS_META, URGENCY_META, parseItems, formatDateTime, nextVisit, getEffectiveStatus, hasUpcomingOccurrences, urgencyLevel, timeUntil, bookingDate } from '../utils/bookings'
 import BookingMessaging from './BookingMessaging'
@@ -78,8 +78,10 @@ export default function BookingCard({ booking, updating, onUpdate }) {
             className="sm:col-span-2"
           />
           <Detail
-            icon={IndianRupee}
-            label={`${Number(booking.total).toLocaleString('en-IN')} · ${booking.payment}`}
+            icon={booking.vendorJob ? Briefcase : IndianRupee}
+            label={booking.vendorJob
+              ? `External job${booking.vendorName ? ` · ${booking.vendorName}` : ''}`
+              : `${Number(booking.total).toLocaleString('en-IN')} · ${booking.payment}`}
           />
         </div>
 

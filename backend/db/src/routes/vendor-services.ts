@@ -92,6 +92,32 @@ router.patch('/:id', async (req, res) => {
 // "Add a service category" flow, a separate table from vendor_service_prices
 // above, with its own draft -> under_review -> live/rejected lifecycle.)
 
+// Resolve a vendor stuck in the onboarding wizard's "submitted" holding page
+// once the review queue for them empties: any live category unlocks the
+// dashboard ('approved'); everything rejected sends them back through the
+// wizard ('pending') to fix prices and resubmit. Vendors who predate the
+// wizard carry NULL and are never touched.
+async function syncVendorOnboarding(vendorId: number) {
+  const [vendorRows]: any = await pool.query(
+    'SELECT onboarding_status FROM vendors WHERE id = ?',
+    [vendorId]
+  );
+  if (vendorRows?.[0]?.onboarding_status !== 'submitted') return;
+
+  const [[counts]]: any = await pool.query(
+    `SELECT COALESCE(SUM(status = 'under_review'), 0) AS pending,
+            COALESCE(SUM(status = 'live'), 0) AS live
+       FROM vendor_service_categories WHERE vendor_id = ?`,
+    [vendorId]
+  );
+  if (Number(counts?.pending) > 0) return;
+
+  await pool.query(
+    'UPDATE vendors SET onboarding_status = ? WHERE id = ?',
+    [Number(counts?.live) > 0 ? 'approved' : 'pending', vendorId]
+  );
+}
+
 router.get('/partner-categories', async (req, res) => {
   try {
     if (!hasAdminAccess(req.session?.role)) {
@@ -194,6 +220,11 @@ router.patch('/partner-categories/:id', async (req, res) => {
     if (upd.affectedRows === 0) {
       return res.status(404).json({ error: 'Category not found, or it is not pending review.' });
     }
+    const [catRows]: any = await pool.query(
+      'SELECT vendor_id FROM vendor_service_categories WHERE id = ?',
+      [req.params.id]
+    );
+    if (catRows?.[0]?.vendor_id) await syncVendorOnboarding(catRows[0].vendor_id);
     return res.json({ success: true, status: nextStatus });
   } catch (error) {
     console.error('[PATCH /api/vendor-services/partner-categories/:id]', error);

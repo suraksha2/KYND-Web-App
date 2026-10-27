@@ -3,7 +3,7 @@ import { useOutletContext } from 'react-router-dom'
 import { AlertCircle, GripVertical, Loader2, Plus } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { vendorFetch } from '../lib/api'
-import { formatTime12h, formatJobDay, sgtDayOf, sgtDateString, initials } from '../lib/format'
+import { formatTime12h, formatJobDay, sgtDayOf, sgtDateString, initials, parseSgt, durationLabel, formatLeaveRange } from '../lib/format'
 import QuickAddJob from '../components/QuickAddJob'
 
 // Current week (Mon–Sun) as SGT 'YYYY-MM-DD' strings.
@@ -60,6 +60,222 @@ function useJobDrag({ onAssign }) {
   return { drag, startDrag }
 }
 
+// ---- Day timeline view ---------------------------------------------------
+// One row per member against an hourly axis. Job blocks are positioned and
+// sized by their window; working-hours gaps and leave shade the row behind.
+
+const TIMELINE_START_HOUR = 7
+const TIMELINE_END_HOUR = 20
+const TIMELINE_HOURS = Array.from({ length: TIMELINE_END_HOUR - TIMELINE_START_HOUR }, (_, i) => TIMELINE_START_HOUR + i)
+const TIMELINE_COLS = `repeat(${TIMELINE_HOURS.length}, minmax(0, 1fr))`
+const WEEKDAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
+
+const GRIDLINES = {
+  backgroundImage: 'linear-gradient(to right, rgba(120, 105, 90, 0.15) 1px, transparent 1px)',
+  backgroundSize: `${100 / TIMELINE_HOURS.length}% 100%`,
+}
+const LEAVE_HATCH = {
+  backgroundImage: 'repeating-linear-gradient(-45deg, rgba(120, 105, 90, 0.18) 0 5px, rgba(120, 105, 90, 0.05) 5px 12px)',
+}
+
+const TIMELINE_LEGEND = [
+  { label: 'Assigned', cls: 'bg-white border border-lightstone' },
+  { label: 'In progress', cls: 'bg-accent-100 border border-terracotta/50' },
+  { label: 'Completed', cls: 'bg-sage/15 border border-sage/40' },
+  { label: 'Issue or clash', cls: 'bg-danger/10 border border-danger/40' },
+  { label: 'Own customer', cls: 'bg-white border border-dashed border-warmgrey/50' },
+  { label: 'Outside working hours', cls: 'bg-warmgrey/15 border border-lightstone' },
+]
+
+function StatusLegend() {
+  return (
+    <div className="flex flex-wrap items-center gap-x-5 gap-y-2 px-1">
+      {TIMELINE_LEGEND.map((l) => (
+        <span key={l.label} className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-warmgrey">
+          <span className={`inline-block h-3.5 w-5 rounded ${l.cls}`} />
+          {l.label}
+        </span>
+      ))}
+    </div>
+  )
+}
+
+function hourTickLabel(h) {
+  if (h === 12) return '12pm'
+  return h < 12 ? `${h}am` : `${h - 12}pm`
+}
+
+function dayStartMs(dayStr) {
+  return new Date(`${dayStr}T00:00:00+08:00`).getTime()
+}
+
+function hmToMs(dayStr, hm) {
+  const [h, m] = String(hm || '00:00').split(':').map(Number)
+  return dayStartMs(dayStr) + (h * 60 + m) * 60000
+}
+
+function jobWindowMs(job) {
+  const start = parseSgt(job.windowStart)?.getTime()
+  if (!start) return null
+  const end = parseSgt(job.windowEnd)?.getTime()
+  // No stored end → the clash checks assume a 2h visit, so size it the same.
+  return { start, end: Math.max(end ?? start + 2 * 3600000, start + 15 * 60000) }
+}
+
+function blockCls(job, issue) {
+  if (issue) return 'bg-danger/10 border-danger/40'
+  if (job.status === 'in_progress') return 'bg-accent-100 border-terracotta/50'
+  if (job.status === 'completed' || job.status === 'paid') return 'bg-sage/15 border-sage/40'
+  return 'bg-white border-lightstone'
+}
+
+function sourceTag(source) {
+  return source === 'own' ? 'Own' : 'Kynd'
+}
+
+// Resolve each job's window and attach display flags: `late` (still
+// accepted/assigned past its start), `clash` (overlaps a sibling), `issue`
+// (any of those or an explicit flag — drives the danger styling).
+function flagJobs(jobs, nowMs) {
+  const placed = jobs
+    .map((job) => ({ job, ...(jobWindowMs(job) || {}) }))
+    .filter((it) => it.start)
+  for (const it of placed) {
+    it.late = (it.job.status === 'accepted' || it.job.status === 'assigned') && it.start < nowMs
+    it.clash = placed.some((o) => o !== it && o.start < it.end && it.start < o.end)
+    it.issue = !!it.job.hasIssue || it.late || it.clash
+  }
+  return placed
+}
+
+function DayTimeline({ day, team, cellJobs, leaveByKey, todayStr, drag, startDrag, assigning }) {
+  const nowMs = Date.now()
+  const rangeStart = dayStartMs(day) + TIMELINE_START_HOUR * 3600000
+  const rangeEnd = dayStartMs(day) + TIMELINE_END_HOUR * 3600000
+  const span = rangeEnd - rangeStart
+  const pct = (ms) => Math.min(100, Math.max(0, ((ms - rangeStart) / span) * 100))
+  const isToday = day === todayStr
+  const nowPct = pct(nowMs)
+  const weekdayKey = WEEKDAY_KEYS[new Date(`${day}T00:00:00+08:00`).getDay()]
+
+  return (
+    <div className="overflow-x-auto rounded-2xl border border-lightstone bg-white shadow-soft">
+      <div className="min-w-[980px]">
+        <div className="grid border-b border-lightstone" style={{ gridTemplateColumns: '200px 1fr' }}>
+          <div className="px-4 py-2.5 text-[11px] font-bold uppercase tracking-wide text-warmgrey">Team</div>
+          <div className="grid border-l border-lightstone" style={{ gridTemplateColumns: TIMELINE_COLS }}>
+            {TIMELINE_HOURS.map((h) => (
+              <div key={h} className="px-1.5 py-2.5 text-[11px] font-semibold text-warmgrey border-l border-lightstone/60 first:border-l-0">
+                {hourTickLabel(h)}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {team.map((member) => {
+          const key = `${member.id}|${day}`
+          const placed = flagJobs(cellJobs.get(key) || [], nowMs)
+            .filter((it) => it.end > rangeStart && it.start < rangeEnd)
+            .sort((a, b) => a.start - b.start)
+          // Overlapping visits stack into lanes so clashes stay visible.
+          const laneEnds = []
+          for (const it of placed) {
+            let lane = laneEnds.findIndex((e) => it.start >= e)
+            if (lane === -1) { lane = laneEnds.length; laneEnds.push(0) }
+            laneEnds[lane] = it.end
+            it.lane = lane
+          }
+          const laneCount = Math.max(1, laneEnds.length)
+          const totalHours = placed.reduce((s, it) => s + (it.end - it.start) / 3600000, 0)
+          const leaves = leaveByKey.get(key) || []
+          const wh = member.workingHours?.find((h) => h.day === weekdayKey)
+          const workStartMs = wh?.open ? hmToMs(day, wh.start) : null
+          const workEndMs = wh?.open ? hmToMs(day, wh.end) : null
+
+          return (
+            <div key={member.id} className="grid border-b border-lightstone last:border-b-0" style={{ gridTemplateColumns: '200px 1fr' }}>
+              <div className="px-4 py-3 flex items-center gap-2.5 min-w-0" data-cell={key} data-member={member.id}>
+                <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-accent-100 text-terracotta text-[10px] font-bold shrink-0">
+                  {initials(member.name)}
+                </span>
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold text-charcoal truncate">{member.name}</p>
+                  <p className="text-[11px] text-warmgrey truncate">
+                    {placed.length} job{placed.length === 1 ? '' : 's'} · {Number.isInteger(totalHours) ? totalHours : totalHours.toFixed(1)}h
+                    {leaves.length > 0 ? ' · On leave' : ''}
+                  </p>
+                </div>
+              </div>
+              <div
+                data-cell={key}
+                data-member={member.id}
+                className={`relative overflow-hidden border-l border-lightstone transition-colors ${
+                  drag?.overKey === key ? 'bg-accent-50 ring-1 ring-inset ring-terracotta/40' : drag ? 'bg-accent-50/40' : ''
+                }`}
+                style={{ ...GRIDLINES, minHeight: Math.max(76, laneCount * 52 + 16) }}
+              >
+                {wh?.open ? (
+                  <>
+                    {workStartMs > rangeStart && (
+                      <div className="absolute inset-y-0 left-0 bg-warmgrey/10 pointer-events-none" style={{ width: `${pct(workStartMs)}%` }} />
+                    )}
+                    {workEndMs < rangeEnd && (
+                      <div className="absolute inset-y-0 right-0 bg-warmgrey/10 pointer-events-none" style={{ width: `${100 - pct(workEndMs)}%` }} />
+                    )}
+                  </>
+                ) : (
+                  <div className="absolute inset-0 bg-warmgrey/10 pointer-events-none" />
+                )}
+                {leaves.length > 0 && (
+                  <div className="absolute inset-0 pointer-events-none flex items-center px-3" style={LEAVE_HATCH}>
+                    <span className="rounded-md bg-white/80 px-2 py-0.5 text-[11px] font-semibold text-warmgrey">
+                      On leave {formatLeaveRange(leaves[0].startDate, leaves[0].endDate)}
+                    </span>
+                  </div>
+                )}
+                {placed.map((it) => {
+                  const job = it.job
+                  const draggable = job.source !== 'marketplace'
+                  return (
+                    <button
+                      key={job.id}
+                      onPointerDown={draggable ? startDrag(job, `${job.serviceLabel} · ${job.customerArea || job.customerName}`) : undefined}
+                      className={`absolute z-10 overflow-hidden rounded-lg border px-2 py-1 text-left select-none touch-none ${draggable ? 'cursor-grab active:cursor-grabbing' : 'cursor-default'} ${blockCls(job, it.issue)} ${job.source === 'own' ? 'border-dashed' : ''} ${assigning === job.id || drag?.jobId === job.id ? 'opacity-50' : ''}`}
+                      style={{
+                        left: `${pct(it.start)}%`,
+                        width: `${Math.max(pct(it.end) - pct(it.start), 1.5)}%`,
+                        minWidth: 96,
+                        top: `calc(${(it.lane * 100) / laneCount}% + 4px)`,
+                        height: `calc(${100 / laneCount}% - 8px)`,
+                      }}
+                      title={`${job.serviceLabel} · ${job.customerName}`}
+                    >
+                      <p className="truncate text-[11px] font-bold text-charcoal">
+                        {formatTime12h(job.windowStart)} · {job.customerArea || job.customerName}
+                        {it.late && <span className="text-danger"> · Late</span>}
+                      </p>
+                      <p className="truncate text-[10px] text-warmgrey">
+                        {job.serviceLabel} · {durationLabel(job.windowStart, job.windowEnd) || '~2h'} · {sourceTag(job.source)}
+                      </p>
+                    </button>
+                  )
+                })}
+                {isToday && nowPct > 0 && nowPct < 100 && (
+                  <div className="pointer-events-none absolute inset-y-0 z-20 w-px bg-danger" style={{ left: `${nowPct}%` }} />
+                )}
+              </div>
+            </div>
+          )
+        })}
+
+        {team.length === 0 && (
+          <div className="px-4 py-8 text-center text-sm text-warmgrey">No active team members yet.</div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function Schedule() {
   const { profile, reload } = useOutletContext()
   const { token } = useAuth()
@@ -67,7 +283,8 @@ export default function Schedule() {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [view, setView] = useState('week')
+  const [view, setView] = useState('day')
+  const [day, setDay] = useState(() => sgtDateString(0))
   const [category, setCategory] = useState('all')
   const [quickAddOpen, setQuickAddOpen] = useState(false)
   const [assigning, setAssigning] = useState(null)
@@ -130,7 +347,8 @@ export default function Schedule() {
 
   const weekDays = useMemo(currentWeekDays, [])
   const todayStr = sgtDateString(0)
-  const columns = view === 'week' ? weekDays : [todayStr]
+  const nowMs = Date.now()
+  const columns = view === 'week' ? weekDays : [day]
 
   const cellJobs = useMemo(() => {
     const map = new Map()
@@ -173,12 +391,11 @@ export default function Schedule() {
         : 'bg-white/60 border-lightstone text-warmgrey hover:text-charcoal hover:border-warmgrey/40'
     }`
 
-  const pillCls = (job) =>
-    `block w-full text-left rounded-lg px-2 py-1.5 text-[11px] font-semibold truncate transition-opacity select-none touch-none cursor-grab active:cursor-grabbing ${
-      job.status === 'accepted'
-        ? 'border border-dashed border-terracotta/60 text-charcoal bg-white'
-        : 'bg-sage/15 text-charcoal border border-sage/25'
-    } ${assigning === job.id || drag?.jobId === job.id ? 'opacity-50' : ''}`
+  const pillCls = (job, issue) =>
+    `block w-full text-left rounded-lg border px-2 py-1.5 text-[11px] font-semibold truncate transition-opacity select-none touch-none text-charcoal ${
+      job.source === 'marketplace' ? 'cursor-default' : 'cursor-grab active:cursor-grabbing'
+    } ${blockCls(job, issue)} ${job.source === 'own' ? 'border-dashed' : ''} ${
+      assigning === job.id || drag?.jobId === job.id ? 'opacity-50' : ''}`
 
   return (
     <div className="space-y-5 max-w-6xl">
@@ -217,6 +434,16 @@ export default function Schedule() {
           Drag a job onto someone to assign or reassign
         </p>
       </div>
+
+      {view === 'day' && (
+        <div className="flex items-center gap-2 flex-wrap">
+          {weekDays.map((d) => (
+            <button key={d} onClick={() => setDay(d)} className={chipCls(d === day)}>
+              {d === todayStr ? `Today · ${dayHeaderLabel(d)}` : dayHeaderLabel(d)}
+            </button>
+          ))}
+        </div>
+      )}
 
       {error && (
         <div className="rounded-2xl bg-red-50 border border-red-100 text-danger text-sm px-5 py-4 flex items-center gap-3">
@@ -264,6 +491,17 @@ export default function Schedule() {
         <div className="flex items-center justify-center h-40">
           <Loader2 className="w-7 h-7 animate-spin text-terracotta" />
         </div>
+      ) : view === 'day' ? (
+        <DayTimeline
+          day={day}
+          team={team}
+          cellJobs={cellJobs}
+          leaveByKey={leaveByKey}
+          todayStr={todayStr}
+          drag={drag}
+          startDrag={startDrag}
+          assigning={assigning}
+        />
       ) : (
         <div className="overflow-x-auto rounded-2xl border border-lightstone bg-white">
           <div
@@ -296,14 +534,15 @@ export default function Schedule() {
                 </div>
                 {columns.map((day) => {
                   const key = `${member.id}|${day}`
-                  const dayJobs = (cellJobs.get(key) || [])
-                    .sort((a, b) => String(a.windowStart).localeCompare(String(b.windowStart)))
+                  const dayJobs = flagJobs(cellJobs.get(key) || [], nowMs)
+                    .sort((a, b) => a.start - b.start)
                   const dayLeave = leaveByKey.get(key) || []
                   return (
                     <div
                       key={day}
-                      data-cell
+                      data-cell={key}
                       data-member={member.id}
+                      title={dayLeave.length ? `On leave${dayLeave[0].note ? ` · ${dayLeave[0].note}` : ''}` : undefined}
                       className={`px-1.5 py-1.5 border-t border-l border-lightstone space-y-1 min-h-[64px] transition-colors ${
                         drag?.overKey === key
                           ? 'bg-accent-50 ring-1 ring-inset ring-terracotta/40'
@@ -311,28 +550,20 @@ export default function Schedule() {
                             ? 'bg-accent-50/40'
                             : day === todayStr ? 'bg-warmlinen/40' : ''
                       }`}
+                      style={dayLeave.length ? LEAVE_HATCH : undefined}
                     >
-                      {dayJobs.map((job) => (
+                      {dayJobs.map((it) => (
                         <button
-                          key={job.id}
-                          // Marketplace bookings live in `bookings`, not `jobs` — the
+                          key={it.job.id}
+                          // KYND jobs bookings live in `bookings`, not `jobs` — the
                           // assign endpoint only updates `jobs`, so dragging to
                           // reassign them isn't supported here.
-                          onPointerDown={job.source === 'marketplace' ? undefined : startDrag(job, jobPillLabel(job))}
-                          className={`${pillCls(job)} ${job.source === 'marketplace' ? 'cursor-default' : ''}`}
-                          title={`${job.serviceLabel} · ${job.customerName}`}
+                          onPointerDown={it.job.source === 'marketplace' ? undefined : startDrag(it.job, jobPillLabel(it.job))}
+                          className={pillCls(it.job, it.issue)}
+                          title={`${it.job.serviceLabel} · ${it.job.customerName}`}
                         >
-                          {jobPillLabel(job)}
+                          {jobPillLabel(it.job)}
                         </button>
-                      ))}
-                      {dayLeave.map((l) => (
-                        <p
-                          key={`leave-${l.id}`}
-                          className="rounded-lg border border-dashed border-lightstone bg-warmlinen/60 px-2 py-1.5 text-[11px] font-semibold text-warmgrey truncate select-none"
-                          title={l.note ? `Leave — ${l.note}` : 'On leave'}
-                        >
-                          On leave{l.note ? ` · ${l.note}` : ''}
-                        </p>
                       ))}
                     </div>
                   )
@@ -348,6 +579,8 @@ export default function Schedule() {
           </div>
         </div>
       )}
+
+      {data && <StatusLegend />}
 
       {/* Floating ghost pill that follows the pointer while dragging */}
       {drag && (

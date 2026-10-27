@@ -80,7 +80,7 @@ type RawItem = {
   img?: string;
 };
 
-type RawAddon = { id?: number | string };
+type RawAddon = { id?: number | string; source?: string };
 
 export type PricedOrder = {
   total: number;
@@ -95,7 +95,7 @@ export type PricedOrder = {
     duration: string | null;
     qty: number;
   }>;
-  addOns: Array<{ id: number; name: string; price: number }>;
+  addOns: Array<{ id: number; serviceId?: number; name: string; price: number }>;
 };
 
 /**
@@ -210,17 +210,30 @@ export async function priceOrder(input: {
     base = Math.round(base * RECURRING_DISCOUNT);
   }
 
-  const addonIds = (Array.isArray(input.addOns) ? input.addOns : [])
-    .map((a) => Number(a?.id))
-    .filter((n) => Number.isFinite(n) && n > 0);
-  const uniqueAddonIds = [...new Set(addonIds)];
+  // Add-ons come from two id spaces: `addons` rows (source 'addon') and
+  // catalog services in an add-on subcategory (source 'service') — the
+  // listing endpoint /catalog/services/:id/addons merges both for the client.
+  const rawAddOns = Array.isArray(input.addOns) ? input.addOns : [];
+  const uniqueAddonIds = [...new Set(
+    rawAddOns
+      .filter((a) => a?.source !== 'service')
+      .map((a) => Number(a?.id))
+      .filter((n) => Number.isFinite(n) && n > 0)
+  )];
+  const serviceAddonIds = [...new Set(
+    rawAddOns
+      .filter((a) => a?.source === 'service')
+      .map((a) => Number(a?.id))
+      .filter((n) => Number.isFinite(n) && n > 0)
+  )];
   const pricedAddOns: PricedOrder['addOns'] = [];
   let addonTotal = 0;
 
+  const serviceIds = pricedItems.map((i) => i.catalogId);
+  const servicePlaceholders = serviceIds.map(() => '?').join(',');
+
   if (uniqueAddonIds.length) {
-    const serviceIds = pricedItems.map((i) => i.catalogId);
     const placeholders = uniqueAddonIds.map(() => '?').join(',');
-    const servicePlaceholders = serviceIds.map(() => '?').join(',');
     const [addonRows] = await pool.query(
       `SELECT DISTINCT a.id, a.name, a.customer_price
        FROM addons a
@@ -245,6 +258,48 @@ export async function priceOrder(input: {
       }
       addonTotal += price;
       pricedAddOns.push({ id: Number(a.id), name: a.name, price: roundMoney(price) });
+    }
+  }
+
+  // Service-sourced add-ons must be live catalog rows in an add-on
+  // subcategory of a booked service's category — the same eligibility the
+  // listing endpoint applies. Priced the way the listing displays them
+  // (sellPrice: flat rule amount, else partner cost x markup).
+  if (serviceAddonIds.length) {
+    const placeholders = serviceAddonIds.map(() => '?').join(',');
+    const [addonServiceRows] = await pool.query(
+      `SELECT s.id, s.name, s.default_partner_cost, s.markup_pct_override
+         FROM catalog_services s
+         JOIN catalog_subcategories sc ON s.subcategory_id = sc.id
+        WHERE s.id IN (${placeholders})
+          AND sc.is_addon = 1
+          AND s.status = 'live'
+          AND s.category_id IN (
+            SELECT category_id FROM catalog_services WHERE id IN (${servicePlaceholders})
+          )`,
+      [...serviceAddonIds, ...serviceIds]
+    );
+    const addonRules = await loadPricingRulesByServiceIds(serviceAddonIds);
+    const found = new Map((addonServiceRows as any[]).map((s) => [Number(s.id), s]));
+    for (const id of serviceAddonIds) {
+      const s: any = found.get(id);
+      if (!s) throw new PricingError(`Invalid add-on: ${id}`);
+      const rule = addonRules.get(id);
+      let price: number | null = null;
+      if (rule?.strategy === 'flat') {
+        const amount = Number(rule.params?.amount);
+        if (Number.isFinite(amount) && amount > 0) price = amount;
+      } else if (rule?.strategy !== 'custom_quote') {
+        const cost = s.default_partner_cost !== null ? Number(s.default_partner_cost) : null;
+        if (cost !== null && Number.isFinite(cost)) {
+          price = Math.round(cost * (1 + markupPct(s.markup_pct_override)));
+        }
+      }
+      if (price === null || price < 0) {
+        throw new PricingError(`Invalid add-on price for ${s.name}`);
+      }
+      addonTotal += price;
+      pricedAddOns.push({ id, serviceId: id, name: s.name, price: roundMoney(price) });
     }
   }
 

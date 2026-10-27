@@ -176,11 +176,13 @@ router.post('/', async (req, res) => {
         JSON.stringify([
           ...pricedItems,
           ...pricedAddOns.map((a) => ({
-            slug: `addon-${a.id}`,
+            slug: a.serviceId ? `addon-service-${a.serviceId}` : `addon-${a.id}`,
             name: a.name,
             priceFrom: a.price,
             qty: 1,
-            addonId: a.id,
+            ...(a.serviceId
+              ? { addonServiceId: a.serviceId, catalogId: a.serviceId }
+              : { addonId: a.id }),
           })),
         ]),
         total,

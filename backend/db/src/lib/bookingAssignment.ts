@@ -71,7 +71,7 @@ export async function assignmentContext(
   if (booking.vendor_id || booking.vendor_job_id || jobs.length) {
     throw new AssignmentError(409, 'This booking is managed as a vendor job. Reassign it from the vendor Jobs page.');
   }
-  const items = array(booking.items).filter((item: any) => !item.addonId);
+  const items = array(booking.items).filter((item: any) => !item.addonId && !item.addonServiceId);
   const tags = await Promise.all(items.map((item: any) => skillTagsForService(item.name || item.serviceName, db)));
   const candidates = roster.filter((p: any) =>
     p.status === 'active' && (!p.vendor_id || p.vendor_status === 'active') &&

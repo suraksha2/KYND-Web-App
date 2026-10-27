@@ -62,7 +62,7 @@ function JobRow({ job }) {
       <span className={`hidden md:inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${
         job.source === 'kynd' ? 'bg-accent-50 text-terracotta' : job.source === 'marketplace' ? 'bg-dustyrose/15 text-rosewood' : 'bg-sage/15 text-sage'
       }`}>
-        {job.source === 'kynd' ? 'Kynd' : job.source === 'marketplace' ? 'Marketplace' : 'Own'}
+        {job.source === 'kynd' ? 'Kynd' : job.source === 'marketplace' ? 'KYND jobs' : 'External job'}
       </span>
       <StatusBadge status={displayStatus(job)} />
     </div>
@@ -88,7 +88,7 @@ function BoardCard({ job }) {
         <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${
           job.source === 'kynd' ? 'bg-accent-50 text-terracotta' : job.source === 'marketplace' ? 'bg-dustyrose/15 text-rosewood' : 'bg-lightstone/60 text-warmgrey'
         }`}>
-          {job.source === 'kynd' ? 'Kynd' : job.source === 'marketplace' ? 'Marketplace' : 'Own'}
+          {job.source === 'kynd' ? 'Kynd' : job.source === 'marketplace' ? 'KYND jobs' : 'External job'}
         </span>
       </div>
       <p className="mt-1.5 text-sm font-bold text-charcoal truncate">{job.serviceLabel}</p>

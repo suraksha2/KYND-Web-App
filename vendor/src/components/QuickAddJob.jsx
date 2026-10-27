@@ -18,10 +18,18 @@ const START_OPTIONS = Array.from({ length: 14 }, (_, i) => {
 
 const inputCls = 'w-full rounded-xl border border-lightstone bg-white px-4 py-2.5 text-sm text-charcoal placeholder:text-warmgrey/60 focus:outline-none focus:ring-2 focus:ring-terracotta/40 focus:border-terracotta'
 
+// Same +65 convention as Team.jsx: the field carries the prefix, and submit
+// normalises pasted digits before the API's strict mobile check.
+const normalizeSgMobile = (value) => {
+  const digits = String(value || '').replace(/\D/g, '')
+  const after65 = digits.startsWith('65') ? digits.slice(2) : digits
+  return `+65${after65.slice(0, 8)}`
+}
+
 export default function QuickAddJob({ categories, services, team, categoryTags, onClose, onCreated, defaultAssigneeId }) {
   const { token } = useAuth()
   const [form, setForm] = useState({
-    customerName: '', phone: '', address: '',
+    customerName: '', phone: '+65', address: '',
     category: categories[0] || '', serviceLabel: '',
     date: sgtDateString(0), start: '09:00', price: '', assigneeId: defaultAssigneeId ? String(defaultAssigneeId) : '',
   })
@@ -29,6 +37,7 @@ export default function QuickAddJob({ categories, services, team, categoryTags, 
   const [error, setError] = useState('')
   const [conflictSeen, setConflictSeen] = useState(false)
   const [forceAssign, setForceAssign] = useState(false)
+  const [customService, setCustomService] = useState(false)
 
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }))
 
@@ -36,6 +45,12 @@ export default function QuickAddJob({ categories, services, team, categoryTags, 
     () => (services || []).filter((s) => !form.category || s.category === form.category),
     [services, form.category]
   )
+
+  // Free-text entry stays for genuinely custom work: when the category has no
+  // catalog services, or the typed label isn't one of them, the input shows.
+  const serviceInCatalog = categoryServices.some((s) => s.label === form.serviceLabel)
+  const showCustomService =
+    categoryServices.length === 0 || customService || (form.serviceLabel !== '' && !serviceInCatalog)
 
   const durationHours = useMemo(() => {
     const match = categoryServices.find((s) => s.label === form.serviceLabel)
@@ -122,13 +137,19 @@ export default function QuickAddJob({ categories, services, team, categoryTags, 
       setError('That team member does not have the skill required for this service.')
       return
     }
+    const phone = normalizeSgMobile(form.phone)
+    if (phone.length > 3 && !/^\+65[89]\d{7}$/.test(phone)) {
+      setSubmitting(false)
+      setError('Enter a valid Singapore mobile: +65 followed by 8 digits starting with 8 or 9.')
+      return
+    }
     try {
       await vendorFetch('/vendor/jobs', token, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           customerName: form.customerName.trim(),
-          phone: form.phone.trim() || undefined,
+          phone: phone.length > 3 ? phone : undefined,
           address: form.address.trim() || undefined,
           serviceLabel: form.serviceLabel.trim(),
           category: form.category || undefined,
@@ -174,7 +195,16 @@ export default function QuickAddJob({ categories, services, team, categoryTags, 
             </label>
             <label className="block">
               <span className="block text-xs font-semibold text-charcoal mb-1.5">Phone</span>
-              <input value={form.phone} onChange={set('phone')} placeholder="9123 4567" className={inputCls} />
+              <input
+                value={form.phone}
+                onChange={set('phone')}
+                type="tel"
+                inputMode="tel"
+                pattern="^\+65[89]\d{7}$"
+                title="Enter a valid Singapore number: +65 followed by 8 digits starting with 8 or 9"
+                placeholder="+65 9123 4567"
+                className={inputCls}
+              />
             </label>
           </div>
 
@@ -205,17 +235,36 @@ export default function QuickAddJob({ categories, services, team, categoryTags, 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <label className="block">
               <span className="block text-xs font-semibold text-charcoal mb-1.5">Service</span>
-              <input
-                required
-                list="quick-add-services"
-                value={form.serviceLabel}
-                onChange={set('serviceLabel')}
-                placeholder="Standard home clean"
-                className={inputCls}
-              />
-              <datalist id="quick-add-services">
-                {categoryServices.map((s) => <option key={s.label} value={s.label} />)}
-              </datalist>
+              {categoryServices.length > 0 && (
+                <select
+                  required
+                  value={showCustomService ? '__custom' : form.serviceLabel}
+                  onChange={(e) => {
+                    if (e.target.value === '__custom') {
+                      setCustomService(true)
+                      setForm((f) => ({ ...f, serviceLabel: '' }))
+                    } else {
+                      setCustomService(false)
+                      setForm((f) => ({ ...f, serviceLabel: e.target.value }))
+                    }
+                  }}
+                  className={inputCls}
+                >
+                  <option value="" disabled>Select a service</option>
+                  {categoryServices.map((s) => <option key={s.label} value={s.label}>{s.label}</option>)}
+                  <option value="__custom">Other (type your own)</option>
+                </select>
+              )}
+              {showCustomService && (
+                <input
+                  required
+                  autoFocus={categoryServices.length > 0}
+                  value={form.serviceLabel}
+                  onChange={set('serviceLabel')}
+                  placeholder="Standard home clean"
+                  className={`${inputCls} ${categoryServices.length > 0 ? 'mt-2' : ''}`}
+                />
+              )}
             </label>
             <label className="block">
               <span className="block text-xs font-semibold text-charcoal mb-1.5">Day</span>

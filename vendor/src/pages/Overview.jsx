@@ -79,7 +79,7 @@ function TotalEarnedCard({ earned }) {
               </div>
               <div className="mt-3 flex items-center gap-5 text-xs text-warmgrey">
                 <span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-terracotta" /> From Kynd {formatMoney(d.kynd)}</span>
-                <span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-sage" /> Own customers {formatMoney(d.own)}</span>
+                <span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-sage" /> External customers {formatMoney(d.own)}</span>
               </div>
             </>
           )}
@@ -120,7 +120,7 @@ function RevenueByWeekCard({ weeklyRevenue }) {
           <div className="mt-4 flex items-center justify-between gap-3 flex-wrap">
             <div className="flex items-center gap-4 text-xs text-warmgrey">
               <span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-terracotta" /> Kynd</span>
-              <span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-sage" /> Own</span>
+              <span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-sage" /> External</span>
             </div>
             <p className="text-[11px] text-warmgrey">Completed work only. This week is shown lighter.</p>
           </div>

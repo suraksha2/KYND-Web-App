@@ -5,7 +5,7 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { vendorFetch } from '../lib/api'
-import { formatMoney, formatCompactMoney, formatTime12h, durationLabel, initials, parseSgt, sgtDayOfMonth } from '../lib/format'
+import { formatMoney, formatCompactMoney, formatTime12h, durationLabel, initials, sgtDayOfMonth } from '../lib/format'
 import AlertTile from '../components/AlertTile'
 import StatusBadge from '../components/StatusBadge'
 
@@ -17,21 +17,20 @@ function greeting() {
 }
 
 function JobRow({ job }) {
-  const isIssue = job.status === 'in_progress' && job.windowEnd && (parseSgt(job.windowEnd) ?? new Date(0)) < new Date()
   return (
-    <div className={`flex items-center gap-4 rounded-2xl border border-lightstone bg-white px-4 py-3.5 ${isIssue ? 'border-danger/30' : ''}`}>
+    <div className={`flex items-center gap-4 rounded-2xl border border-lightstone bg-white px-4 py-3.5 ${job.hasIssue ? 'border-danger/30' : ''}`}>
       <div className="w-14 shrink-0 text-sm font-semibold text-charcoal">{formatTime12h(job.windowStart)}</div>
-      <div className={`w-1 self-stretch rounded-full ${isIssue ? 'bg-danger' : 'bg-lightstone'}`} />
+      <div className={`w-1 self-stretch rounded-full ${job.hasIssue ? 'bg-danger' : 'bg-lightstone'}`} />
       <div className="min-w-0 flex-1">
         <p className="text-sm font-bold text-charcoal truncate">
           {job.serviceLabel}
           {job.windowEnd && <span className="font-normal text-warmgrey"> · {durationLabel(job.windowStart, job.windowEnd)}</span>}
         </p>
         <p className="text-xs text-warmgrey truncate">
-          {job.customerName}{job.customerArea ? ` · ${job.customerArea}` : ''} · {job.source === 'kynd' ? 'Kynd' : 'Own'}
+          {job.customerName}{job.customerArea ? ` · ${job.customerArea}` : ''} · {job.source === 'kynd' ? 'Kynd' : 'External job'}
         </p>
       </div>
-      <StatusBadge status={isIssue ? 'issue' : job.status} />
+      <StatusBadge status={job.hasIssue ? 'issue' : job.status} />
       <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-accent-100 text-terracotta text-[11px] font-bold shrink-0">
         {job.assignee ? initials(job.assignee.name) : '—'}
       </span>
@@ -227,7 +226,7 @@ export default function Home() {
             </div>
             <div className="mt-2 flex items-center gap-4 text-xs text-warmgrey">
               <span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-terracotta" /> Kynd {formatMoney(thisWeek.kyndTotal)}</span>
-              <span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-sage" /> Own customers {formatMoney(thisWeek.ownTotal)}</span>
+              <span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-sage" /> External customers {formatMoney(thisWeek.ownTotal)}</span>
             </div>
 
             {thisWeek.bookedRestOfWeek > 0 && (

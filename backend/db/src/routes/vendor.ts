@@ -11,6 +11,8 @@ import { payoutMemberJobs } from '../lib/payouts';
 import { buildPayoutStatementPdf } from '../lib/pdfStatement';
 import { canonicalSkillTags, providerSupportsServices, skillRequirementsForJob, skillTagsForCategory } from '../lib/providerSkills';
 import { handleBookingAssignment } from '../lib/bookingAssignment';
+import { topUpOccurrences } from '../lib/occurrences';
+import { recordVendorCompletion, VendorPricingError } from '../lib/vendorFinance';
 
 const router = Router();
 
@@ -63,7 +65,7 @@ router.get('/me', async (req, res) => {
     if (!session) return;
 
     const [rows]: any = await pool.query(
-      'SELECT id, name, categories, city, status FROM vendors WHERE id = ?',
+      'SELECT id, name, categories, city, status, onboarding_status FROM vendors WHERE id = ?',
       [session.vendorId]
     );
     const vendor = rows?.[0];
@@ -78,7 +80,12 @@ router.get('/me', async (req, res) => {
     }
 
     return res.json({
-      vendor: { id: vendor.id, name: vendor.name, categories, city: vendor.city, status: vendor.status },
+      // onboarding: NULL = pre-wizard vendor, always 'approved'.
+      vendor: {
+        id: vendor.id, name: vendor.name, categories, city: vendor.city,
+        status: vendor.status,
+        onboarding: vendor.onboarding_status || 'approved',
+      },
       user: { id: session.id, name: session.name, email: session.email, role: session.role },
       canSeeMoney: canSeeVendorMoney(session.role),
     });
@@ -101,6 +108,15 @@ function normalizeSgMobile(value: unknown): string {
   return `+65${after65.slice(0, 8)}`;
 }
 const SG_MOBILE_RE = /^\+65[89]\d{7}$/;
+
+// catalog_services.duration is free text ("1.5 hrs"); pull the hour figure
+// out so Quick Add can prefill the job window. Anything unparsable or
+// outside a sane visit length falls back to the 2-hour default.
+function catalogDurationHours(duration: unknown): number {
+  const m = /([\d.]+)\s*h/i.exec(String(duration || ''));
+  const h = m ? Number(m[1]) : 0;
+  return h > 0 ? Math.min(h, 12) : 2;
+}
 
 // Kynd work must always resolve back to the booked catalog services. Vendor
 // jobs for their own customers can use free-text labels, so they get a skill
@@ -193,6 +209,7 @@ router.get('/home', async (req, res) => {
     const [todayRows]: any = await pool.query(
       `SELECT j.id, j.status, j.source, j.service_label, j.window_start, j.window_end,
               j.customer_name, j.customer_area, j.started_at,
+              j.issue_type, j.issue_resolved_at,
               sp.id AS assignee_id, sp.name AS assignee_name
          FROM jobs j
          LEFT JOIN service_providers sp ON sp.id = j.assignee_provider_id
@@ -209,6 +226,7 @@ router.get('/home', async (req, res) => {
       windowEnd: j.window_end,
       customerName: j.customer_name,
       customerArea: j.customer_area,
+      hasIssue: !!j.issue_type && !j.issue_resolved_at,
       assignee: j.assignee_id ? { id: j.assignee_id, name: j.assignee_name } : null,
     }));
     // Marketplace visits today live only in bookings/occurrences — fold them
@@ -227,6 +245,7 @@ router.get('/home', async (req, res) => {
         windowEnd: v.windowEnd,
         customerName: v.customerName,
         customerArea: v.customerArea,
+        hasIssue: false,
         assignee: v.assignee,
       });
     }
@@ -1384,7 +1403,7 @@ router.get('/jobs', async (req, res) => {
     jobs.sort((a, b) => new Date(a.windowStart || 0).getTime() - new Date(b.windowStart || 0).getTime());
 
     const [teamRows]: any = await pool.query(
-      `SELECT id, name, services FROM service_providers
+      `SELECT id, name, services, working_hours FROM service_providers
         WHERE vendor_id = ? AND status = 'active'
         ORDER BY name`,
       [vendorId]
@@ -1415,6 +1434,7 @@ router.get('/jobs', async (req, res) => {
       })(),
       bookedWindows: windowsByProvider.get(m.id) || [],
       leave: leaveByProvider.get(m.id) || [],
+      workingHours: parseHours(m.working_hours),
     }));
 
     const [serviceRows]: any = await pool.query(
@@ -1427,34 +1447,64 @@ router.get('/jobs', async (req, res) => {
         LIMIT 40`,
       [vendorId]
     );
-    // Fetch approved vendor pricing for catalog services to auto-populate QuickAddJob
-    const [vendorPriceRows]: any = await pool.query(
-      `SELECT s.name AS service_label, sc.name AS category, i.price
+    // Every catalog service under the vendor's non-rejected categories, so
+    // Quick Add can offer a real dropdown per category chip. The chips carry
+    // top-level category names ("Beauty Services"), so `category` here is the
+    // parent catalog_categories name; the subcategory name still feeds skill
+    // tags since members are tagged at subcategory/service level.
+    const [catalogRows]: any = await pool.query(
+      `SELECT s.name AS service_label, s.duration, i.price,
+              sc.name AS subcategory, cc.name AS category
          FROM vendor_service_category_items i
-         JOIN vendor_service_categories c ON c.id = i.vendor_category_id
+         JOIN vendor_service_categories vc ON vc.id = i.vendor_category_id
          JOIN catalog_services s ON s.id = i.catalog_service_id
-         JOIN catalog_subcategories sc ON sc.id = c.subcategory_id
-        WHERE c.vendor_id = ? AND c.status = 'live' AND i.price IS NOT NULL`,
+         JOIN catalog_subcategories sc ON sc.id = vc.subcategory_id
+         JOIN catalog_categories cc ON cc.id = sc.category_id
+        WHERE vc.vendor_id = ? AND vc.status != 'rejected'
+        ORDER BY cc.name, sc.name, s.name`,
       [vendorId]
     );
-    const vendorPriceMap = new Map<string, number>();
-    for (const row of vendorPriceRows as any[]) {
-      const key = `${row.service_label}|${row.category || ''}`;
-      vendorPriceMap.set(key, Number(row.price));
+    // label|category (top-level) -> vendor's approved price, also used to
+    // price past job labels whose category matches the chip name.
+    const catalogPriceMap = new Map<string, number | null>();
+    for (const row of catalogRows as any[]) {
+      catalogPriceMap.set(`${row.service_label}|${row.category || ''}`, row.price != null ? Number(row.price) : null);
     }
-    const services = await Promise.all((serviceRows as any[]).map(async (s) => {
+    const seen = new Set<string>();
+    const services: any[] = [];
+    const pushService = (entry: any) => {
+      const key = `${entry.label}|${entry.category || ''}`.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      services.push(entry);
+    };
+    for (const row of catalogRows as any[]) {
+      const tags = [row.service_label, row.subcategory, row.category]
+        .map((t: any) => String(t || '').trim())
+        .filter((t, i, all) => t && all.findIndex((x) => x.toLowerCase() === t.toLowerCase()) === i);
+      pushService({
+        label: row.service_label,
+        category: row.category,
+        hours: catalogDurationHours(row.duration),
+        skillTags: tags,
+        price: row.price != null ? Number(row.price) : null,
+      });
+    }
+    // Labels the vendor has used on past jobs stay available too — custom
+    // work that isn't in the catalog still resolves its skill check here.
+    for (const s of serviceRows as any[]) {
       const requirements = await skillRequirementsForJob(
         { service_label: s.service_label, category: s.category, source: 'own' }
       );
       const priceKey = `${s.service_label}|${s.category || ''}`;
-      return {
+      pushService({
         label: s.service_label,
         category: s.category,
         hours: Number(s.hours) || 2,
         skillTags: requirements[0] || [],
-        price: vendorPriceMap.get(priceKey) || null,
-      };
-    }));
+        price: catalogPriceMap.get(priceKey) ?? null,
+      });
+    }
 
     const visibleJobs = canSeeVendorMoney(session.role) ? jobs
       : jobs.map((job) => ({ ...job, gross: null, net: null }));
@@ -1483,6 +1533,10 @@ router.post('/jobs', async (req, res) => {
     }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}:\d{2}$/.test(start)) {
       return res.status(400).json({ error: 'Day must be YYYY-MM-DD and start must be HH:MM.' });
+    }
+    const mobile = phone ? normalizeSgMobile(phone) : null;
+    if (mobile && !SG_MOBILE_RE.test(mobile)) {
+      return res.status(400).json({ error: 'Enter a valid Singapore mobile: +65 followed by 8 digits starting with 8 or 9.' });
     }
     const hours = Math.min(Math.max(Number(durationHours) || 2, 0.5), 12);
     const gross = Math.max(0, Number(price) || 0);
@@ -1540,7 +1594,7 @@ router.post('/jobs', async (req, res) => {
        VALUES (?, 'own', ?, ?, ?, ?, ?, ?, ?, ?, DATE_ADD(?, INTERVAL ? MINUTE), ?, 0, ?)`,
       [
         session.vendorId, assignee ? 'assigned' : 'accepted', assignee,
-        customerName, phone || null, address || null,
+        customerName, mobile, address || null,
         serviceLabel, category || null, windowStart, windowStart, Math.round(hours * 60),
         gross, gross,
       ]
@@ -1705,7 +1759,7 @@ async function marketplaceMemberWork(
   const params: any[] = [vendorId, vendorId, opts.from, opts.to];
   if (providerClause) params.push(opts.providerIds);
   const [rows]: any = await pool.query(
-    `SELECT src.*, sp.name AS assignee_name, sp.pay_mode, sp.pay_rate,
+    `SELECT src.*, sp.name AS assignee_name, sp.pay_mode, sp.pay_rate, vw.started_at,
             f.gross AS vendor_gross, f.net AS vendor_net, f.completed_at AS finance_completed_at FROM (
         SELECT b.provider_id, NULL AS visit_id, COALESCE(b.scheduled_at, b.placed_at) AS scheduled_at, b.status AS visit_status,
                b.id AS booking_pk, b.items, b.total, NULL AS completed_at, b.history,
@@ -1727,6 +1781,8 @@ async function marketplaceMemberWork(
       JOIN service_providers sp ON sp.id = src.provider_id
       LEFT JOIN vendor_booking_financials f ON f.booking_id = src.booking_pk
         AND f.occurrence_key = COALESCE(src.visit_id, 0) AND f.vendor_id = sp.vendor_id
+      LEFT JOIN booking_visit_work vw ON vw.booking_id = src.booking_pk
+        AND vw.occurrence_key = COALESCE(src.visit_id, 0)
      WHERE ((${dateColumn} >= ? AND ${dateColumn} < ?) ${historyClause}) ${providerClause} ${completedClause}
      ORDER BY src.scheduled_at`,
     params
@@ -1755,7 +1811,7 @@ async function marketplaceMemberWork(
       id: `mkt-${r.booking_pk}${r.visit_id ? `-${r.visit_id}` : ''}`,
       visitId: r.visit_id,
       source: 'marketplace',
-      status: r.visit_status === 'completed' ? 'completed' : r.visit_status === 'cancelled' ? 'cancelled' : 'assigned',
+      status: marketplaceVisitStatus(r.visit_status, r.started_at),
       serviceLabel: items.length ? items.map((it: any) => it.name || it.serviceName || 'Service').join(', ') : 'Service',
       windowStart: startStr,
       windowEnd: endStr,
@@ -1822,44 +1878,122 @@ async function memberConflicts(vendorId: any, providerId: any, windowStart: stri
 // booking lives entirely in `bookings`, matched to this vendor's own worker
 // by the storefront's provider scoring. Each recurring visit has its own
 // detail URL so temporary cover follows the actual visit's owner.
-router.get(['/jobs/mkt-:bookingId(\\d+)', '/jobs/mkt-:bookingId(\\d+)-:occurrenceId(\\d+)'], async (req, res) => {
+const MKT_JOB_PATHS = ['/jobs/mkt-:bookingId(\\d+)', '/jobs/mkt-:bookingId(\\d+)-:occurrenceId(\\d+)'];
+const mktPaths = (suffix = '') => MKT_JOB_PATHS.map((p) => `${p}${suffix}`);
+
+// Marketplace visits only carry upcoming/completed/cancelled; the vendor's
+// "Mark started" (booking_visit_work.started_at) supplies the in-progress step.
+function marketplaceVisitStatus(status: string, startedAt: unknown) {
+  if (status === 'completed' || status === 'cancelled') return status;
+  return startedAt ? 'in_progress' : 'assigned';
+}
+
+// Loads one marketplace visit (booking, or one occurrence of a recurring
+// booking) held by this vendor's team, joined with its vendor-side work row.
+// Field seats only see visits assigned to themselves.
+async function loadMarketplaceVisit(session: any, params: any, db: typeof pool | PoolConnection = pool) {
+  const occurrenceId = params.occurrenceId ? Number(params.occurrenceId) : null;
+  const [rows]: any = await db.query(
+    `SELECT b.id, b.booking_id, b.items, b.total, b.schedule, b.status AS booking_status,
+            b.notes AS customer_notes, o.id AS occurrence_id, o.seq,
+            COALESCE(o.status, b.status) AS status,
+            COALESCE(o.scheduled_at, b.scheduled_at) AS scheduled_at,
+            b.contact_name, b.contact_phone, b.contact_address, b.contact_area,
+            sp.id AS assignee_id, sp.name AS assignee_name, sp.mobile AS assignee_mobile,
+            sp.rating AS assignee_rating, sp.vendor_id,
+            f.gross AS vendor_gross, f.net AS vendor_net, f.payout_id,
+            vw.id AS visit_work_id, vw.notes, vw.started_at
+       FROM bookings b
+       LEFT JOIN booking_occurrences o ON o.booking_id = b.id AND o.id = ?
+       JOIN service_providers sp ON sp.id = COALESCE(o.provider_id, b.provider_id)
+       LEFT JOIN vendor_booking_financials f ON f.booking_id = b.id
+         AND f.occurrence_key = COALESCE(o.id, 0) AND f.vendor_id = sp.vendor_id
+       LEFT JOIN booking_visit_work vw ON vw.booking_id = b.id AND vw.occurrence_key = COALESCE(o.id, 0)
+      WHERE b.id = ? AND (? IS NULL OR o.id IS NOT NULL)
+        AND b.vendor_id IS NULL
+        AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.booking_id = b.id)`,
+    [occurrenceId, params.bookingId, occurrenceId]
+  );
+  const b = (rows as any[])[0];
+  if (!b || Number(b.vendor_id) !== Number(session.vendorId)) return null;
+  if (session.role === 'vendor_field' && Number(b.assignee_id) !== Number(session.providerId)) return null;
+  return { ...b, occurrenceKey: occurrenceId || 0 };
+}
+
+async function ensureVisitWork(visit: any): Promise<number> {
+  if (visit.visit_work_id) return Number(visit.visit_work_id);
+  const [result]: any = await pool.query(
+    `INSERT INTO booking_visit_work (booking_id, occurrence_key) VALUES (?, ?)
+     ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)`,
+    [visit.id, visit.occurrenceKey]
+  );
+  return Number(result.insertId);
+}
+
+function marketplaceMessage(m: any) {
+  return { id: m.id, senderType: m.sender_type === 'provider' ? 'vendor' : 'customer', body: m.content, createdAt: m.created_at };
+}
+
+router.get(mktPaths(), async (req, res) => {
   try {
     const session = await requireVendorSession(req, res);
     if (!session) return;
 
-    const [rows]: any = await pool.query(
-      `SELECT b.id, b.booking_id, b.items, b.total, b.schedule,
-              COALESCE(o.status, b.status) AS status,
-              COALESCE(o.scheduled_at, b.scheduled_at) AS scheduled_at,
-              b.contact_name, b.contact_phone, b.contact_address, b.contact_area,
-              sp.id AS assignee_id, sp.name AS assignee_name, sp.mobile AS assignee_mobile,
-              sp.rating AS assignee_rating, sp.vendor_id,
-              f.gross AS vendor_gross, f.net AS vendor_net
-         FROM bookings b
-         LEFT JOIN booking_occurrences o ON o.booking_id = b.id AND o.id = ?
-         JOIN service_providers sp ON sp.id = COALESCE(o.provider_id, b.provider_id)
-         LEFT JOIN vendor_booking_financials f ON f.booking_id = b.id
-           AND f.occurrence_key = COALESCE(o.id, 0) AND f.vendor_id = sp.vendor_id
-        WHERE b.id = ? AND (? IS NULL OR o.id IS NOT NULL)
-          AND b.vendor_id IS NULL
-          AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.booking_id = b.id)`,
-      [req.params.occurrenceId || null, req.params.bookingId, req.params.occurrenceId || null]
-    );
-    const b = (rows as any[])[0];
-    if (!b || Number(b.vendor_id) !== Number(session.vendorId)) {
-      return res.status(404).json({ error: 'Job not found.' });
-    }
-    if (session.role === 'vendor_field' && Number(b.assignee_id) !== Number(session.providerId)) {
-      return res.status(404).json({ error: 'Job not found.' });
-    }
+    const b = await loadMarketplaceVisit(session, req.params);
+    if (!b) return res.status(404).json({ error: 'Job not found.' });
 
     let serviceLabel = 'Service';
+    let category: string | null = null;
+    let durationMin = 60;
     try {
       const items = typeof b.items === 'string' ? JSON.parse(b.items) : b.items;
       if (Array.isArray(items) && items.length > 0) {
+        durationMin = items.reduce((s: number, it: any) => s + parseItemDuration(it?.duration) * (Number(it?.qty) || 1), 0) || 60;
         serviceLabel = items.map((it: any) => it.name || it.serviceName || 'Service').join(', ');
+        const catalogIds = items.map((it: any) => Number(it?.catalogId)).filter((n: number) => Number.isInteger(n) && n > 0);
+        if (catalogIds.length) {
+          const [catRows]: any = await pool.query(
+            `SELECT c.name FROM catalog_services s JOIN catalog_categories c ON c.id = s.category_id
+              WHERE s.id IN (?) ORDER BY FIELD(s.id, ?) LIMIT 1`,
+            [catalogIds, catalogIds]
+          );
+          category = catRows[0]?.name || null;
+        }
       }
     } catch { /* empty */ }
+
+    // Same lazy checklist seeding as GET /jobs/:id, keyed on the visit row.
+    const workId = await ensureVisitWork(b);
+    const [countRows]: any = await pool.query(
+      'SELECT COUNT(*) AS cnt FROM booking_visit_checklist_items WHERE visit_work_id = ?',
+      [workId]
+    );
+    if (Number(countRows[0]?.cnt) === 0) {
+      const template = checklistTemplate(category);
+      await pool.query(
+        `INSERT INTO booking_visit_checklist_items (visit_work_id, label, position) VALUES ${template.map(() => '(?, ?, ?)').join(', ')}`,
+        template.flatMap((label, i) => [workId, label, i])
+      );
+    }
+    const [checklistRows]: any = await pool.query(
+      'SELECT id, label, done FROM booking_visit_checklist_items WHERE visit_work_id = ? ORDER BY position',
+      [workId]
+    );
+    const [photoRows]: any = await pool.query(
+      `SELECT vp.id, i.filename, vp.created_at
+         FROM booking_visit_photos vp
+         JOIN images i ON i.id = vp.image_id
+        WHERE vp.visit_work_id = ?
+        ORDER BY vp.created_at DESC`,
+      [workId]
+    );
+    // Real customer chat: the booking's `messages` thread, which the
+    // storefront and provider app read too. Left unread here so the assigned
+    // worker still sees new customer messages in their own app.
+    const [messageRows]: any = await pool.query(
+      'SELECT id, sender_type, content, created_at FROM messages WHERE booking_id = ? ORDER BY created_at ASC',
+      [b.id]
+    );
 
     const canSeeMoney = canSeeVendorMoney(session.role);
     const job = {
@@ -1867,12 +2001,12 @@ router.get(['/jobs/mkt-:bookingId(\\d+)', '/jobs/mkt-:bookingId(\\d+)-:occurrenc
       bookingId: b.id,
       occurrenceId: req.params.occurrenceId ? Number(req.params.occurrenceId) : null,
       schedule: b.schedule,
-      status: b.status === 'completed' ? 'completed' : 'assigned',
+      status: b.status === 'completed' && b.payout_id ? 'paid' : marketplaceVisitStatus(b.status, b.started_at),
       source: 'marketplace',
       serviceLabel,
-      category: null,
+      category,
       windowStart: b.scheduled_at,
-      windowEnd: null,
+      windowEnd: sgtDateTime(new Date(new Date(`${String(b.scheduled_at).replace(' ', 'T')}+08:00`).getTime() + durationMin * 60000)) || null,
       customerName: b.contact_name,
       customerPhone: b.contact_phone,
       customerPhoneMasked: false,
@@ -1886,21 +2020,203 @@ router.get(['/jobs/mkt-:bookingId(\\d+)', '/jobs/mkt-:bookingId(\\d+)-:occurrenc
       hasIssue: false,
       assignee: { id: b.assignee_id, name: b.assignee_name, mobile: b.assignee_mobile, rating: Number(b.assignee_rating) || 0 },
       bookingRef: b.booking_id,
-      startedAt: null,
+      startedAt: b.started_at,
       completedAt: null,
       paidAt: null,
       createdAt: null,
       lateMinutes: null,
-      checklist: [],
-      photos: [],
-      messages: [],
-      readOnly: true,
+      notes: b.notes || '',
+      customerNotes: b.customer_notes || null,
+      checklist: (checklistRows as any[]).map((c) => ({ id: c.id, label: c.label, done: !!c.done })),
+      photos: (photoRows as any[]).map((p) => ({ id: p.id, url: `/images/${p.filename}`, createdAt: p.created_at })),
+      messages: (messageRows as any[]).map(marketplaceMessage),
+      canMessage: ['upcoming', 'completed'].includes(b.booking_status),
     };
 
     return res.json({ job, team: [], canSeeMoney, canManageTeam: canManageVendorTeam(session.role) });
   } catch (error) {
     console.error('[GET /api/vendor/jobs/mkt-:bookingId]', error);
     return res.status(500).json({ error: 'Failed to load job.' });
+  }
+});
+
+router.patch(mktPaths('/checklist/:itemId'), async (req, res) => {
+  try {
+    const session = await requireVendorSession(req, res);
+    if (!session) return;
+    const visit = await loadMarketplaceVisit(session, req.params);
+    if (!visit?.visit_work_id) return res.status(404).json({ error: 'Job not found.' });
+
+    const done = !!req.body?.done;
+    const [result]: any = await pool.query(
+      'UPDATE booking_visit_checklist_items SET done = ? WHERE id = ? AND visit_work_id = ?',
+      [done, req.params.itemId, visit.visit_work_id]
+    );
+    if (!result.affectedRows) return res.status(404).json({ error: 'Checklist item not found.' });
+    return res.json({ success: true, done });
+  } catch (error) {
+    console.error('[PATCH /api/vendor/jobs/mkt-:bookingId/checklist/:itemId]', error);
+    return res.status(500).json({ error: 'Failed to update checklist item.' });
+  }
+});
+
+router.post(mktPaths('/photos'), uploadJobPhoto, async (req, res) => {
+  try {
+    const session = await requireVendorSession(req, res);
+    if (!session) return;
+    const visit = await loadMarketplaceVisit(session, req.params);
+    if (!visit) return res.status(404).json({ error: 'Job not found.' });
+
+    const file = (req as any).file;
+    if (!file) return res.status(400).json({ error: 'No photo provided.' });
+
+    const workId = await ensureVisitWork(visit);
+    const ext = JOB_PHOTO_MIMETYPES.includes(file.mimetype) ? `.${file.mimetype.split('/')[1].replace('jpeg', 'jpg')}` : '.jpg';
+    const filename = `visit-${visit.id}-${visit.occurrenceKey}-${Date.now()}${ext}`;
+    const [imageResult]: any = await pool.query(
+      'INSERT INTO images (filename, mime_type, data, size_bytes) VALUES (?, ?, ?, ?)',
+      [filename, file.mimetype, file.buffer, file.size]
+    );
+    const [photoResult]: any = await pool.query(
+      'INSERT INTO booking_visit_photos (visit_work_id, image_id) VALUES (?, ?)',
+      [workId, imageResult.insertId]
+    );
+    return res.status(201).json({ photo: { id: photoResult.insertId, url: `/images/${filename}` } });
+  } catch (error: any) {
+    console.error('[POST /api/vendor/jobs/mkt-:bookingId/photos]', error);
+    if (error?.code === 'ER_NET_PACKET_TOO_LARGE') {
+      return res.status(413).json({ error: 'Photo is too large for the database.' });
+    }
+    return res.status(500).json({ error: 'Failed to upload photo.' });
+  }
+});
+
+// Sent into the booking's customer chat on behalf of the visit's assigned
+// worker, so the customer sees it from the provider they booked with.
+router.post(mktPaths('/messages'), async (req, res) => {
+  try {
+    const session = await requireVendorSession(req, res);
+    if (!session) return;
+    const visit = await loadMarketplaceVisit(session, req.params);
+    if (!visit) return res.status(404).json({ error: 'Job not found.' });
+    if (!['upcoming', 'completed'].includes(visit.booking_status)) {
+      return res.status(400).json({ error: 'Messaging is only available for upcoming or completed bookings.' });
+    }
+
+    const body = typeof req.body?.body === 'string' ? req.body.body.trim().slice(0, 2000) : '';
+    if (!body) return res.status(400).json({ error: 'Message can\'t be empty.' });
+
+    const [result]: any = await pool.query(
+      'INSERT INTO messages (booking_id, sender_type, sender_id, content, created_at) VALUES (?, ?, ?, ?, ?)',
+      [visit.id, 'provider', visit.assignee_id, body, sgtDateTime(new Date())]
+    );
+    const [rows]: any = await pool.query(
+      'SELECT id, sender_type, content, created_at FROM messages WHERE id = ?',
+      [result.insertId]
+    );
+    return res.status(201).json({ message: marketplaceMessage(rows[0]) });
+  } catch (error) {
+    console.error('[POST /api/vendor/jobs/mkt-:bookingId/messages]', error);
+    return res.status(500).json({ error: 'Failed to send message.' });
+  }
+});
+
+router.patch(mktPaths('/notes'), async (req, res) => {
+  try {
+    const session = await requireVendorSession(req, res);
+    if (!session) return;
+    const visit = await loadMarketplaceVisit(session, req.params);
+    if (!visit) return res.status(404).json({ error: 'Job not found.' });
+
+    const notes = typeof req.body?.notes === 'string' ? req.body.notes.trim().slice(0, 5000) : '';
+    const workId = await ensureVisitWork(visit);
+    await pool.query('UPDATE booking_visit_work SET notes = ? WHERE id = ?', [notes || null, workId]);
+    return res.json({ success: true, notes });
+  } catch (error) {
+    console.error('[PATCH /api/vendor/jobs/mkt-:bookingId/notes]', error);
+    return res.status(500).json({ error: 'Failed to save notes.' });
+  }
+});
+
+// Start/complete a marketplace visit. Starting only stamps the vendor-side
+// work row; completing closes the booking (single) or that occurrence
+// (recurring) exactly like the provider app does — vendor finance completion,
+// an audit entry in bookings.history and a series top-up.
+router.patch(mktPaths('/status'), async (req, res) => {
+  let db: PoolConnection | null = null;
+  try {
+    const session = await requireVendorSession(req, res);
+    if (!session) return;
+    const next = String(req.body?.status || '');
+    if (!['in_progress', 'completed'].includes(next)) {
+      return res.status(400).json({ error: `A KYND visit can't move to '${next}'.` });
+    }
+
+    const visit = await loadMarketplaceVisit(session, req.params);
+    if (!visit) return res.status(404).json({ error: 'Job not found.' });
+    if (visit.schedule === 'recurring' && !visit.occurrence_id) {
+      return res.status(400).json({ error: 'Open a specific visit of this recurring booking.' });
+    }
+    const current = marketplaceVisitStatus(visit.status, visit.started_at);
+    if ((next === 'in_progress' && current !== 'assigned') || (next === 'completed' && current !== 'in_progress')) {
+      return res.status(400).json({ error: `A '${current}' visit can't move to '${next}'.` });
+    }
+
+    if (next === 'in_progress') {
+      const workId = await ensureVisitWork(visit);
+      await pool.query('UPDATE booking_visit_work SET started_at = COALESCE(started_at, NOW()) WHERE id = ?', [workId]);
+      return res.json({ success: true, status: next });
+    }
+
+    db = await pool.getConnection();
+    await db.beginTransaction();
+    await db.query('SELECT id FROM bookings WHERE id = ? FOR UPDATE', [visit.id]);
+    // Recheck under the lock: an admin may have reassigned or closed it.
+    const locked = await loadMarketplaceVisit(session, req.params, db);
+    if (!locked || locked.status !== 'upcoming' || Number(locked.assignee_id) !== Number(visit.assignee_id)) {
+      await db.rollback();
+      return res.status(409).json({ error: 'This visit changed. Refresh and try again.' });
+    }
+    const entry = JSON.stringify({
+      at: sgtDateTime(new Date()),
+      type: locked.occurrence_id ? 'completed' : 'status',
+      by: 'vendor',
+      note: locked.occurrence_id
+        ? `Marked visit #${locked.seq} completed by ${session.role}`
+        : `Marked completed by ${session.role}`,
+    });
+    await recordVendorCompletion(db, Number(locked.id), locked.occurrenceKey, true);
+    if (locked.occurrence_id) {
+      await db.query(
+        "UPDATE booking_occurrences SET status = 'completed', completed_at = NOW() WHERE id = ? AND status = 'upcoming'",
+        [locked.occurrence_id]
+      );
+      await db.query(
+        "UPDATE bookings SET history = JSON_ARRAY_APPEND(COALESCE(history, JSON_ARRAY()), '$', JSON_EXTRACT(?, '$')) WHERE id = ?",
+        [entry, locked.id]
+      );
+    } else {
+      await db.query(
+        `UPDATE bookings
+            SET status = 'completed', cancelled_by = NULL, cancelled_at = NULL, cancel_reason = NULL,
+                history = JSON_ARRAY_APPEND(COALESCE(history, JSON_ARRAY()), '$', JSON_EXTRACT(?, '$'))
+          WHERE id = ? AND status = 'upcoming'`,
+        [entry, locked.id]
+      );
+    }
+    await db.commit();
+
+    if (locked.occurrence_id) {
+      await topUpOccurrences(Number(locked.id)).catch((err) => console.error('[vendor mkt complete] top-up failed', err));
+    }
+    return res.json({ success: true, status: next });
+  } catch (error) {
+    if (db) await db.rollback();
+    if (error instanceof VendorPricingError) return res.status(error.status).json({ error: error.message });
+    console.error('[PATCH /api/vendor/jobs/mkt-:bookingId/status]', error);
+    return res.status(500).json({ error: 'Failed to update visit status.' });
+  } finally {
+    db?.release();
   }
 });
 
@@ -2008,6 +2324,7 @@ router.get('/jobs/:id', async (req, res) => {
         : null,
       skillChecked,
       requiredSkills,
+      bookingId: j.booking_id ?? null,
       bookingRef: j.booking_ref,
       startedAt: j.started_at,
       completedAt: j.completed_at,
@@ -2016,6 +2333,7 @@ router.get('/jobs/:id', async (req, res) => {
       // Past its window but not yet started — same condition as the Home
       // "Needs attention" late_start alert.
       lateMinutes: (j.status === 'assigned' || j.status === 'accepted') && Number(j.late_minutes) > 0 ? Number(j.late_minutes) : null,
+      notes: j.notes || '',
       checklist,
       photos,
       messages,
@@ -2194,6 +2512,22 @@ router.post('/jobs/:id/messages', async (req, res) => {
   } catch (error) {
     console.error('[POST /api/vendor/jobs/:id/messages]', error);
     return res.status(500).json({ error: 'Failed to send message.' });
+  }
+});
+
+router.patch('/jobs/:id/notes', async (req, res) => {
+  try {
+    const session = await requireVendorSession(req, res);
+    if (!session) return;
+    const job = await loadOwnedJob(session, req.params.id);
+    if (!job) return res.status(404).json({ error: 'Job not found.' });
+
+    const notes = typeof req.body?.notes === 'string' ? req.body.notes.trim().slice(0, 5000) : '';
+    await pool.query('UPDATE jobs SET notes = ? WHERE id = ?', [notes || null, req.params.id]);
+    return res.json({ success: true, notes });
+  } catch (error) {
+    console.error('[PATCH /api/vendor/jobs/:id/notes]', error);
+    return res.status(500).json({ error: 'Failed to save notes.' });
   }
 });
 
@@ -3981,6 +4315,190 @@ router.patch('/service-categories/:id/hours', async (req, res) => {
   } catch (error) {
     console.error('[PATCH /api/vendor/service-categories/:id/hours]', error);
     return res.status(500).json({ error: 'Failed to update hours.' });
+  }
+});
+
+// ---- First-login setup wizard (vendors.onboarding_status) ----
+// Vendors a superadmin creates via POST /api/vendors start 'pending': the
+// portal gates them into a one-time wizard that reuses the service-categories
+// endpoints above (pick subcategories, price their items, set hours) plus the
+// two endpoints below (bulk team add, finish). "Finish" flips every editable
+// category to under_review and the vendor to 'submitted'; the superadmin's
+// approve/reject in routes/vendor-services.ts then resolves the vendor to
+// 'approved' (any category live) or back to 'pending' (everything rejected,
+// so they can fix and resubmit). Legacy vendors keep NULL = 'approved' and
+// none of this applies to them.
+
+// Wizard status + the counts the "You're set up" card summarises.
+router.get('/onboarding', async (req, res) => {
+  try {
+    const session = await requireVendorSession(req, res);
+    if (!session) return;
+
+    const [vendorRows]: any = await pool.query(
+      'SELECT onboarding_status FROM vendors WHERE id = ?',
+      [session.vendorId]
+    );
+    const vendor = vendorRows?.[0];
+    if (!vendor) return res.status(404).json({ error: 'Vendor not found.' });
+
+    const [[totals]]: any = await pool.query(
+      `SELECT COUNT(DISTINCT vsc.id) AS category_count,
+              COUNT(i.id) AS item_count,
+              COALESCE(SUM(CASE WHEN i.price IS NOT NULL THEN 1 ELSE 0 END), 0) AS priced_count
+         FROM vendor_service_categories vsc
+         LEFT JOIN vendor_service_category_items i ON i.vendor_category_id = vsc.id
+        WHERE vsc.vendor_id = ?`,
+      [session.vendorId]
+    );
+    const [[team]]: any = await pool.query(
+      'SELECT COUNT(*) AS n FROM service_providers WHERE vendor_id = ?',
+      [session.vendorId]
+    );
+
+    return res.json({
+      status: vendor.onboarding_status || 'approved',
+      categoryCount: Number(totals?.category_count) || 0,
+      pricedItems: Number(totals?.priced_count) || 0,
+      totalItems: Number(totals?.item_count) || 0,
+      teamCount: Number(team?.n) || 0,
+    });
+  } catch (error) {
+    console.error('[GET /api/vendor/onboarding]', error);
+    return res.status(500).json({ error: 'Failed to load setup progress.' });
+  }
+});
+
+// The wizard's "Who's on your team?" step adds people with just a name and
+// phone — skills, hours and leave come later from the Team page. Members land
+// with an empty skill list (they can't be skill-matched to Kynd work until
+// skills are set), the platform's default open week, and no email — the
+// column is nullable for exactly this path. `certified` plants a
+// team_member_certs row so the "Kynd trained" badge works immediately.
+router.post('/onboarding/team', async (req, res) => {
+  const conn = await pool.getConnection();
+  try {
+    const session = await requireVendorSession(req, res);
+    if (!session) return;
+    if (!canManageVendorTeam(session.role)) {
+      return res.status(403).json({ error: 'Only owners and managers can add team members.' });
+    }
+
+    const input = Array.isArray(req.body?.members) ? req.body.members : [];
+    const members: { name: string; mobile: string; certified: boolean }[] = [];
+    for (const m of input) {
+      const name = String(m?.name || '').trim();
+      const phone = String(m?.phone || '').trim();
+      if (!name && !phone) continue; // blank row — skip
+      const mobile = normalizeSgMobile(phone);
+      if (!name) {
+        return res.status(400).json({ error: 'Every person needs a name.' });
+      }
+      if (!SG_MOBILE_RE.test(mobile)) {
+        return res.status(400).json({ error: `Enter a valid Singapore mobile for ${name}: +65 followed by 8 digits starting with 8 or 9.` });
+      }
+      members.push({ name: name.slice(0, 255), mobile, certified: !!m?.certified });
+    }
+    if (members.length === 0) {
+      return res.status(400).json({ error: 'Add at least one person, or skip this step.' });
+    }
+
+    // Re-running the step must not duplicate anyone — mobiles dedupe against
+    // the vendor's existing members and within the batch itself.
+    const [existingRows]: any = await conn.query(
+      'SELECT mobile FROM service_providers WHERE vendor_id = ?',
+      [session.vendorId]
+    );
+    const seen = new Set((existingRows as any[]).map((r) => r.mobile));
+    const toInsert = members.filter((m) => !seen.has(m.mobile) && seen.add(m.mobile));
+
+    const [vendorRows]: any = await conn.query('SELECT city FROM vendors WHERE id = ?', [session.vendorId]);
+    const city = vendorRows?.[0]?.city || 'Singapore';
+
+    await conn.beginTransaction();
+    for (const m of toInsert) {
+      const [result]: any = await conn.query(
+        `INSERT INTO service_providers (vendor_id, name, email, mobile, services, city, status, working_hours)
+         VALUES (?, ?, NULL, ?, '[]', ?, 'active', ?)`,
+        [session.vendorId, m.name, m.mobile, city, JSON.stringify(MEMBER_DEFAULT_HOURS)]
+      );
+      if (m.certified) {
+        await conn.query(
+          `INSERT INTO team_member_certs (provider_id, name, issued_at, expires_at)
+           VALUES (?, 'Kynd certified training', CURDATE(), NULL)`,
+          [result.insertId]
+        );
+      }
+    }
+    await conn.commit();
+    return res.status(201).json({ success: true, added: toInsert.length });
+  } catch (error) {
+    try { await conn.rollback(); } catch { /* already rolled back */ }
+    console.error('[POST /api/vendor/onboarding/team]', error);
+    return res.status(500).json({ error: 'Failed to add your team.' });
+  } finally {
+    conn.release();
+  }
+});
+
+// "Finish setup": submit every editable category for review and park the
+// vendor on the decision page. Unlike POST /service-categories/:id/submit
+// there's no all-priced check — the wizard tells vendors a blank line means
+// "don't offer" — but at least one category and one priced line must exist,
+// otherwise there's nothing to approve.
+router.post('/onboarding/submit', async (req, res) => {
+  const conn = await pool.getConnection();
+  try {
+    const session = await requireVendorSession(req, res);
+    if (!session) return;
+    if (!canManageVendorTeam(session.role)) {
+      return res.status(403).json({ error: 'Only owners and managers can finish setup.' });
+    }
+
+    await conn.beginTransaction();
+    const [[vendor]]: any = await conn.query(
+      'SELECT onboarding_status FROM vendors WHERE id = ? FOR UPDATE',
+      [session.vendorId]
+    );
+    if (vendor?.onboarding_status !== 'pending') {
+      await conn.rollback();
+      return res.status(409).json({ error: 'Setup was already submitted.' });
+    }
+
+    const [[totals]]: any = await conn.query(
+      `SELECT COUNT(DISTINCT vsc.id) AS category_count,
+              COALESCE(SUM(CASE WHEN i.price IS NOT NULL THEN 1 ELSE 0 END), 0) AS priced_count
+         FROM vendor_service_categories vsc
+         LEFT JOIN vendor_service_category_items i ON i.vendor_category_id = vsc.id
+        WHERE vsc.vendor_id = ?`,
+      [session.vendorId]
+    );
+    if (!Number(totals?.category_count)) {
+      await conn.rollback();
+      return res.status(400).json({ error: 'Pick at least one service category first.' });
+    }
+    if (!Number(totals?.priced_count)) {
+      await conn.rollback();
+      return res.status(400).json({ error: 'Add a price to at least one service before finishing setup.' });
+    }
+
+    await conn.query(
+      `UPDATE vendor_service_categories SET status = 'under_review', review_note = NULL
+        WHERE vendor_id = ? AND status IN ('draft', 'rejected')`,
+      [session.vendorId]
+    );
+    await conn.query(
+      `UPDATE vendors SET onboarding_status = 'submitted' WHERE id = ? AND onboarding_status = 'pending'`,
+      [session.vendorId]
+    );
+    await conn.commit();
+    return res.json({ success: true });
+  } catch (error) {
+    try { await conn.rollback(); } catch { /* already rolled back */ }
+    console.error('[POST /api/vendor/onboarding/submit]', error);
+    return res.status(500).json({ error: 'Failed to finish setup.' });
+  } finally {
+    conn.release();
   }
 });
 

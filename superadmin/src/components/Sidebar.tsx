@@ -15,9 +15,7 @@ import {
   Zap,
   Wrench,
   HeartHandshake,
-  Store,
   Handshake,
-  Wallet,
 } from "lucide-react";
 import clsx from "clsx";
 import { useEffect, useState } from "react";
@@ -32,14 +30,12 @@ interface SidebarProps {
 const navItems = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { label: "Clients", href: "/clients", icon: Users },
-  { label: "Orders", href: "/orders", icon: ShoppingCart },
+  { label: "Jobs", href: "/orders", icon: ShoppingCart },
   { label: "Catalog", href: "/catalog-services", icon: Layers },
   { label: "Add-ons", href: "/addons", icon: PackagePlus },
   { label: "Help moments", href: "/help-moments", icon: HeartHandshake },
   { label: "Pro", href: "/pro", icon: Wrench },
-  { label: "Vendors", href: "/vendors", icon: Handshake },
-  { label: "Vendor pricing", href: "/vendor-services", icon: Store },
-  { label: "Vendor payouts", href: "/vendor-payouts", icon: Wallet },
+  { label: "Vendor management", href: "/vendors", icon: Handshake },
   { label: "Analytics", href: "/analytics", icon: BarChart2 },
   { label: "Serviceable City", href: "/city-services", icon: Building2 },
   { label: "Settings", href: "/settings", icon: Settings },

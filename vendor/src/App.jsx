@@ -1,7 +1,10 @@
 import { Routes, Route, Navigate, useLocation, useOutletContext } from 'react-router-dom'
+import { useCallback, useEffect, useState } from 'react'
 import { useAuth } from './context/AuthContext'
+import { vendorFetch } from './lib/api'
 import AppShell from './components/AppShell'
 import Login from './pages/Login'
+import Onboarding, { OnboardingReady } from './pages/onboarding/Onboarding'
 import Home from './pages/Home'
 // Offer inbox is deferred until the multi-vendor stage.
 // import Offers from './pages/Offers'
@@ -27,6 +30,49 @@ function RequireVendor({ children }) {
   return children
 }
 
+// The one-time setup gate is driven by the vendor row, not local storage, so
+// old vendors (NULL status) retain dashboard access and approvals take effect
+// on the next status check without requiring a new login.
+function VendorGate({ children }) {
+  const { token, logout } = useAuth()
+  const [status, setStatus] = useState(null)
+  const [error, setError] = useState('')
+
+  const load = useCallback(async () => {
+    setError('')
+    try {
+      const data = await vendorFetch('/vendor/onboarding', token)
+      setStatus(data.status || 'approved')
+    } catch (err) {
+      if (err.status === 401) logout()
+      else setError(err.message || 'Could not load your account.')
+    }
+  }, [token, logout])
+
+  useEffect(() => { load() }, [load])
+
+  if (error) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-warmlinen px-4">
+        <div className="max-w-md text-center">
+          <p className="text-sm text-danger">{error}</p>
+          <button type="button" onClick={load} className="mt-4 rounded-xl bg-terracotta px-4 py-2 text-sm font-semibold text-white">Try again</button>
+        </div>
+      </div>
+    )
+  }
+  if (!status) {
+    return <div className="flex min-h-screen items-center justify-center bg-warmlinen"><span className="h-8 w-8 animate-spin rounded-full border-2 border-lightstone border-t-terracotta" /></div>
+  }
+  if (status === 'pending') {
+    return <Onboarding onSubmitted={() => setStatus('submitted')} />
+  }
+  if (status === 'submitted') {
+    return <OnboardingReady onApproved={(next) => setStatus(next || 'approved')} />
+  }
+  return children
+}
+
 // Owner-only pages render inside AppShell's <Outlet>, so they read the same
 // `canSeeMoney` flag AppShell already fetched instead of making their own call.
 function RequireOwner({ children }) {
@@ -45,7 +91,9 @@ export default function App() {
         path="/"
         element={
           <RequireVendor>
-            <AppShell />
+            <VendorGate>
+              <AppShell />
+            </VendorGate>
           </RequireVendor>
         }
       >

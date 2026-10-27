@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useState } from 'react'
 
 const AuthContext = createContext(null)
 const USER_KEY = 'helpr.vendor.auth.v1'
@@ -69,7 +69,7 @@ export function AuthProvider({ children }) {
     return session
   }
 
-  const logout = () => setUser(null)
+  const logout = useCallback(() => setUser(null), [])
 
   return (
     <AuthContext.Provider
