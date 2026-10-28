@@ -15,6 +15,8 @@ export default function DashboardPage() {
     totalClients: 0,
     totalOrders: 0,
     growthRate: 0,
+    ordersChange: 0,
+    clientsChange: 0,
     todayOrders: 0,
     reprocessingToday: 0,
     processingToday: 0,
@@ -47,8 +49,8 @@ export default function DashboardPage() {
     {
       title: "Total Revenue",
       value: `S$${stats.totalRevenue.toLocaleString()}`,
-      change: "12.5%",
-      positive: true,
+      change: `${Math.abs(stats.growthRate).toFixed(1)}%`,
+      positive: stats.growthRate >= 0,
       icon: DollarSign,
       color: "bg-terracotta",
       href: "/analytics",
@@ -56,8 +58,8 @@ export default function DashboardPage() {
     {
       title: "Total Clients",
       value: stats.totalClients.toLocaleString(),
-      change: "8.2%",
-      positive: true,
+      change: `${Math.abs(stats.clientsChange).toFixed(1)}%`,
+      positive: stats.clientsChange >= 0,
       icon: Users,
       color: "bg-sage",
       href: "/clients",
@@ -65,8 +67,8 @@ export default function DashboardPage() {
     {
       title: "Total Orders",
       value: stats.totalOrders.toLocaleString(),
-      change: "3.1%",
-      positive: false,
+      change: `${Math.abs(stats.ordersChange).toFixed(1)}%`,
+      positive: stats.ordersChange >= 0,
       icon: ShoppingCart,
       color: "bg-terracotta",
       href: "/orders",
@@ -83,7 +85,7 @@ export default function DashboardPage() {
   ];
 
   const todayCards = [
-    { title: "Today's Bookings", value: stats.todayOrders.toString(),     icon: ShoppingCart, color: "bg-terracotta",  href: "/orders" },
+    { title: "Today's Jobs",     value: stats.todayOrders.toString(),     icon: ShoppingCart, color: "bg-terracotta",  href: "/orders" },
     { title: "Upcoming",         value: stats.processingToday.toString(), icon: Clock,        color: "bg-sage",        href: "/orders" },
     { title: "Cancelled Today",  value: stats.pendingToday.toString(),    icon: AlertCircle,  color: "bg-dustyrose",   href: "/orders" },
     { title: "All Completed",    value: stats.completedTotal.toString(),  icon: CheckCircle,  color: "bg-sage",        href: "/orders" },

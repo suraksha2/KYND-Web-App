@@ -4,7 +4,7 @@ import { Trash2, Minus, Plus, ShoppingBag, Zap, Calendar, Repeat } from 'lucide-
 import { useCart } from '../context/CartContext'
 import { useServices } from '../context/ServicesContext'
 import { iconForService } from '../lib/serviceIcon'
-import { openPicker } from '../lib/openPicker'
+import DateTimePicker from '../components/DateTimePicker'
 
 const ScheduleOption = ({ value, current, onChange, icon: Icon, title, sub }) => {
   const active = current === value
@@ -52,6 +52,11 @@ export default function Cart() {
   const [customTimes, setCustomTimes] = useState(3)
   const [customUnit, setCustomUnit] = useState('week')
   const navigate = useNavigate()
+
+  // Earliest bookable slot, one hour out — same 'YYYY-MM-DDTHH:mm' shape the
+  // picker and the old datetime-local input share.
+  const minDt = new Date(Date.now() + 60 * 60 * 1000 - new Date().getTimezoneOffset() * 60000)
+    .toISOString().slice(0, 16)
 
   const cadence = recurrence.type === 'custom'
     ? `${recurrence.times} time${recurrence.times > 1 ? 's' : ''}/${recurrence.unit}`
@@ -141,15 +146,8 @@ export default function Cart() {
 
             {schedule === 'scheduled' && (
               <div className="mt-4 rounded-2xl bg-white ring-1 ring-lightstone p-4">
-                <label className="block text-xs font-semibold text-charcoal mb-1.5">Date & time</label>
-                <input
-                  type="datetime-local"
-                  step={1800}
-                  value={scheduledAt}
-                  onChange={e => setScheduledAt(e.target.value)}
-                  onClick={openPicker}
-                  className="w-full rounded-lg border border-lightstone px-3 py-2 text-sm focus:outline-none focus:border-terracotta focus:ring-2 focus:ring-terracotta/25"
-                />
+                <p className="text-xs font-semibold text-charcoal mb-2">Date & time</p>
+                <DateTimePicker value={scheduledAt} min={minDt} onChange={setScheduledAt} />
               </div>
             )}
             {schedule === 'recurring' && (

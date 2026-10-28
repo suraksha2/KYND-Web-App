@@ -7,7 +7,7 @@ import {
 import { useBookings } from '../context/BookingsContext'
 import { useAuth } from '../context/AuthContext'
 import { iconForService } from '../lib/serviceIcon'
-import { openPicker } from '../lib/openPicker'
+import DateTimePicker from '../components/DateTimePicker'
 
 const paymentLabel = (p) => p === 'cod' ? 'Cash after service' : p === 'upi' ? 'UPI' : p === 'card' ? 'Card' : (p || '').toUpperCase()
 const paymentIcon = (p) => p === 'cod' ? Banknote : p === 'card' ? CreditCard : Wallet
@@ -363,27 +363,18 @@ export default function BookingDetail() {
       {/* Reschedule modal */}
       {showReschedule && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={() => setShowReschedule(false)}>
-          <div onClick={(e) => e.stopPropagation()} className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl">
-            <div className="flex items-start justify-between">
+          <div onClick={(e) => e.stopPropagation()} className="w-full max-w-md max-h-[92dvh] rounded-2xl bg-white shadow-xl flex flex-col">
+            <div className="flex items-start justify-between p-5 pb-0">
               <div>
                 <h3 className="font-bold text-charcoal">Reschedule booking</h3>
                 <p className="text-xs text-warmgrey mt-0.5">Pick a new date & time.</p>
               </div>
               <button onClick={() => setShowReschedule(false)} className="text-warmgrey/70 hover:text-charcoal"><X className="w-4 h-4" /></button>
             </div>
-            <label className="block mt-4">
-              <span className="block text-xs font-semibold text-charcoal mb-1.5">New date & time</span>
-              <input
-                type="datetime-local"
-                step={1800}
-                min={minDt}
-                value={newAt}
-                onChange={(e) => setNewAt(e.target.value)}
-                onClick={openPicker}
-                className="w-full rounded-lg border border-lightstone px-3 py-2 text-sm focus:outline-none focus:border-terracotta focus:ring-2 focus:ring-terracotta/25"
-              />
-            </label>
-            <div className="mt-5 flex gap-2">
+            <div className="mt-4 px-5 overflow-y-auto">
+              <DateTimePicker value={newAt} min={minDt} onChange={setNewAt} />
+            </div>
+            <div className="p-5 pt-4 flex gap-2">
               <button onClick={() => setShowReschedule(false)} className="flex-1 rounded-full bg-warmlinen hover:bg-lightstone text-charcoal font-semibold py-2.5 text-sm">Back</button>
               <button onClick={onConfirmReschedule} disabled={!newAt} className="flex-1 rounded-full bg-terracotta hover:bg-charcoal disabled:opacity-50 text-white font-semibold py-2.5 text-sm">Confirm</button>
             </div>
@@ -394,28 +385,19 @@ export default function BookingDetail() {
       {/* Move single visit modal (recurring bookings) */}
       {moveVisit && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={() => setMoveVisit(null)}>
-          <div onClick={(e) => e.stopPropagation()} className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl">
-            <div className="flex items-start justify-between">
+          <div onClick={(e) => e.stopPropagation()} className="w-full max-w-md max-h-[92dvh] rounded-2xl bg-white shadow-xl flex flex-col">
+            <div className="flex items-start justify-between p-5 pb-0">
               <div>
                 <h3 className="font-bold text-charcoal">Move visit #{moveVisit.seq}</h3>
                 <p className="text-xs text-warmgrey mt-0.5">Pick a new date & time for just this visit.</p>
               </div>
               <button onClick={() => setMoveVisit(null)} className="text-warmgrey/70 hover:text-charcoal"><X className="w-4 h-4" /></button>
             </div>
-            <label className="block mt-4">
-              <span className="block text-xs font-semibold text-charcoal mb-1.5">New date & time</span>
-              <input
-                type="datetime-local"
-                step={1800}
-                min={minDt}
-                value={visitAt}
-                onChange={(e) => setVisitAt(e.target.value)}
-                onClick={openPicker}
-                className="w-full rounded-lg border border-lightstone px-3 py-2 text-sm focus:outline-none focus:border-terracotta focus:ring-2 focus:ring-terracotta/25"
-              />
-            </label>
-            {moveError && <p className="mt-2 text-xs text-red-600">{moveError}</p>}
-            <div className="mt-5 flex gap-2">
+            <div className="mt-4 px-5 overflow-y-auto">
+              <DateTimePicker value={visitAt} min={minDt} onChange={setVisitAt} />
+              {moveError && <p className="mt-2 text-xs text-red-600">{moveError}</p>}
+            </div>
+            <div className="p-5 pt-4 flex gap-2">
               <button onClick={() => setMoveVisit(null)} className="flex-1 rounded-full bg-warmlinen hover:bg-lightstone text-charcoal font-semibold py-2.5 text-sm">Back</button>
               <button onClick={onConfirmMoveVisit} disabled={!visitAt || movingVisit} className="flex-1 rounded-full bg-terracotta hover:bg-charcoal disabled:opacity-50 text-white font-semibold py-2.5 text-sm">
                 {movingVisit ? 'Saving…' : 'Confirm'}

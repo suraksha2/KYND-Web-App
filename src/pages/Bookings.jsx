@@ -4,7 +4,7 @@ import { Star, MessageCircle, Calendar, Clock, RotateCcw, SkipForward, Eye, Plus
 import { useBookings } from '../context/BookingsContext'
 import { useAuth } from '../context/AuthContext'
 import { API_BASE } from '../lib/api'
-import { openPicker } from '../lib/openPicker'
+import DateTimePicker from '../components/DateTimePicker'
 
 const SGT = { timeZone: 'Asia/Singapore' }
 const fmtTime = (d) => new Date(d).toLocaleTimeString('en-SG', { hour: 'numeric', minute: '2-digit', ...SGT })
@@ -337,28 +337,19 @@ function UpcomingCard({ booking }) {
 
       {showReschedule && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={() => setShowReschedule(false)}>
-          <div onClick={(e) => e.stopPropagation()} className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl">
-            <div className="flex items-start justify-between">
+          <div onClick={(e) => e.stopPropagation()} className="w-full max-w-md max-h-[92dvh] rounded-2xl bg-white shadow-xl flex flex-col">
+            <div className="flex items-start justify-between p-5 pb-0">
               <div>
                 <h3 className="font-bold text-charcoal">{isRecurring ? 'Move next visit' : 'Reschedule booking'}</h3>
                 <p className="text-xs text-warmgrey mt-0.5">Pick a new date & time.</p>
               </div>
               <button onClick={() => setShowReschedule(false)} className="text-warmgrey/70 hover:text-charcoal"><X className="w-4 h-4" /></button>
             </div>
-            <label className="block mt-4">
-              <span className="block text-xs font-semibold text-charcoal mb-1.5">New date & time</span>
-              <input
-                type="datetime-local"
-                step={1800}
-                min={minDt}
-                value={newAt}
-                onChange={(e) => setNewAt(e.target.value)}
-                onClick={openPicker}
-                className="w-full rounded-lg border border-lightstone px-3 py-2 text-sm focus:outline-none focus:border-terracotta focus:ring-2 focus:ring-terracotta/25"
-              />
-            </label>
-            {rescheduleError && <p className="mt-2 text-xs text-red-600">{rescheduleError}</p>}
-            <div className="mt-5 flex gap-2">
+            <div className="mt-4 px-5 overflow-y-auto">
+              <DateTimePicker value={newAt} min={minDt} onChange={setNewAt} />
+              {rescheduleError && <p className="mt-2 text-xs text-red-600">{rescheduleError}</p>}
+            </div>
+            <div className="p-5 pt-4 flex gap-2">
               <button onClick={() => setShowReschedule(false)} className="flex-1 rounded-full bg-warmlinen hover:bg-lightstone text-charcoal font-semibold py-2.5 text-sm">Back</button>
               <button onClick={onConfirmReschedule} disabled={!newAt || rescheduling} className="flex-1 rounded-full bg-terracotta hover:bg-charcoal disabled:opacity-50 text-white font-semibold py-2.5 text-sm">{rescheduling ? 'Saving\u2026' : 'Confirm'}</button>
             </div>
