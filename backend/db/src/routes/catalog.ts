@@ -1,5 +1,12 @@
-import { Router } from 'express';
+import { Router, type Request } from 'express';
+import { hasAdminAccess } from '../lib/auth';
 import pool from '../lib/mysql';
+import { getSession } from '../http/session';
+import {
+  publicCatalogAddonDto,
+  publicCatalogServiceDto,
+  publicQuoteDto,
+} from '../lib/publicCatalog';
 
 const router = Router();
 
@@ -40,11 +47,12 @@ function rateType(value: any) {
   return s || null;
 }
 
-/**
- * Customer price for a catalog row. A `flat` rule is authoritative — it holds
- * the negotiated listed price; everything else falls back to cost x markup.
- * Mirrors sellPrice() in the storefront's src/lib/catalogServices.js.
- */
+async function isAdminRequest(req: Request) {
+  const session = req.session || await getSession(req);
+  return hasAdminAccess(session?.role);
+}
+
+/** Resolve the customer price before constructing a public catalogue DTO. */
 function sellPrice(service: any): number | null {
   if (service.pricing_strategy === 'flat') {
     const amount = Number(service.pricing_params?.amount);
@@ -456,6 +464,7 @@ router.delete('/subcategories/:id', async (req, res) => {
 
 router.get('/services', async (req, res) => {
   try {
+    const includeInternalPricing = await isAdminRequest(req);
     const filters: string[] = [];
     const params: any[] = [];
     if (req.query.category_id) {
@@ -467,9 +476,8 @@ router.get('/services', async (req, res) => {
       params.push(Number(req.query.subcategory_id));
     }
 
-    // The primary pricing rule carries the authoritative sell price, so the
-    // storefront does not have to re-derive it from cost x markup (which rounds
-    // to a different dollar on some rows).
+    // Keep pricing inputs available for admin responses; public DTOs only
+    // expose the computed customer price.
     const [rows] = await pool.query(
       `SELECT s.id, s.name, s.description, s.image, s.duration, s.worker_count, s.rate_type, s.status,
               s.is_picker_option, s.default_partner_cost, s.markup_pct_override,
@@ -489,14 +497,19 @@ router.get('/services', async (req, res) => {
        ORDER BY s.name`,
       params
     );
-    const data = (rows as any[]).map((s) => ({
-      ...s,
-      pricing_params: safeJson(s.pricing_params, {}),
-      subcategory_is_addon: Boolean(s.subcategory_is_addon),
-      subcategory_home_sizes: safeJson(s.subcategory_home_sizes, null),
-      subcategory_office_pricing: safeJson(s.subcategory_office_pricing, null),
-      is_picker_option: Boolean(s.is_picker_option),
-    }));
+    const data = (rows as any[]).map((s) => {
+      const service = {
+        ...s,
+        pricing_params: safeJson(s.pricing_params, {}),
+        subcategory_is_addon: Boolean(s.subcategory_is_addon),
+        subcategory_home_sizes: safeJson(s.subcategory_home_sizes, null),
+        subcategory_office_pricing: safeJson(s.subcategory_office_pricing, null),
+        is_picker_option: Boolean(s.is_picker_option),
+      };
+      return includeInternalPricing
+        ? service
+        : publicCatalogServiceDto(service, sellPrice(service));
+    });
     return res.status(200).json({ data });
   } catch (err) {
     console.error('[GET /api/catalog/services]', err);
@@ -506,6 +519,7 @@ router.get('/services', async (req, res) => {
 
 router.get('/services/:id', async (req, res) => {
   try {
+    const includeInternalPricing = await isAdminRequest(req);
     const [serviceRows] = await pool.query(
       `SELECT s.*, c.name as category, c.variant_schema, sc.name as subcategory,
               sc.booking_behavior as subcategory_booking_behavior,
@@ -527,7 +541,7 @@ router.get('/services/:id', async (req, res) => {
     const [modeRows] = await pool.query('SELECT * FROM service_booking_modes WHERE service_id = ?', [serviceId]);
     const [pricingRows] = await pool.query('SELECT * FROM service_pricing_rules WHERE service_id = ?', [serviceId]);
     const [addonRows] = await pool.query(
-      `SELECT a.* FROM addons a
+      `SELECT a.id, a.name, a.customer_price, a.partner_cost FROM addons a
        JOIN service_addons sa ON a.id = sa.addon_id
        WHERE sa.service_id = ? OR sa.category_id = (SELECT category_id FROM catalog_services WHERE id = ?)`,
       [serviceId, serviceId]
@@ -542,6 +556,33 @@ router.get('/services/:id', async (req, res) => {
     };
     const parsedPricing = (pricingRows as any[]).map((r) => ({ ...r, params: safeJson(r.params, {}) }));
     const parsedModes = (modeRows as any[]).map((m) => ({ ...m, blackout_dates: safeJson(m.blackout_dates, []) }));
+
+    if (!includeInternalPricing) {
+      const primaryRule = parsedPricing[0];
+      const customerPrice = sellPrice({
+        ...service,
+        pricing_strategy: primaryRule?.strategy,
+        pricing_params: primaryRule?.params,
+      });
+      return res.status(200).json({
+        data: {
+          ...publicCatalogServiceDto(
+            {
+              ...service,
+              category_id: service.category_id,
+              category: service.category,
+              subcategory: service.subcategory,
+              subcategory_booking_behavior: service.subcategory_booking_behavior,
+            },
+            customerPrice
+          ),
+          variant_schema: service.variant_schema,
+          booking_modes: parsedModes,
+          addons: (addonRows as any[]).map(publicCatalogAddonDto),
+          variants: variantRows,
+        },
+      });
+    }
 
     return res.status(200).json({
       data: {
@@ -795,7 +836,7 @@ router.get('/services/:id/addons', async (req, res) => {
     );
 
     const data = [
-      ...(linkedRows as any[]).map((a) => ({
+      ...(linkedRows as any[]).map((a) => publicCatalogAddonDto({
         key: `addon:${a.id}`,
         source: 'addon',
         id: a.id,
@@ -806,7 +847,7 @@ router.get('/services/:id/addons', async (req, res) => {
         rate_type: null,
       })),
       ...(catalogRows as any[])
-        .map((s) => ({
+        .map((s) => publicCatalogAddonDto({
           key: `service:${s.id}`,
           source: 'service',
           id: s.id,
@@ -863,21 +904,13 @@ router.get('/services/:id/quote', async (req, res) => {
     }
     const rule = { ...rules[0], params: safeJson(rules[0].params, {}) };
 
-    const { cost: ruleCost, rate } = computeBaseCost(rule, duration, partySize, startTime);
+    const { cost: ruleCost } = computeBaseCost(rule, duration, partySize, startTime);
 
     if (rule.strategy === 'custom_quote' || (rule.strategy !== 'flat' && ruleCost === null)) {
-      return res.status(200).json({
-        service_id: serviceId,
-        strategy: rule.strategy,
-        cost: null,
-        sell: null,
-      });
+      return res.status(200).json(publicQuoteDto({ serviceId, customerPrice: null }));
     }
 
     const markup = markupPct(service.markup_pct_override);
-    const baseCost = rule.strategy === 'flat'
-      ? (service.default_partner_cost !== null ? Number(service.default_partner_cost) : null)
-      : ruleCost;
     const baseSell = rule.strategy === 'flat'
       ? roundMoney(Number(rule.params?.amount))
       : Math.round(Number(ruleCost) * (1 + markup));
@@ -885,9 +918,8 @@ router.get('/services/:id/quote', async (req, res) => {
       return res.status(400).json({ error: 'No valid customer price configured for this service.' });
     }
 
-    let addonCost = 0;
     let addonSell = 0;
-    const addonItems = [];
+    const addonItems: Array<{ id: number; name: string; customerPrice: number }> = [];
 
     if (addonIdsParam.length > 0) {
       const placeholders = addonIdsParam.map(() => '?').join(',');
@@ -902,29 +934,23 @@ router.get('/services/:id/quote', async (req, res) => {
       );
 
       for (const a of addonRows as any[]) {
-        const cost = Number(a.partner_cost ?? 0);
-        const sell = Number(a.customer_price ?? roundMoney(cost * (1 + markup)));
-        addonCost += cost;
+        const partnerCost = Number(a.partner_cost ?? 0);
+        const sell = Number(a.customer_price ?? roundMoney(partnerCost * (1 + markup)));
         addonSell += sell;
-        addonItems.push({ id: a.id, name: a.name, cost, sell });
+        addonItems.push({ id: a.id, name: a.name, customerPrice: sell });
       }
     }
 
-    const totalCost = roundMoney((baseCost ?? 0) + addonCost);
     const totalSell = Math.round(baseSell + addonSell);
 
-    return res.status(200).json({
-      service_id: serviceId,
-      strategy: rule.strategy,
-      rate,
-      duration_hours: duration,
-      party_size: partySize,
-      start_time: startTime,
-      cost: totalCost,
-      sell: totalSell,
-      markup_pct: (markup * 100),
+    return res.status(200).json(publicQuoteDto({
+      serviceId,
+      customerPrice: totalSell,
+      duration,
+      partySize,
+      startTime,
       addons: addonItems,
-    });
+    }));
   } catch (err) {
     console.error('[GET /api/catalog/services/:id/quote]', err);
     return res.status(500).json({ error: 'Failed to calculate quote.' });

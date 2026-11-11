@@ -29,7 +29,10 @@ export default function BookingConfirmed() {
           credentials: 'include',
         })
         const verify = await verifyRes.json()
-        const ok = verifyRes.ok && ['SUCCEEDED', 'REQUIRES_CAPTURE'].includes(verify.status)
+        const ok = verifyRes.ok
+          && verify.id === pendingOrder.intentId
+          && verify.merchantOrderId === pendingOrder.bookingId
+          && verify.status === 'SUCCEEDED'
 
         if (!ok) {
           throw new Error('Payment could not be verified. Please contact support.')

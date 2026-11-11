@@ -1,9 +1,33 @@
 import { Router } from 'express';
 import { createPaymentIntent, paymentCurrency, AirwallexConfigError, retrievePaymentIntent } from '../lib/airwallex';
-import { getSession } from '../http/session';
+import { requireCustomerSession } from '../http/session';
 import { priceOrder, PricingError } from '../lib/pricing';
 
 const router = Router();
+router.use(requireCustomerSession);
+
+router.post('/quote', async (req, res) => {
+  try {
+    const session = req.session!;
+    const body = req.body || {};
+    const priced = await priceOrder({
+      items: body.items,
+      addOns: body.addOns,
+      schedule: body.schedule,
+      offer: body.offer,
+      referralCode: body.referralCode,
+      userId: session.id,
+      scheduledAt: body.scheduledAt || null,
+    });
+    return res.json(priced);
+  } catch (error: any) {
+    if (error instanceof PricingError) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    console.error('[POST /api/payments/quote]', error);
+    return res.status(500).json({ error: 'Failed to price this order.' });
+  }
+});
 
 /**
  * Creates an Airwallex PaymentIntent for a checkout.
@@ -13,15 +37,19 @@ const router = Router();
  */
 router.post('/create-intent', async (req, res) => {
   try {
-    const session = await getSession(req);
-    if (!session) {
-      return res.status(401).json({ error: 'Authentication required.' });
-    }
+    const session = req.session!;
 
     const body = req.body || {};
-    const { merchantOrderId, metadata, returnUrl, items, addOns, schedule, offer } = body;
+    const {
+      merchantOrderId, metadata, returnUrl, items, addOns, schedule, offer,
+      referralCode,
+    } = body;
 
-    if (!merchantOrderId || typeof merchantOrderId !== 'string' || merchantOrderId.length > 128) {
+    if (
+      typeof merchantOrderId !== 'string'
+      || !merchantOrderId.trim()
+      || merchantOrderId.length > 50
+    ) {
       return res.status(400).json({ error: '"merchantOrderId" is required.' });
     }
     if (!Array.isArray(items) || !items.length) {
@@ -33,6 +61,7 @@ router.post('/create-intent', async (req, res) => {
       addOns,
       schedule,
       offer,
+      referralCode,
       userId: session.id,
       scheduledAt: body.scheduledAt || null,
     });
@@ -40,7 +69,7 @@ router.post('/create-intent', async (req, res) => {
     const intent = await createPaymentIntent({
       amount: priced.total,
       currency: paymentCurrency,
-      merchantOrderId,
+      merchantOrderId: merchantOrderId.trim(),
       metadata: {
         ...(metadata && typeof metadata === 'object' ? metadata : {}),
         userId: String(session.id),
@@ -58,6 +87,8 @@ router.post('/create-intent', async (req, res) => {
       currency: intent.currency,
       pricedTotal: priced.total,
       discount: priced.discount,
+      items: priced.items,
+      addOns: priced.addOns,
     });
   } catch (error: any) {
     console.error('[POST /api/payments/create-intent]', error);
@@ -77,10 +108,7 @@ router.post('/create-intent', async (req, res) => {
  */
 router.get('/:id', async (req, res) => {
   try {
-    const session = await getSession(req);
-    if (!session) {
-      return res.status(401).json({ error: 'Authentication required.' });
-    }
+    const session = req.session!;
 
     const id = req.params.id;
     if (!id || typeof id !== 'string' || id.length > 128) {
@@ -88,10 +116,13 @@ router.get('/:id', async (req, res) => {
     }
 
     const intent = await retrievePaymentIntent(id);
+    if (String(intent.id || '') !== id) {
+      return res.status(404).json({ error: 'Payment intent not found.' });
+    }
 
     const meta = (intent as any)?.metadata || {};
     const metaUserId = meta.userId != null ? Number(meta.userId) : null;
-    if (metaUserId != null && Number.isFinite(metaUserId) && metaUserId !== Number(session.id)) {
+    if (metaUserId == null || !Number.isFinite(metaUserId) || metaUserId !== Number(session.id)) {
       return res.status(403).json({ error: 'Payment intent not found.' });
     }
 

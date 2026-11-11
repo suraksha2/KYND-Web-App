@@ -80,14 +80,19 @@ router.get('/', async (req, res) => {
          FROM bookings b
          LEFT JOIN users u ON b.user_id = u.id
          LEFT JOIN jobs vj ON b.vendor_job_id = vj.id
-         WHERE (b.provider_id = ? OR vj.assignee_provider_id = ?)
+         WHERE ((COALESCE(b.schedule, '') <> 'recurring' AND b.provider_id = ?)
+             OR (b.schedule = 'recurring' AND EXISTS (
+               SELECT 1 FROM booking_occurrences o
+                WHERE o.booking_id = b.id AND o.provider_id = ? AND o.status = 'upcoming'
+             ))
+             OR vj.assignee_provider_id = ?)
            AND b.status IN ('upcoming', 'completed')
          ORDER BY COALESCE(
            (SELECT m.created_at FROM messages m WHERE m.booking_id = b.id ORDER BY m.created_at DESC LIMIT 1),
            b.scheduled_at,
            b.placed_at
          ) DESC`,
-        [session.id, session.id]
+        [session.id, session.id, session.id]
       );
       conversations = rows;
     } else {
@@ -237,11 +242,15 @@ router.post('/:bookingId', async (req, res) => {
 
     // Verify the user has access to this booking
     const [bookingRows]: any = await pool.query(
-      `SELECT b.user_id, b.provider_id, b.status, j.assignee_provider_id
+      `SELECT b.user_id, b.provider_id, b.status, b.schedule, j.assignee_provider_id,
+              EXISTS (
+                SELECT 1 FROM booking_occurrences o
+                 WHERE o.booking_id = b.id AND o.provider_id = ? AND o.status = 'upcoming'
+              ) AS has_assigned_upcoming_visit
          FROM bookings b
          LEFT JOIN jobs j ON b.vendor_job_id = j.id
         WHERE b.id = ?`,
-      [bookingId]
+      [session.id, bookingId]
     );
 
     if (!bookingRows || bookingRows.length === 0) {
@@ -262,9 +271,12 @@ router.post('/:bookingId', async (req, res) => {
     if (session.role === 'user' && Number(booking.user_id) === Number(session.id)) {
       senderType = 'customer';
       senderId = session.id;
-    } else if (session.role === 'provider' &&
-               (Number(booking.provider_id) === Number(session.id) ||
-                Number(booking.assignee_provider_id) === Number(session.id))) {
+    } else if (session.role === 'provider' && (
+      (booking.schedule === 'recurring'
+        ? Boolean(Number(booking.has_assigned_upcoming_visit))
+        : Number(booking.provider_id) === Number(session.id)) ||
+      Number(booking.assignee_provider_id) === Number(session.id)
+    )) {
       senderType = 'provider';
       senderId = session.id;
     } else if (hasAdminAccess(session.role)) {

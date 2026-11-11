@@ -1,7 +1,9 @@
 import { Router } from 'express';
 import { timingSafeEqual } from 'node:crypto';
 // Later multi-vendor stage (expire-offers): import pool from '../lib/mysql';
-import { findDueOccurrences, markNotified, topUpOccurrences } from '../lib/occurrences';
+import {
+  findDueOccurrences, markNotified, topUpOccurrences, reconcileMissingOccurrences,
+} from '../lib/occurrences';
 import { findMissedBookings, findMissedOccurrences, markMissedNotified } from '../lib/missed';
 import { sendProviderAssignmentWhatsApp, sendMissedJobsWhatsApp } from '../lib/whatsapp';
 import { runVendorPayoutBatch } from '../lib/payouts';
@@ -40,6 +42,7 @@ router.post('/dispatch-due', async (req, res) => {
   }
 
   const withinHours = Math.min(Math.max(Number(req.body?.withinHours) || 24, 1), 168);
+  const occurrencesReconciled = await reconcileMissingOccurrences();
   const due = await findDueOccurrences(withinHours);
 
   let notified = 0;
@@ -135,6 +138,7 @@ router.post('/dispatch-due', async (req, res) => {
     notified,
     failed: failures.length,
     occurrencesAdded: added,
+    occurrencesReconciled,
     missedAlerted,
   });
 });

@@ -1,8 +1,13 @@
 import { Router } from 'express';
+import type { PoolConnection } from 'mysql2/promise';
 import pool from '../lib/mysql';
 import { sendProviderAssignmentWhatsApp } from '../lib/whatsapp';
 import { hasAdminAccess } from '../lib/auth';
-import { getSession } from '../http/session';
+import {
+  getSession,
+  requireCustomerOrAdminSession,
+  requireCustomerSession,
+} from '../http/session';
 import { handleBookingAssignment } from '../lib/bookingAssignment';
 import { normalizeRecurrence } from '../lib/recurrence';
 import { createOccurrences, withOccurrences, topUpOccurrences } from '../lib/occurrences';
@@ -63,7 +68,7 @@ async function notifyProviderAssignment(bookingDbId: number, providerId: number)
   });
 }
 
-router.post('/', async (req, res) => {
+router.post('/', requireCustomerSession, async (req, res) => {
   try {
     const body = req.body;
     const {
@@ -85,7 +90,10 @@ router.post('/', async (req, res) => {
     // Never trust client-supplied booking status — new bookings always start upcoming.
     const status = 'upcoming';
 
-    if (!bookingId || !items || !contact || !payment) {
+    if (
+      typeof bookingId !== 'string' || !bookingId.trim() || bookingId.length > 50
+      || !items || !contact || !payment
+    ) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
@@ -113,20 +121,13 @@ router.post('/', async (req, res) => {
     if (!session) return res.status(401).json({ error: 'Authentication required.' });
     const userId = session.id;
 
-    const [existingRef]: any = await pool.query(
-      'SELECT id FROM bookings WHERE booking_id = ? LIMIT 1',
-      [bookingId]
-    );
-    if (existingRef?.length) {
-      return res.status(409).json({ error: 'This booking reference already exists.' });
-    }
-
     // Server-side pricing — ignore client total / item prices.
     const priced = await priceOrder({
       items,
       addOns,
       schedule,
       offer,
+      referralCode,
       userId,
       scheduledAt: scheduledAt || null,
     });
@@ -165,50 +166,6 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ error: 'Payment intent is only valid for card bookings.' });
     }
 
-    const [result] = await pool.query(
-      `INSERT INTO bookings (
-        booking_id, items, total, schedule, scheduled_at, cadence, recurrence,
-        contact_name, contact_phone, contact_address, contact_city, contact_pincode, contact_area,
-        notes, payment, referral_code, payment_intent_id, placed_at, status, history, user_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        bookingId,
-        JSON.stringify([
-          ...pricedItems,
-          ...pricedAddOns.map((a) => ({
-            slug: a.serviceId ? `addon-service-${a.serviceId}` : `addon-${a.id}`,
-            name: a.name,
-            priceFrom: a.price,
-            qty: 1,
-            ...(a.serviceId
-              ? { addonServiceId: a.serviceId, catalogId: a.serviceId }
-              : { addonId: a.id }),
-          })),
-        ]),
-        total,
-        schedule,
-        sgtDateTime(firstVisit),
-        plan?.cadence || cadence || null,
-        plan ? JSON.stringify(plan) : null,
-        contact.name,
-        contact.phone,
-        contact.address,
-        contact.city,
-        contact.pincode,
-        contact.area || null,
-        trimmedNotes || null,
-        payment,
-        referralCode || null,
-        storedPaymentIntentId,
-        sgtDateTime(placedAt),
-        status,
-        JSON.stringify([{ at: sgtDateTime(placedAt), type: 'created', note: 'Booking placed' }]),
-        userId
-      ]
-    );
-
-    const bookingDbId = (result as any).insertId;
-
     // Direct assignment for the current single-vendor stage. Every booked
     // service must match the worker's skills; never fall back to an unskilled
     // or busy worker.
@@ -218,6 +175,7 @@ router.post('/', async (req, res) => {
     const durationMin = bookingDurationMinutes(itemList);
     let provider: any = null;
     const conn = await pool.getConnection();
+    let bookingDbId: number;
     try {
       await conn.beginTransaction();
       // Lock the city's eligible roster before checking schedules so concurrent
@@ -228,10 +186,59 @@ router.post('/', async (req, res) => {
            LEFT JOIN vendors v ON v.id = sp.vendor_id
           WHERE LOWER(sp.city) = LOWER(?) AND sp.status = 'active'
             AND (sp.vendor_id IS NULL OR v.status = 'active')
-          ORDER BY sp.total_jobs ASC, sp.rating DESC, sp.id ASC
+          ORDER BY sp.id ASC
           FOR UPDATE`,
         [contact.city]
       );
+      // Acquire roster locks in id order, then retain the existing assignment
+      // preference without making lock acquisition depend on changing ratings.
+      rows.sort((a: any, b: any) =>
+        Number(a.total_jobs || 0) - Number(b.total_jobs || 0)
+        || Number(b.rating || 0) - Number(a.rating || 0)
+        || Number(a.id) - Number(b.id)
+      );
+      const [result] = await conn.query(
+        `INSERT INTO bookings (
+          booking_id, items, total, schedule, scheduled_at, cadence, recurrence,
+          contact_name, contact_phone, contact_address, contact_city, contact_pincode, contact_area,
+          notes, payment, referral_code, payment_intent_id, placed_at, status, history, user_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          bookingId,
+          JSON.stringify([
+            ...pricedItems,
+            ...pricedAddOns.map((a) => ({
+              slug: a.serviceId ? `addon-service-${a.serviceId}` : `addon-${a.id}`,
+              name: a.name,
+              priceFrom: a.price,
+              qty: 1,
+              ...(a.serviceId
+                ? { addonServiceId: a.serviceId, catalogId: a.serviceId }
+                : { addonId: a.id }),
+            })),
+          ]),
+          total,
+          schedule,
+          sgtDateTime(firstVisit),
+          plan?.cadence || cadence || null,
+          plan ? JSON.stringify(plan) : null,
+          contact.name,
+          contact.phone,
+          contact.address,
+          contact.city,
+          contact.pincode,
+          contact.area || null,
+          trimmedNotes || null,
+          payment,
+          priced.referralCode,
+          storedPaymentIntentId,
+          sgtDateTime(placedAt),
+          status,
+          JSON.stringify([{ at: sgtDateTime(placedAt), type: 'created', note: 'Booking placed' }]),
+          userId
+        ]
+      );
+      bookingDbId = (result as any).insertId;
       const [[savedBooking]]: any = await conn.query('SELECT id, items, total FROM bookings WHERE id = ? FOR UPDATE', [bookingDbId]);
       const approved = new Map<number, boolean>();
       const candidates: any[] = [];
@@ -313,17 +320,23 @@ router.post('/', async (req, res) => {
     if (error instanceof PaymentVerificationError) {
       return res.status(error.status).json({ error: error.message });
     }
+    if ((error as any)?.code === 'ER_DUP_ENTRY') {
+      const key = String((error as any)?.sqlMessage || (error as any)?.message || '');
+      const reusedIntent = key.includes('idx_bookings_payment_intent');
+      return res.status(409).json({
+        error: reusedIntent
+          ? 'This payment has already been used for a booking.'
+          : 'This booking reference has already been used.',
+      });
+    }
     console.error('[POST /api/bookings]', error);
     return res.status(500).json({ error: 'Failed to create booking' });
   }
 });
 
-router.get('/', async (req, res) => {
+router.get('/', requireCustomerOrAdminSession, async (req, res) => {
   try {
-    const session = await getSession(req);
-    if (!session) {
-      return res.status(401).json({ error: 'Authentication required.' });
-    }
+    const session = req.session!;
 
     // Vendor-claimed bookings carry provider_id NULL (the marketplace slot is
     // released on offer accept), so resolve the assignee through the vendor
@@ -374,7 +387,7 @@ router.get('/', async (req, res) => {
 });
 
 // PATCH cancel / reschedule booking (for clients)
-router.patch('/:id', async (req, res) => {
+router.patch('/:id', requireCustomerOrAdminSession, async (req, res) => {
   try {
     const body = req.body;
     const { status, reason, scheduledAt } = body;
@@ -386,7 +399,7 @@ router.patch('/:id', async (req, res) => {
 
     // Customers may only touch their own bookings; admins may touch any.
     const [ownerRows]: any = await pool.query(
-      'SELECT user_id FROM bookings WHERE id = ?',
+      'SELECT user_id, contact_city FROM bookings WHERE id = ?',
       [req.params.id]
     );
     if (!ownerRows || ownerRows.length === 0) {
@@ -398,40 +411,108 @@ router.patch('/:id', async (req, res) => {
 
     // Reschedule booking
     if (scheduledAt) {
-      const [rows]: any = await pool.query(
-        'SELECT id, history, scheduled_at FROM bookings WHERE id = ?',
-        [req.params.id]
-      );
-
-      if (!rows || rows.length === 0) {
-        return res.status(404).json({ error: 'Booking not found.' });
+      const newDate = new Date(scheduledAt);
+      if (Number.isNaN(newDate.getTime()) || newDate.getTime() <= Date.now()) {
+        return res.status(400).json({ error: 'New date & time must be in the future.' });
       }
 
-      const booking = rows[0];
-
-      let history: any[] = [];
+      let db: PoolConnection | undefined;
       try {
-        history = typeof booking.history === 'string'
-          ? JSON.parse(booking.history)
-          : (booking.history || []);
-        if (!Array.isArray(history)) history = [];
-      } catch {
-        history = [];
+        db = await pool.getConnection();
+        await db.beginTransaction();
+
+        // Use the same roster lock as automatic assignment so a new booking
+        // cannot claim this provider between the availability check and save.
+        const [roster]: any = await db.query(
+          `SELECT sp.id, sp.vendor_id, sp.name, sp.status, sp.city, sp.working_hours,
+                  sp.total_jobs, sp.rating
+             FROM service_providers sp
+             LEFT JOIN vendors v ON v.id = sp.vendor_id
+            WHERE LOWER(sp.city) = LOWER(?) AND sp.status = 'active'
+              AND (sp.vendor_id IS NULL OR v.status = 'active')
+            ORDER BY sp.id ASC
+            FOR UPDATE`,
+          [ownerRows[0].contact_city]
+        );
+        const [lockedRows]: any = await db.query(
+          `SELECT id, user_id, schedule, status, provider_id, vendor_id, vendor_job_id,
+                  items, contact_city, history
+             FROM bookings WHERE id = ? FOR UPDATE`,
+          [req.params.id]
+        );
+        const booking = lockedRows[0];
+        if (!booking) {
+          await db.rollback();
+          return res.status(404).json({ error: 'Booking not found.' });
+        }
+        if (!hasAdminAccess(session.role) && Number(booking.user_id) !== Number(session.id)) {
+          await db.rollback();
+          return res.status(403).json({ error: 'You can only modify your own bookings.' });
+        }
+        if (String(booking.contact_city).toLowerCase() !== String(ownerRows[0].contact_city).toLowerCase()) {
+          await db.rollback();
+          return res.status(409).json({ error: 'The booking location changed. Refresh and try again.' });
+        }
+        if (booking.status !== 'upcoming') {
+          await db.rollback();
+          return res.status(409).json({ error: 'Only an upcoming booking can be rescheduled.' });
+        }
+        if (booking.schedule === 'recurring') {
+          await db.rollback();
+          return res.status(409).json({ error: 'Reschedule a recurring visit individually.' });
+        }
+        if (booking.vendor_id || booking.vendor_job_id) {
+          await db.rollback();
+          return res.status(409).json({ error: 'This booking is managed by its vendor and cannot be rescheduled here.' });
+        }
+
+        const newSgt = sgtDateTime(newDate);
+        if (!newSgt) {
+          await db.rollback();
+          return res.status(400).json({ error: 'Invalid booking time.' });
+        }
+        if (booking.provider_id) {
+          const provider = roster.find((p: any) => Number(p.id) === Number(booking.provider_id));
+          if (!provider) {
+            await db.rollback();
+            return res.status(409).json({ error: 'The assigned provider is no longer available. Contact support to reassign this booking.' });
+          }
+          const conflicts = await loadProviderSchedule(
+            [Number(provider.id)], [newSgt.slice(0, 10)], db, -1, Number(booking.id)
+          );
+          const items = typeof booking.items === 'string' ? JSON.parse(booking.items) : booking.items;
+          if (!isFreeAt(
+            provider, providerWorkingHours(provider), newDate, bookingDurationMinutes(items), conflicts
+          )) {
+            await db.rollback();
+            return res.status(409).json({ error: 'The assigned provider is not available at that time. Choose another time.' });
+          }
+        }
+
+        const entry = JSON.stringify({
+          at: sgtDateTime(new Date()),
+          type: 'rescheduled',
+          note: `Rescheduled to ${newSgt}`,
+        });
+        const [updated]: any = await db.query(
+          `UPDATE bookings
+              SET scheduled_at = ?, schedule = 'scheduled',
+                  history = JSON_ARRAY_APPEND(COALESCE(history, JSON_ARRAY()), '$', JSON_EXTRACT(?, '$'))
+            WHERE id = ? AND status = 'upcoming'`,
+          [newSgt, entry, req.params.id]
+        );
+        if (!updated.affectedRows) {
+          await db.rollback();
+          return res.status(409).json({ error: 'The booking changed. Refresh and try again.' });
+        }
+        await db.commit();
+        return res.status(200).json({ success: true, scheduledAt: newSgt });
+      } catch (error) {
+        if (db) await db.rollback();
+        throw error;
+      } finally {
+        db?.release();
       }
-
-      const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
-      history.push({
-        at: now,
-        type: 'rescheduled',
-        note: `Rescheduled to ${sgtDateTime(scheduledAt)}`,
-      });
-
-      await pool.query(
-        'UPDATE bookings SET scheduled_at = ?, schedule = ?, history = ? WHERE id = ?',
-        [sgtDateTime(scheduledAt), 'scheduled', JSON.stringify(history), req.params.id]
-      );
-
-      return res.status(200).json({ success: true, scheduledAt: sgtDateTime(scheduledAt) });
     }
 
     if (!status || status !== 'cancelled') {
@@ -516,7 +597,7 @@ router.put('/:id', handleBookingAssignment);
 // first visit) and does not reach `booking_occurrences`, so a customer
 // managing an in-progress series needs this to retime or skip one visit
 // without disturbing the rest of the plan.
-router.patch('/:id/occurrences/:occId', async (req, res) => {
+router.patch('/:id/occurrences/:occId', requireCustomerOrAdminSession, async (req, res) => {
   try {
     const { scheduledAt, status } = req.body;
     const bookingDbId = Number(req.params.id);
@@ -531,7 +612,7 @@ router.patch('/:id/occurrences/:occId', async (req, res) => {
     }
 
     const [bookingRows]: any = await pool.query(
-      'SELECT id, user_id, schedule, items, history FROM bookings WHERE id = ?',
+      'SELECT id, user_id, schedule, items, history, contact_city FROM bookings WHERE id = ?',
       [bookingDbId]
     );
     if (!bookingRows?.length) {
@@ -590,67 +671,142 @@ router.patch('/:id/occurrences/:occId', async (req, res) => {
       return res.status(400).json({ error: 'New date & time must be in the future.' });
     }
 
-    // Keep the series chronological: topUpOccurrences steps forward from the
-    // last seq's date, so a visit moved out of order would desync the plan.
-    const [neighbourRows]: any = await pool.query(
-      `SELECT seq, scheduled_at FROM booking_occurrences WHERE booking_id = ? AND seq IN (?, ?)`,
-      [bookingDbId, occurrence.seq - 1, occurrence.seq + 1]
-    );
-    const prev = neighbourRows.find((r: any) => r.seq === occurrence.seq - 1);
-    const next = neighbourRows.find((r: any) => r.seq === occurrence.seq + 1);
-    if (prev && newDate.getTime() <= parseSgt(prev.scheduled_at)!.getTime()) {
-      return res.status(400).json({ error: `New time must be after the previous visit (${sgtDateTime(prev.scheduled_at)}).` });
-    }
-    if (next && newDate.getTime() >= parseSgt(next.scheduled_at)!.getTime()) {
-      return res.status(400).json({ error: `New time must be before the following visit (${sgtDateTime(next.scheduled_at)}).` });
-    }
+    let db: PoolConnection | undefined;
+    try {
+      db = await pool.getConnection();
+      await db.beginTransaction();
 
-    const newSgt = sgtDateTime(newDate)!;
-    const newSgtDate = newSgt.split(' ')[0];
-
-    // Re-check the assigned provider is still free at the new time; if not,
-    // unassign the visit so dispatch/admin can find someone else instead of
-    // silently leaving a double-booked provider.
-    let providerId: number | null = occurrence.provider_id;
-    if (providerId) {
-      const [providerRows]: any = await pool.query(
-        'SELECT id, working_hours FROM service_providers WHERE id = ?',
-        [providerId]
+      // Match the assignment lock order. New bookings and reschedules now
+      // serialize on the provider roster before checking recurring visits.
+      const [roster]: any = await db.query(
+        `SELECT sp.id, sp.name, sp.status, sp.city, sp.working_hours,
+                sp.vendor_id, sp.total_jobs, sp.rating
+           FROM service_providers sp
+           LEFT JOIN vendors v ON v.id = sp.vendor_id
+          WHERE LOWER(sp.city) = LOWER(?) AND sp.status = 'active'
+            AND (sp.vendor_id IS NULL OR v.status = 'active')
+          ORDER BY sp.id ASC
+          FOR UPDATE`,
+        [booking.contact_city]
       );
-      const provider = providerRows?.[0];
-      if (provider) {
-        const itemList = typeof booking.items === 'string' ? JSON.parse(booking.items) : booking.items;
-        const durationMin = bookingDurationMinutes(itemList);
-        const conflicts = await loadProviderSchedule([providerId], [newSgtDate], pool, occId);
-        const hours = providerWorkingHours(provider);
-        if (!isFreeAt(provider, hours, newDate, durationMin, conflicts)) {
+      const [lockedBookings]: any = await db.query(
+        `SELECT id, user_id, schedule, status, items, history, contact_city
+           FROM bookings WHERE id = ? FOR UPDATE`,
+        [bookingDbId]
+      );
+      const lockedBooking = lockedBookings[0];
+      if (!lockedBooking) {
+        await db.rollback();
+        return res.status(404).json({ error: 'Booking not found.' });
+      }
+      if (!hasAdminAccess(session.role) && Number(lockedBooking.user_id) !== Number(session.id)) {
+        await db.rollback();
+        return res.status(403).json({ error: 'You can only modify your own bookings.' });
+      }
+      if (String(lockedBooking.contact_city).toLowerCase() !== String(booking.contact_city).toLowerCase()) {
+        await db.rollback();
+        return res.status(409).json({ error: 'The booking location changed. Refresh and try again.' });
+      }
+      if (lockedBooking.schedule !== 'recurring' || lockedBooking.status !== 'upcoming') {
+        await db.rollback();
+        return res.status(409).json({ error: 'This recurring booking changed. Refresh and try again.' });
+      }
+
+      const [lockedOccurrences]: any = await db.query(
+        `SELECT id, seq, status, provider_id,
+                DATE_FORMAT(scheduled_at, '%Y-%m-%d %H:%i:%s') AS scheduled_at
+           FROM booking_occurrences
+          WHERE id = ? AND booking_id = ? FOR UPDATE`,
+        [occId, bookingDbId]
+      );
+      const lockedOccurrence = lockedOccurrences[0];
+      if (!lockedOccurrence || lockedOccurrence.status !== 'upcoming') {
+        await db.rollback();
+        return res.status(409).json({ error: 'Only an upcoming visit can be rescheduled.' });
+      }
+
+      // Keep the series chronological: top-ups step forward from the final visit.
+      const [neighbourRows]: any = await db.query(
+        `SELECT seq, DATE_FORMAT(scheduled_at, '%Y-%m-%d %H:%i:%s') AS scheduled_at
+           FROM booking_occurrences WHERE booking_id = ? AND seq IN (?, ?)`,
+        [bookingDbId, lockedOccurrence.seq - 1, lockedOccurrence.seq + 1]
+      );
+      const prev = neighbourRows.find((r: any) => r.seq === lockedOccurrence.seq - 1);
+      const next = neighbourRows.find((r: any) => r.seq === lockedOccurrence.seq + 1);
+      if (prev && newDate.getTime() <= parseSgt(prev.scheduled_at)!.getTime()) {
+        await db.rollback();
+        return res.status(400).json({ error: `New time must be after the previous visit (${prev.scheduled_at}).` });
+      }
+      if (next && newDate.getTime() >= parseSgt(next.scheduled_at)!.getTime()) {
+        await db.rollback();
+        return res.status(400).json({ error: `New time must be before the following visit (${next.scheduled_at}).` });
+      }
+
+      const newSgt = sgtDateTime(newDate);
+      if (!newSgt) {
+        await db.rollback();
+        return res.status(400).json({ error: 'Invalid booking time.' });
+      }
+
+      let providerId: number | null = lockedOccurrence.provider_id;
+      if (providerId) {
+        const provider = roster.find((p: any) => Number(p.id) === Number(providerId));
+        if (provider) {
+          const itemList = typeof lockedBooking.items === 'string'
+            ? JSON.parse(lockedBooking.items)
+            : lockedBooking.items;
+          const conflicts = await loadProviderSchedule(
+            [Number(providerId)], [newSgt.slice(0, 10)], db, occId
+          );
+          if (!isFreeAt(
+            provider,
+            providerWorkingHours(provider),
+            newDate,
+            bookingDurationMinutes(itemList),
+            conflicts
+          )) {
+            providerId = null;
+          }
+        } else {
           providerId = null;
         }
-      } else {
-        providerId = null;
       }
+
+      const [updated]: any = await db.query(
+        `UPDATE booking_occurrences
+            SET scheduled_at = ?, provider_id = ?, notified_at = NULL, missed_notified_at = NULL
+          WHERE id = ? AND status = 'upcoming'`,
+        [newSgt, providerId, occId]
+      );
+      if (!updated.affectedRows) {
+        await db.rollback();
+        return res.status(409).json({ error: 'The visit changed. Refresh and try again.' });
+      }
+      const entry = JSON.stringify({
+        at: sgtDateTime(new Date()),
+        type: 'visit_rescheduled',
+        note: `Visit #${lockedOccurrence.seq} moved from ${lockedOccurrence.scheduled_at} to ${newSgt}`,
+      });
+      await db.query(
+        `UPDATE bookings
+            SET history = JSON_ARRAY_APPEND(COALESCE(history, JSON_ARRAY()), '$', JSON_EXTRACT(?, '$'))
+          WHERE id = ?`,
+        [entry, bookingDbId]
+      );
+      await db.commit();
+
+      return res.status(200).json({
+        success: true,
+        scheduledAt: newSgt,
+        providerId,
+        reassignNeeded: !!(lockedOccurrence.provider_id && !providerId),
+      });
+    } catch (error) {
+      if (db) await db.rollback();
+      throw error;
+    } finally {
+      db?.release();
     }
-
-    await pool.query(
-      `UPDATE booking_occurrences
-          SET scheduled_at = ?, provider_id = ?, notified_at = NULL, missed_notified_at = NULL
-        WHERE id = ?`,
-      [newSgt, providerId, occId]
-    );
-
-    history.push({
-      at: sgtDateTime(new Date()),
-      type: 'visit_rescheduled',
-      note: `Visit #${occurrence.seq} moved from ${sgtDateTime(occurrence.scheduled_at)} to ${newSgt}`,
-    });
-    await pool.query('UPDATE bookings SET history = ? WHERE id = ?', [JSON.stringify(history), bookingDbId]);
-
-    return res.status(200).json({
-      success: true,
-      scheduledAt: newSgt,
-      providerId,
-      reassignNeeded: !!(occurrence.provider_id && !providerId),
-    });
   } catch (error) {
     console.error('[PATCH /api/bookings/:id/occurrences/:occId]', error);
     return res.status(500).json({ error: 'Failed to update visit.' });

@@ -32,6 +32,42 @@ export function getSession(req: Request): Promise<SessionPayload | null> {
   return verifySessionToken(getSessionToken(req));
 }
 
+export async function requireCustomerSession(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  const session = req.session || await getSession(req);
+  if (!session) {
+    res.status(401).json({ error: 'Authentication required.' });
+    return;
+  }
+  if (session.role !== 'user') {
+    res.status(403).json({ error: 'Customer access required.' });
+    return;
+  }
+  req.session = session;
+  next();
+}
+
+export async function requireCustomerOrAdminSession(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  const session = req.session || await getSession(req);
+  if (!session) {
+    res.status(401).json({ error: 'Authentication required.' });
+    return;
+  }
+  if (session.role !== 'user' && !hasAdminAccess(session.role)) {
+    res.status(403).json({ error: 'Customer or admin access required.' });
+    return;
+  }
+  req.session = session;
+  next();
+}
+
 export function setSessionCookie(res: Response, token: string): void {
   res.cookie(SESSION_COOKIE_NAME, token, {
     httpOnly: true,
@@ -130,6 +166,9 @@ export async function apiAuthGate(req: Request, res: Response, next: NextFunctio
   req.session = session;
 
   if (!hasAdminAccess(session.role)) {
+    if (session.role !== 'user') {
+      return res.status(403).json({ error: 'Customer access required.' });
+    }
     // Customers can read their own bookings; the route filters by user_id.
     if (pathname === '/bookings' && req.method === 'GET') return next();
     // Customers can place new bookings for themselves.
@@ -141,6 +180,7 @@ export async function apiAuthGate(req: Request, res: Response, next: NextFunctio
     // the route verifies ownership before touching the occurrence.
     if (req.method === 'PATCH' && /^\/bookings\/[^/]+\/occurrences\/[^/]+$/.test(pathname)) return next();
     // Checkout: create/verify payment intents (handlers also check session).
+    if (pathname === '/payments/quote' && req.method === 'POST') return next();
     if (pathname === '/payments/create-intent' && req.method === 'POST') return next();
     if (req.method === 'GET' && /^\/payments\/[^/]+$/.test(pathname)) return next();
     // Customers submit reviews for their own bookings.

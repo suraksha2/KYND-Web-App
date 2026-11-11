@@ -2,7 +2,9 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import pool from '../lib/mysql';
 import { createSessionToken } from '../lib/auth';
-import { clearSessionCookie, getSession, setSessionCookie } from '../http/session';
+import {
+  clearSessionCookie, getSession, requireCustomerSession, setSessionCookie,
+} from '../http/session';
 
 const router = Router();
 
@@ -199,7 +201,7 @@ router.post('/signup', async (req, res) => {
   }
 });
 
-router.get('/referral-code', async (req, res) => {
+router.get('/referral-code', requireCustomerSession, async (req, res) => {
   try {
     const session = await getSession(req);
     if (!session) {
@@ -416,7 +418,7 @@ router.post('/reset-password', async (_req, res) => {
   });
 });
 
-router.post('/change-password', async (req, res) => {
+router.post('/change-password', requireCustomerSession, async (req, res) => {
   try {
     const session = await getSession(req);
     if (!session) {
@@ -475,7 +477,7 @@ router.post('/change-password', async (req, res) => {
   }
 });
 
-router.put('/update-profile', async (req, res) => {
+router.put('/update-profile', requireCustomerSession, async (req, res) => {
   try {
     const session = await getSession(req);
     if (!session) {

@@ -73,15 +73,12 @@ function UserRating({ booking }) {
   const [hover, setHover] = useState(0)
   const [comment, setComment] = useState('')
   const [submitting, setSubmitting] = useState(false)
-  const [submitted, setSubmitted] = useState(saved > 0)
+  const [submitted, setSubmitted] = useState(false)
   const [providerRating, setProviderRating] = useState(null)
 
   const handle = (value) => {
     setRating(value)
     setSubmitted(false)
-    const all = getUserRatings()
-    all[booking.bookingId] = value
-    setUserRatings(all)
   }
 
   const submit = async () => {
@@ -99,6 +96,9 @@ function UserRating({ booking }) {
       })
       if (res.ok) {
         const data = await res.json()
+        const all = getUserRatings()
+        all[booking.bookingId] = rating
+        setUserRatings(all)
         setSubmitted(true)
         setProviderRating(data.providerRating ?? null)
       } else {
@@ -400,6 +400,9 @@ function PastCard({ booking }) {
   if (hasUpcomingOccurrences) return null
   
   const isCancelled = booking.status === 'cancelled' || (isRecurring && Array.isArray(booking.occurrences) && booking.occurrences.some(o => o.status === 'cancelled'))
+  const isReviewable = isRecurring
+    ? booking.occurrences?.some(o => o.status === 'completed')
+    : booking.status === 'completed'
   const date = isCancelled && booking.cancelledAt
     ? fmtShortDay(booking.cancelledAt)
     : fmtShortDay(booking.placedAt)
@@ -415,7 +418,7 @@ function PastCard({ booking }) {
         <div className="flex-1 min-w-0">
           <h3 className="font-heading text-lg font-bold text-charcoal">{firstItem?.name || 'Service'}</h3>
           <p className="mt-1 text-sm text-warmgrey">{providerName} · S${booking.total}</p>
-          {isCancelled ? (
+          {isCancelled && (
             <div className="mt-2">
               <span className="inline-flex items-center gap-1.5 rounded-full bg-red-50 text-red-700 ring-1 ring-red-100 px-2.5 py-1 text-xs font-semibold">
                 <X className="w-3.5 h-3.5" /> {cancelledByLabel(booking.cancelledBy)}
@@ -424,11 +427,8 @@ function PastCard({ booking }) {
                 <p className="mt-1.5 text-xs text-warmgrey break-words">“{booking.cancelReason}”</p>
               )}
             </div>
-          ) : (
-            <div className="mt-1">
-              <UserRating booking={booking} />
-            </div>
           )}
+          {isReviewable && <div className="mt-1"><UserRating booking={booking} /></div>}
         </div>
         <span className="shrink-0 text-xs font-bold text-warmgrey uppercase tracking-wide">{date}</span>
       </div>

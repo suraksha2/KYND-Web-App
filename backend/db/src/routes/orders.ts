@@ -56,13 +56,32 @@ router.patch('/', async (req, res) => {
       return res.status(400).json({ error: 'Invalid booking status.' });
     }
     await db.beginTransaction();
-    const [[booking]]: any = await db.query('SELECT schedule FROM bookings WHERE id = ? FOR UPDATE', [id]);
+    const [[booking]]: any = await db.query(
+      'SELECT schedule, status, scheduled_at FROM bookings WHERE id = ? FOR UPDATE',
+      [id]
+    );
     if (!booking) {
       await db.rollback();
       return res.status(404).json({ error: 'Booking not found.' });
     }
+    if (status === 'completed' && booking.schedule === 'recurring') {
+      await db.rollback();
+      return res.status(409).json({ error: 'Complete recurring visits individually.' });
+    }
+    if (status === 'completed' && (booking.status !== 'upcoming' || !booking.scheduled_at)) {
+      await db.rollback();
+      return res.status(409).json({ error: 'Only a scheduled upcoming booking can be completed.' });
+    }
     if (booking.schedule !== 'recurring') await recordVendorCompletion(db, Number(id), 0, status === 'completed');
-    await db.query(`UPDATE bookings SET status = ? WHERE id = ?`, [status, id]);
+    const [updated]: any = await db.query(
+      `UPDATE bookings SET status = ? WHERE id = ?
+        ${status === 'completed' ? "AND status = 'upcoming' AND scheduled_at <= NOW()" : ''}`,
+      [status, id]
+    );
+    if (status === 'completed' && !updated.affectedRows) {
+      await db.rollback();
+      return res.status(409).json({ error: 'Only a due upcoming booking can be completed.' });
+    }
     await db.commit();
     return res.status(200).json({ success: true });
   } catch (err) {

@@ -23,10 +23,12 @@ test('direct assignment respects skills and the combined provider schedule', asy
   try {
     conn = await pool.getConnection();
     await conn.query(`CREATE TEMPORARY TABLE bookings (
-      id INT, provider_id INT, scheduled_at DATETIME, items JSON, status VARCHAR(20)
+      id INT, provider_id INT, scheduled_at DATETIME, items JSON, status VARCHAR(20),
+      schedule VARCHAR(20), recurrence JSON
     )`);
     await conn.query(`CREATE TEMPORARY TABLE booking_occurrences (
-      id INT, booking_id INT, provider_id INT, scheduled_at DATETIME, status VARCHAR(20)
+      id INT, booking_id INT, provider_id INT, scheduled_at DATETIME, status VARCHAR(20),
+      seq INT
     )`);
     await conn.query(`CREATE TEMPORARY TABLE jobs (
       assignee_provider_id INT, window_start DATETIME, window_end DATETIME, status VARCHAR(20)
@@ -56,12 +58,19 @@ test('direct assignment respects skills and the combined provider schedule', asy
       assert.equal(await pick([visit('07')], []), null);
     });
 
-    await conn.query(`INSERT INTO bookings VALUES
-      (1, 1, '2030-01-07 10:00:00', '[{"duration":"2 hours"}]', 'upcoming')`);
+    await conn.query(`INSERT INTO bookings
+      (id, provider_id, scheduled_at, items, status, schedule) VALUES
+      (1, 1, '2030-01-07 10:00:00', '[{"duration":"2 hours"}]', 'upcoming', 'scheduled')`);
     await t.test('skips a busy worker and never falls back when everyone is busy', async () => {
       assert.equal((await pick()).id, 2);
       assert.equal(await pick([visit('07')], [workers[0]]), null);
       assert.equal((await pick([visit('07', '12:00')])).id, 1);
+      const busy = await loadProviderSchedule([1], ['2030-01-07'], conn);
+      assert.equal(
+        isFreeAt(workers[0], providerWorkingHours(workers[0]), visit('07'), 60, busy),
+        false,
+        'a reschedule cannot keep a provider assigned through an overlapping booking'
+      );
     });
 
     await conn.query(`INSERT INTO jobs VALUES (2, '2030-01-07 09:30:00', NULL, 'assigned')`);
@@ -72,18 +81,37 @@ test('direct assignment respects skills and the combined provider schedule', asy
       assert.equal((await pick([visit('07', '11:30')])).id, 2);
     });
 
-    await conn.query(`INSERT INTO bookings VALUES
-      (2, 1, '2030-01-08 10:00:00', '[{"duration":"1 hour"}]', 'upcoming'),
-      (3, 2, '2030-01-08 10:00:00', '[{"duration":"1 hour"}]', 'cancelled')`);
+    await conn.query(`INSERT INTO bookings
+      (id, provider_id, scheduled_at, items, status, schedule, recurrence) VALUES
+      (2, 1, '2030-01-08 10:00:00', '[{"duration":"1 hour"}]', 'upcoming', 'recurring', NULL),
+      (3, 2, '2030-01-08 10:00:00', '[{"duration":"1 hour"}]', 'cancelled', 'recurring', NULL)`);
     await conn.query(`INSERT INTO booking_occurrences VALUES
-      (1, 2, 1, '2030-01-14 10:00:00', 'upcoming'),
-      (2, 3, 2, '2030-01-14 10:00:00', 'upcoming')`);
+      (1, 2, 1, '2030-01-14 10:00:00', 'upcoming', 2),
+      (2, 3, 2, '2030-01-14 10:00:00', 'upcoming', 2)`);
     await t.test('checks repeat visits, ignores cancelled parents and avoids stale parent times', async () => {
       assert.equal((await pick([visit('08'), visit('14')])).id, 2);
       assert.equal((await pick([visit('08')])).id, 1);
       assert.equal(await pick([visit('08'), visit('14')], [workers[0]]), null);
+      const recurringBusy = await loadProviderSchedule([1], ['2030-01-14'], conn);
+      assert.equal(
+        isFreeAt(workers[0], providerWorkingHours(workers[0]), visit('14'), 60, recurringBusy),
+        false,
+        'a reschedule cannot overlap another recurring visit'
+      );
       const busy = await loadProviderSchedule([1], ['2030-01-14'], conn, 1);
       assert.equal(isFreeAt(workers[0], providerWorkingHours(workers[0]), visit('14'), 60, busy), true);
+    });
+
+    await conn.query(`INSERT INTO bookings
+      (id, provider_id, scheduled_at, items, status, schedule, recurrence)
+      VALUES (4, 1, '2030-01-14 10:00:00', '[{"duration":"1 hour"}]', 'upcoming', 'recurring',
+        '{"occurrences":["2030-01-14T02:00:00.000Z"]}')`);
+    await t.test('keeps legacy planned visits unavailable until occurrence recovery runs', async () => {
+      const missingVisits = await loadProviderSchedule([1], ['2030-01-14'], conn);
+      assert.equal(
+        isFreeAt(workers[0], providerWorkingHours(workers[0]), visit('14'), 60, missingVisits),
+        false
+      );
     });
 
     await conn.query(`INSERT INTO team_member_leave VALUES (2, '2030-01-08', '2030-01-14')`);
@@ -119,12 +147,12 @@ test('direct assignment respects skills and the combined provider schedule', asy
     await conn.query('DELETE FROM jobs');
     await conn.query('DELETE FROM team_member_leave');
     await conn.query(`ALTER TABLE bookings
-      ADD schedule VARCHAR(20), ADD contact_city VARCHAR(100),
+      ADD contact_city VARCHAR(100),
       ADD vendor_id INT, ADD vendor_job_id INT, ADD history JSON,
       ADD assigned_at DATETIME, ADD missed_notified_at DATETIME,
-      ADD recurrence JSON, ADD PRIMARY KEY (id)`);
+      ADD PRIMARY KEY (id)`);
     await conn.query(`ALTER TABLE booking_occurrences
-      ADD seq INT, ADD notified_at DATETIME, ADD missed_notified_at DATETIME,
+      ADD notified_at DATETIME, ADD missed_notified_at DATETIME,
       ADD completed_at DATETIME, MODIFY id INT AUTO_INCREMENT PRIMARY KEY,
       MODIFY status VARCHAR(20) DEFAULT 'upcoming'`);
     await conn.query('ALTER TABLE jobs ADD id INT, ADD booking_id INT');
@@ -259,6 +287,8 @@ test('direct assignment respects skills and the combined provider schedule', asy
       try {
         await conn.query(`UPDATE bookings SET recurrence = '{"intervalDays":7}' WHERE id = 11`);
         assert.equal(await completeNextOccurrence(11, 1), null);
+        assert.equal(await completeNextOccurrence(11, 8), null, 'future visits cannot be completed early');
+        await conn.query("UPDATE booking_occurrences SET scheduled_at = '2000-01-15 10:00:00' WHERE id = 102");
         assert.equal((await completeNextOccurrence(11, 8)).id, 102);
         const [future] = await conn.query("SELECT provider_id FROM booking_occurrences WHERE booking_id = 11 AND status = 'upcoming'");
         assert.equal(future.length, 4);

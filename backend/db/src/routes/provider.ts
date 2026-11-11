@@ -11,6 +11,33 @@ const router = Router();
 
 const ALLOWED_STATUSES = ['upcoming', 'completed', 'cancelled'] as const;
 
+export function providerBookingView(booking: any, providerId: number) {
+  if (booking.schedule !== 'recurring') return booking;
+  const occurrences = (booking.occurrences || [])
+    .filter((o: any) => Number(o.provider_id) === Number(providerId));
+  const hasUpcomingAssignment = occurrences.some((o: any) => o.status === 'upcoming');
+  return {
+    ...booking,
+    ...(hasUpcomingAssignment ? {} : {
+      contact_name: null,
+      contact_phone: null,
+      contact_address: null,
+      contact_city: null,
+      contact_pincode: null,
+      contact_area: null,
+      notes: null,
+    }),
+    occurrences,
+    canMessage: hasUpcomingAssignment,
+    canCancel: hasUpcomingAssignment &&
+      Number(booking.provider_id) === Number(providerId) &&
+      booking.occurrences.every((o: any) => o.status !== 'upcoming' || Number(o.provider_id) === Number(providerId)),
+    status: booking.status === 'cancelled' ? 'cancelled'
+      : occurrences.some((o: any) => o.status === 'upcoming') ? 'upcoming'
+      : occurrences.some((o: any) => o.status === 'completed') ? 'completed' : 'cancelled',
+  };
+}
+
 // GET bookings assigned to the authenticated service provider.
 router.get('/bookings', async (req, res) => {
   try {
@@ -39,18 +66,8 @@ router.get('/bookings', async (req, res) => {
       [session.id, session.id]
     );
 
-    const data = (await withOccurrences(rows as any[])).map((b: any) => {
-      if (b.schedule !== 'recurring') return b;
-      const occurrences = b.occurrences.filter((o: any) => Number(o.provider_id) === Number(session.id));
-      return {
-        ...b, occurrences, canMessage: Number(b.provider_id) === Number(session.id),
-        canCancel: Number(b.provider_id) === Number(session.id) &&
-          b.occurrences.every((o: any) => o.status !== 'upcoming' || Number(o.provider_id) === Number(session.id)),
-        status: b.status === 'cancelled' ? 'cancelled'
-          : occurrences.some((o: any) => o.status === 'upcoming') ? 'upcoming'
-          : occurrences.some((o: any) => o.status === 'completed') ? 'completed' : 'cancelled',
-      };
-    });
+    const data = (await withOccurrences(rows as any[]))
+      .map((b: any) => providerBookingView(b, Number(session.id)));
 
     // Vendor "external" jobs (source='own') assigned to this worker live in
     // the `jobs` table, not `bookings` — merge them in so the provider console
@@ -147,7 +164,7 @@ router.put('/bookings/:id', async (req, res) => {
         return res.status(403).json({ error: 'Provider access required.' });
       }
       const [jobRows]: any = await pool.query(
-        "SELECT id, status, assignee_provider_id FROM jobs WHERE id = ? AND source = 'own'",
+        "SELECT id, status, assignee_provider_id, window_start FROM jobs WHERE id = ? AND source = 'own'",
         [jobIdMatch[1]]
       );
       const job = (jobRows as any[])[0];
@@ -163,16 +180,21 @@ router.put('/bookings/:id', async (req, res) => {
       if (!['accepted', 'assigned', 'in_progress'].includes(job.status)) {
         return res.status(409).json({ error: 'This job is already closed.' });
       }
-      await pool.query(
-        "UPDATE jobs SET status = 'completed', started_at = COALESCE(started_at, NOW()), completed_at = NOW() WHERE id = ?",
+      const [updated]: any = await pool.query(
+        `UPDATE jobs
+            SET status = 'completed', started_at = COALESCE(started_at, NOW()), completed_at = NOW()
+          WHERE id = ? AND status IN ('accepted', 'assigned', 'in_progress') AND window_start <= NOW()`,
         [job.id]
       );
+      if (!updated.affectedRows) {
+        return res.status(409).json({ error: 'A future or closed job cannot be completed.' });
+      }
       return res.status(200).json({ success: true, status });
     }
 
     // Ensure the booking exists and (for providers) belongs to this provider.
     const [rows]: any = await pool.query(
-      'SELECT id, provider_id, schedule, history FROM bookings WHERE id = ?',
+      'SELECT id, provider_id, schedule, history, status, scheduled_at FROM bookings WHERE id = ?',
       [req.params.id]
     );
     if (!rows || rows.length === 0) {
@@ -243,6 +265,9 @@ router.put('/bookings/:id', async (req, res) => {
         WHERE o.booking_id = bookings.id AND o.status = 'upcoming'
           AND (o.provider_id IS NULL OR o.provider_id != ?))` : '';
     const ownershipParams = isProvider ? [session.id, session.id] : [];
+    const completionClause = status === 'completed'
+      ? "AND bookings.status = 'upcoming' AND bookings.scheduled_at <= NOW()"
+      : '';
     const entry = JSON.stringify(history[history.length - 1]);
     db = await pool.getConnection();
     await db.beginTransaction();
@@ -256,7 +281,7 @@ router.put('/bookings/:id', async (req, res) => {
         `UPDATE bookings
             SET status = ?, cancelled_by = ?, cancelled_at = ?,
                 history = JSON_ARRAY_APPEND(COALESCE(history, JSON_ARRAY()), '$', JSON_EXTRACT(?, '$'))
-          WHERE id = ? ${ownershipClause}`,
+          WHERE id = ? ${ownershipClause} ${completionClause}`,
         [status, actor, now, entry, req.params.id, ...ownershipParams]
       );
     } else {
@@ -265,13 +290,16 @@ router.put('/bookings/:id', async (req, res) => {
         `UPDATE bookings
             SET status = ?, cancelled_by = NULL, cancelled_at = NULL, cancel_reason = NULL,
                 history = JSON_ARRAY_APPEND(COALESCE(history, JSON_ARRAY()), '$', JSON_EXTRACT(?, '$'))
-          WHERE id = ? ${ownershipClause}`,
+          WHERE id = ? ${ownershipClause} ${completionClause}`,
         [status, entry, req.params.id, ...ownershipParams]
       );
     }
     if (!updated.affectedRows) {
       await db.rollback();
-      return res.status(409).json({ error: 'The assignment changed. Refresh your tasks before continuing.' });
+      const message = status === 'completed'
+        ? 'Only an upcoming booking whose scheduled time has passed can be completed.'
+        : 'The assignment changed. Refresh your tasks before continuing.';
+      return res.status(409).json({ error: message });
     }
     await db.commit();
 

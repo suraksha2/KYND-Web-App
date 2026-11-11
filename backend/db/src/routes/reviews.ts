@@ -1,25 +1,43 @@
 import { Router } from 'express';
 import pool from '../lib/mysql';
-import { getSession } from '../http/session';
+import { requireCustomerSession } from '../http/session';
 
 const router = Router();
+router.use(requireCustomerSession);
+
+export function isReviewableBooking(
+  status: string,
+  schedule: string,
+  hasCompletedVisit: boolean
+): boolean {
+  return schedule === 'recurring' ? hasCompletedVisit : status === 'completed';
+}
 
 router.post('/', async (req, res) => {
   try {
     const body = req.body;
     const { bookingId, rating, comment = '' } = body;
 
-    if (!bookingId || !rating || rating < 1 || rating > 5) {
+    const numericRating = Number(rating);
+    if (!bookingId || !Number.isInteger(numericRating) || numericRating < 1 || numericRating > 5) {
       return res.status(400).json({ error: 'Booking ID and a rating between 1 and 5 are required.' });
     }
 
-    const session = await getSession(req);
-    if (!session) {
-      return res.status(401).json({ error: 'Authentication required.' });
-    }
+    const session = req.session!;
 
     const [bookings]: any = await pool.query(
-      'SELECT id, provider_id, user_id FROM bookings WHERE id = ?',
+      `SELECT b.id, b.user_id, b.status, b.schedule,
+              COALESCE((
+                SELECT COALESCE(o.provider_id, b.provider_id)
+                  FROM booking_occurrences o
+                 WHERE o.booking_id = b.id AND o.status = 'completed'
+                 ORDER BY o.completed_at DESC, o.seq DESC LIMIT 1
+              ), b.provider_id) AS provider_id,
+              EXISTS (
+                SELECT 1 FROM booking_occurrences o
+                 WHERE o.booking_id = b.id AND o.status = 'completed'
+              ) AS has_completed_visit
+         FROM bookings b WHERE b.id = ?`,
       [bookingId]
     );
 
@@ -32,6 +50,13 @@ router.post('/', async (req, res) => {
     if (booking.user_id == null || Number(booking.user_id) !== Number(session.id)) {
       return res.status(403).json({ error: 'You can only review your own bookings.' });
     }
+    if (!isReviewableBooking(
+      booking.status,
+      booking.schedule,
+      Boolean(Number(booking.has_completed_visit))
+    )) {
+      return res.status(409).json({ error: 'You can review a booking after its service or a visit is completed.' });
+    }
 
     await pool.query(
       `INSERT INTO reviews (booking_id, user_id, provider_id, rating, comment, created_at)
@@ -40,7 +65,7 @@ router.post('/', async (req, res) => {
          rating = VALUES(rating),
          comment = VALUES(comment),
          updated_at = NOW()`,
-      [bookingId, session.id, booking.provider_id, rating, comment]
+      [bookingId, session.id, booking.provider_id, numericRating, comment]
     );
 
     let providerRating = null;

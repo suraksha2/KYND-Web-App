@@ -1898,6 +1898,7 @@ async function loadMarketplaceVisit(session: any, params: any, db: typeof pool |
             b.notes AS customer_notes, o.id AS occurrence_id, o.seq,
             COALESCE(o.status, b.status) AS status,
             COALESCE(o.scheduled_at, b.scheduled_at) AS scheduled_at,
+            (COALESCE(o.scheduled_at, b.scheduled_at) <= NOW()) AS is_due,
             b.contact_name, b.contact_phone, b.contact_address, b.contact_area,
             sp.id AS assignee_id, sp.name AS assignee_name, sp.mobile AS assignee_mobile,
             sp.rating AS assignee_rating, sp.vendor_id,
@@ -2173,9 +2174,12 @@ router.patch(mktPaths('/status'), async (req, res) => {
     await db.query('SELECT id FROM bookings WHERE id = ? FOR UPDATE', [visit.id]);
     // Recheck under the lock: an admin may have reassigned or closed it.
     const locked = await loadMarketplaceVisit(session, req.params, db);
-    if (!locked || locked.status !== 'upcoming' || Number(locked.assignee_id) !== Number(visit.assignee_id)) {
+    if (
+      !locked || locked.status !== 'upcoming' || locked.booking_status !== 'upcoming'
+      || !Number(locked.is_due) || Number(locked.assignee_id) !== Number(visit.assignee_id)
+    ) {
       await db.rollback();
-      return res.status(409).json({ error: 'This visit changed. Refresh and try again.' });
+      return res.status(409).json({ error: 'This visit is future, closed, or changed. Refresh and try again.' });
     }
     const entry = JSON.stringify({
       at: sgtDateTime(new Date()),
@@ -2187,22 +2191,30 @@ router.patch(mktPaths('/status'), async (req, res) => {
     });
     await recordVendorCompletion(db, Number(locked.id), locked.occurrenceKey, true);
     if (locked.occurrence_id) {
-      await db.query(
-        "UPDATE booking_occurrences SET status = 'completed', completed_at = NOW() WHERE id = ? AND status = 'upcoming'",
+      const [updated]: any = await db.query(
+        "UPDATE booking_occurrences SET status = 'completed', completed_at = NOW() WHERE id = ? AND status = 'upcoming' AND scheduled_at <= NOW()",
         [locked.occurrence_id]
       );
+      if (!updated.affectedRows) {
+        await db.rollback();
+        return res.status(409).json({ error: 'Only a due upcoming visit can be completed.' });
+      }
       await db.query(
         "UPDATE bookings SET history = JSON_ARRAY_APPEND(COALESCE(history, JSON_ARRAY()), '$', JSON_EXTRACT(?, '$')) WHERE id = ?",
         [entry, locked.id]
       );
     } else {
-      await db.query(
+      const [updated]: any = await db.query(
         `UPDATE bookings
             SET status = 'completed', cancelled_by = NULL, cancelled_at = NULL, cancel_reason = NULL,
                 history = JSON_ARRAY_APPEND(COALESCE(history, JSON_ARRAY()), '$', JSON_EXTRACT(?, '$'))
-          WHERE id = ? AND status = 'upcoming'`,
+          WHERE id = ? AND status = 'upcoming' AND scheduled_at <= NOW()`,
         [entry, locked.id]
       );
+      if (!updated.affectedRows) {
+        await db.rollback();
+        return res.status(409).json({ error: 'Only a due upcoming visit can be completed.' });
+      }
     }
     await db.commit();
 

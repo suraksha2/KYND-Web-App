@@ -1,8 +1,9 @@
 import { Router } from 'express';
 import pool from '../lib/mysql';
-import { getSession } from '../http/session';
+import { requireCustomerSession } from '../http/session';
 
 const router = Router();
+router.use(requireCustomerSession);
 
 // Payment methods the storefront can preselect. A saved value outside this set
 // would silently fail to apply, so reject it here instead.
@@ -40,8 +41,7 @@ function text(value: unknown, max: number): string | null {
 // The customer's own saved booking defaults.
 router.get('/', async (req, res) => {
   try {
-    const session = await getSession(req);
-    if (!session) return res.status(401).json({ error: 'Authentication required.' });
+    const session = req.session!;
 
     const [rows]: any = await pool.query(
       `SELECT default_phone, default_address, default_city, default_area,
@@ -60,8 +60,7 @@ router.get('/', async (req, res) => {
 
 router.put('/', async (req, res) => {
   try {
-    const session = await getSession(req);
-    if (!session) return res.status(401).json({ error: 'Authentication required.' });
+    const session = req.session!;
 
     const { phone, address, city, area, pincode, payment } = req.body || {};
 

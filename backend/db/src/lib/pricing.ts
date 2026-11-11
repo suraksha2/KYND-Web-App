@@ -1,9 +1,10 @@
+import type { Pool } from 'mysql2/promise';
 import pool from './mysql';
 import {
   computePartnerCostFromRule,
   loadPricingRulesByServiceIds,
   markupPct,
-  parseDurationHours,
+  parseCatalogDurationHours,
   startTimeFromScheduledAt,
 } from './pricingRules';
 
@@ -36,7 +37,6 @@ function computeOfferDiscount(
 ): number {
   if (!offerId || !Number.isFinite(subtotal) || subtotal <= 0) return 0;
   if (offerId === 'first') return Math.min(subtotal, 10);
-  if (offerId === 'refer') return Math.min(subtotal, 15);
   if (offerId === 'bundle') {
     if (serviceCount < 3) return 0;
     return Math.round(subtotal * 0.15);
@@ -44,30 +44,53 @@ function computeOfferDiscount(
   return 0;
 }
 
-async function resolveEligibleOfferId(
+type EligibleOffers = { offerId: string | null; referralCode: string | null };
+
+type PricingDatabase = Pick<Pool, 'query'>;
+
+async function resolveEligibleOffers(
   userId: number | undefined,
   requested: string | null,
-  serviceLineCount: number
-): Promise<string | null> {
-  if (!requested) return null;
-  if (requested === 'bundle') {
-    return serviceLineCount >= 3 ? 'bundle' : null;
-  }
-  if (requested === 'refer') {
-    return 'refer';
+  serviceLineCount: number,
+  requestedReferralCode: string | undefined,
+  db: PricingDatabase
+): Promise<EligibleOffers> {
+  let offerId: string | null = null;
+  if (requested === 'bundle' && serviceLineCount >= 3) {
+    offerId = 'bundle';
   }
   if (requested === 'first') {
-    if (!userId) return null;
-    const [rows]: any = await pool.query(
-      `SELECT id FROM bookings
-       WHERE user_id = ? AND status IN ('upcoming', 'completed')
-       LIMIT 1`,
-      [userId]
-    );
-    if (rows?.length) return null;
-    return 'first';
+    if (userId) {
+      const [rows]: any = await db.query(
+        `SELECT id FROM bookings
+         WHERE user_id = ?
+         LIMIT 1`,
+        [userId]
+      );
+      if (!rows?.length) offerId = 'first';
+    }
   }
-  return null;
+
+  const referralCode = typeof requestedReferralCode === 'string'
+    ? requestedReferralCode.trim().toUpperCase()
+    : '';
+  if (referralCode) {
+    if (!userId || referralCode.length > 20) {
+      throw new PricingError('Invalid referral code.');
+    }
+    const [referrers]: any = await db.query(
+      `SELECT id FROM users
+       WHERE referral_code = ? AND id <> ?
+       LIMIT 1`,
+      [referralCode, userId]
+    );
+    if (!referrers?.length) throw new PricingError('Invalid referral code.');
+  }
+  if (requested === 'refer' && !referralCode) {
+    throw new PricingError('A valid referral code is required.');
+  }
+
+  return { offerId, referralCode: referralCode || null };
 }
 
 type RawItem = {
@@ -86,6 +109,7 @@ export type PricedOrder = {
   total: number;
   discount: number;
   offerId: string | null;
+  referralCode: string | null;
   items: Array<{
     catalogId: number;
     slug: string;
@@ -109,13 +133,14 @@ export async function priceOrder(input: {
   offer?: { id?: string } | string | null;
   userId?: number;
   scheduledAt?: string | null;
-}): Promise<PricedOrder> {
+  referralCode?: string;
+}, db: PricingDatabase = pool): Promise<PricedOrder> {
   const rawItems = Array.isArray(input.items) ? input.items : [];
   if (!rawItems.length) {
     throw new PricingError('At least one service item is required.');
   }
 
-  const [serviceRows] = await pool.query(
+  const [serviceRows] = await db.query(
     `SELECT id, name, image, duration, default_partner_cost, markup_pct_override, status
      FROM catalog_services`
   );
@@ -149,7 +174,8 @@ export async function priceOrder(input: {
   }
 
   const ruleMap = await loadPricingRulesByServiceIds(
-    resolvedServices.map((r) => Number(r.service.id))
+    resolvedServices.map((r) => Number(r.service.id)),
+    db
   );
   const startTime = startTimeFromScheduledAt(input.scheduledAt);
 
@@ -173,19 +199,28 @@ export async function priceOrder(input: {
 
       let partnerCost: number | null = null;
       if (rule) {
-        const durationHours = parseDurationHours(raw.duration || service.duration);
+        const durationHours = rule.strategy === 'hourly'
+          ? parseCatalogDurationHours(service.duration)
+          : 1;
+        if (rule.strategy === 'hourly' && durationHours === null) {
+          throw new PricingError(`Service "${service.name}" is missing a valid catalogue duration.`);
+        }
         partnerCost = computePartnerCostFromRule(rule, {
-          durationHours,
+          durationHours: durationHours ?? 1,
           partySize: qty,
           startTime,
         });
       }
 
-      if (partnerCost === null || !Number.isFinite(partnerCost)) {
+      if (partnerCost === null || !Number.isFinite(partnerCost) || (rule?.strategy === 'hourly' && partnerCost <= 0)) {
         const fallback = service.default_partner_cost !== null ? Number(service.default_partner_cost) : null;
-        if (fallback === null || !Number.isFinite(fallback)) {
+        if (
+          fallback === null
+          || !Number.isFinite(fallback)
+          || (rule?.strategy === 'hourly' && fallback <= 0)
+        ) {
           throw new PricingError(
-            `Service "${service.name}" requires a custom quote and cannot be booked online.`
+            `Service "${service.name}" does not have a valid hourly price for the selected time.`
           );
         }
         partnerCost = fallback;
@@ -201,7 +236,7 @@ export async function priceOrder(input: {
       name: service.name,
       img: service.image || raw.img || null,
       priceFrom: unit,
-      duration: service.duration || raw.duration || null,
+      duration: service.duration || null,
       qty,
     });
   }
@@ -234,7 +269,7 @@ export async function priceOrder(input: {
 
   if (uniqueAddonIds.length) {
     const placeholders = uniqueAddonIds.map(() => '?').join(',');
-    const [addonRows] = await pool.query(
+    const [addonRows] = await db.query(
       `SELECT DISTINCT a.id, a.name, a.customer_price
        FROM addons a
        INNER JOIN service_addons sa ON sa.addon_id = a.id
@@ -267,7 +302,7 @@ export async function priceOrder(input: {
   // (sellPrice: flat rule amount, else partner cost x markup).
   if (serviceAddonIds.length) {
     const placeholders = serviceAddonIds.map(() => '?').join(',');
-    const [addonServiceRows] = await pool.query(
+    const [addonServiceRows] = await db.query(
       `SELECT s.id, s.name, s.default_partner_cost, s.markup_pct_override
          FROM catalog_services s
          JOIN catalog_subcategories sc ON s.subcategory_id = sc.id
@@ -279,7 +314,7 @@ export async function priceOrder(input: {
           )`,
       [...serviceAddonIds, ...serviceIds]
     );
-    const addonRules = await loadPricingRulesByServiceIds(serviceAddonIds);
+    const addonRules = await loadPricingRulesByServiceIds(serviceAddonIds, db);
     const found = new Map((addonServiceRows as any[]).map((s) => [Number(s.id), s]));
     for (const id of serviceAddonIds) {
       const s: any = found.get(id);
@@ -310,14 +345,20 @@ export async function priceOrder(input: {
         ? input.offer.id || null
         : null;
 
-  const offerId = await resolveEligibleOfferId(
+  const eligible = await resolveEligibleOffers(
     input.userId,
     requestedOffer,
-    pricedItems.length
+    pricedItems.length,
+    input.referralCode,
+    db
   );
 
   const beforeDiscount = base + addonTotal;
-  const discount = computeOfferDiscount(offerId, beforeDiscount, pricedItems.length);
+  const offerDiscount = computeOfferDiscount(eligible.offerId, beforeDiscount, pricedItems.length);
+  const referralDiscount = eligible.referralCode
+    ? Math.min(beforeDiscount, 15)
+    : 0;
+  const discount = Math.min(beforeDiscount, offerDiscount + referralDiscount);
   const total = roundMoney(Math.max(0, beforeDiscount - discount));
 
   if (!Number.isFinite(total) || total <= 0) {
@@ -330,7 +371,8 @@ export async function priceOrder(input: {
   return {
     total,
     discount: roundMoney(discount),
-    offerId,
+    offerId: eligible.offerId || (requestedOffer === 'refer' ? 'refer' : null),
+    referralCode: eligible.referralCode,
     items: pricedItems,
     addOns: pricedAddOns,
   };

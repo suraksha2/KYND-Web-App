@@ -350,7 +350,7 @@ const OfferModal = ({ open, onClose, subtotal, selectedServicesCount, hasBooked,
 /* ---------- Sticky bottom booking bar ---------- */
 // The Details toggle unfolds a summary card above the total: what was picked,
 // when it repeats and how the price builds up.
-const BookingBar = ({ price, discount, submitting, note, subnote, details = [] }) => {
+const BookingBar = ({ price, discount, submitting, disabled = false, quoteError = '', note, subnote, details = [] }) => {
   const [open, setOpen] = useState(false)
   return (
     <div className="fixed bottom-[calc(76px_+_var(--safe-bottom)_+_0.5rem)] md:bottom-0 left-0 right-0 z-50 bg-terracotta shadow-[0_-8px_24px_-12px_rgba(74,46,31,0.35)]">
@@ -394,12 +394,13 @@ const BookingBar = ({ price, discount, submitting, note, subnote, details = [] }
           <button
             type="submit"
             form="booking-form"
-            disabled={submitting}
+            disabled={submitting || disabled}
             className="shrink-0 inline-flex items-center justify-center rounded-full bg-white hover:bg-white/90 disabled:opacity-60 text-terracotta font-semibold text-sm sm:text-base px-6 sm:px-8 py-3 transition"
           >
-            {submitting ? 'Confirming...' : 'Confirm booking'}
+            {submitting ? 'Confirming...' : disabled ? 'Checking price...' : 'Confirm booking'}
           </button>
         </div>
+        {quoteError && <p className="mt-2 text-right text-xs text-white">{quoteError}</p>}
       </div>
     </div>
   )
@@ -1878,6 +1879,9 @@ export default function ServiceDetail() {
   const [addonsLoading, setAddonsLoading] = useState(false)
   const [selectedAddons, setSelectedAddons] = useState({})
   const [submitting, setSubmitting] = useState(false)
+  const [serverQuote, setServerQuote] = useState(null)
+  const [quoteLoading, setQuoteLoading] = useState(false)
+  const [quoteError, setQuoteError] = useState('')
   useEffect(() => {
     if (openSections.addons && !addonsLoading && addons.length === 0) {
       setOpenSections({ variant: false, how: false, addons: false, payment: true })
@@ -2181,25 +2185,6 @@ export default function ServiceDetail() {
     setTime('')
   }, [city])
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-warmgrey">Loading...</div>
-      </div>
-    )
-  }
-
-  if (!primary) {
-    if (exhaustedSlug !== slug) {
-      return (
-        <div className="min-h-screen flex items-center justify-center">
-          <div className="text-warmgrey">Loading...</div>
-        </div>
-      )
-    }
-    return <Navigate to="/services" replace />
-  }
-
   // Office cleaning's one-time price is an hourly day rate per cleaner —
   // there's no real catalog row backing it since the contract table above is
   // what's actually priced.
@@ -2232,6 +2217,88 @@ export default function ServiceDetail() {
   const offerDiscount = computeDiscount(selectedOffer, displayPrice, selectedServices.length)
   const totalDiscount = Math.min(displayPrice, offerDiscount + promoDiscount)
   const discountedPrice = Math.max(0, displayPrice - totalDiscount)
+
+  const quoteItems = selectedServices.map(s => ({
+    slug: s.slug,
+    name: s.name,
+    img: s.img,
+    priceFrom: officeMode ? basePrice : (s.price || parsePrice(s.pricingFrom)),
+    duration: s.duration,
+    catalogId: s.catalogId || s.id || null,
+    qty: houseMode || officeMode ? cleaners : 1,
+    ...(houseMode ? { homeSize, cleaners } : {}),
+    ...(officeMode ? {
+      officeSize,
+      officeSizeLabel: officeSizeOf(officePricing.sizes, officeSize).label,
+      officeHours,
+      cleaners,
+    } : {}),
+  }))
+  const quoteAddOns = addons
+    .filter(a => selectedAddons[addonKey(a)])
+    .map(a => ({ id: a.id, source: a.source || 'addon', name: a.name, price: Number(a.customer_price) }))
+  const quoteScheduledAt = schedule !== 'instant' && date && time
+    ? toSgtIsoFromParts(date, time)
+    : null
+  const quotePayload = {
+    items: quoteItems,
+    addOns: quoteAddOns,
+    schedule,
+    scheduledAt: quoteScheduledAt,
+    offer: selectedOffer,
+    referralCode: appliedReferralCode,
+  }
+  const quoteKey = JSON.stringify(quotePayload)
+  useEffect(() => {
+    if (!token || !primary || !quoteItems.length) return
+    let ignore = false
+    setQuoteLoading(true)
+    setQuoteError('')
+    fetch(`${API_BASE}/payments/quote`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      credentials: 'include',
+      body: quoteKey,
+    })
+      .then(async response => {
+        const data = await response.json()
+        if (!response.ok) throw new Error(data.error || 'Unable to confirm the service price.')
+        if (!ignore) setServerQuote({ key: quoteKey, data })
+      })
+      .catch(error => {
+        if (!ignore) {
+          setServerQuote(null)
+          setQuoteError(error.message || 'Unable to confirm the service price.')
+        }
+      })
+      .finally(() => {
+        if (!ignore) setQuoteLoading(false)
+      })
+    return () => { ignore = true }
+  }, [token, primary?.catalogId, quoteKey])
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-warmgrey">Loading...</div>
+      </div>
+    )
+  }
+
+  if (!primary) {
+    if (exhaustedSlug !== slug) {
+      return (
+        <div className="min-h-screen flex items-center justify-center">
+          <div className="text-warmgrey">Loading...</div>
+        </div>
+      )
+    }
+    return <Navigate to="/services" replace />
+  }
+
+  const quoteMatchesCurrent = serverQuote?.key === quoteKey
+  const planTotal = quoteMatchesCurrent ? Number(serverQuote.data.total) : discountedPrice
+  const planDiscount = quoteMatchesCurrent ? Number(serverQuote.data.discount) : totalDiscount
   // Every selected service happens in the same visit, so the slot has to be
   // long enough for all of them.
   const serviceDuration = selectedServices.reduce((sum, s) => sum + (parseDurationMinutes(s.duration) || 60), 0) || 60
@@ -2302,24 +2369,12 @@ export default function ServiceDetail() {
       : ''
     const order = {
       bookingId,
-      items: selectedServices.map(s => ({
-        slug: s.slug,
-        name: s.name,
-        img: s.img,
-        priceFrom: officeMode ? basePrice : (s.price || parsePrice(s.pricingFrom)),
-        duration: s.duration,
-        catalogId: s.catalogId || s.id || null,
-        qty: houseMode || officeMode ? cleaners : 1,
-        ...(houseMode ? { homeSize, cleaners } : {}),
-        ...(officeMode ? { officeSize, officeSizeLabel: officeSizeOf(officePricing.sizes, officeSize).label, officeHours, cleaners } : {}),
-      })),
-      total: discountedPrice,
-      discount: totalDiscount,
+      items: quoteItems,
+      total: planTotal,
+      discount: planDiscount,
       offer: selectedOffer,
       referralCode: appliedReferralCode,
-      addOns: addons
-        .filter(a => selectedAddons[addonKey(a)])
-        .map(a => ({ id: a.id, source: a.source || 'addon', name: a.name, price: Number(a.customer_price) })),
+      addOns: quoteAddOns,
       schedule,
       scheduledAt,
       cadence: schedule === 'recurring' ? cadence : '',
@@ -2379,6 +2434,7 @@ export default function ServiceDetail() {
           schedule: order.schedule,
           scheduledAt: order.scheduledAt || null,
           offer: order.offer || null,
+          referralCode: order.referralCode || null,
           merchantOrderId: order.bookingId,
           metadata: { bookingId: order.bookingId, customer: name, phone },
           returnUrl: appUrl('/booking/confirmed'),
@@ -2386,6 +2442,10 @@ export default function ServiceDetail() {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Failed to start payment')
+      order.total = data.pricedTotal
+      order.items = data.items || order.items
+      order.addOns = data.addOns || order.addOns
+      order.discount = data.discount ?? order.discount
 
       try {
         localStorage.setItem('kynd.pendingOrder', JSON.stringify({
@@ -2529,6 +2589,9 @@ export default function ServiceDetail() {
   }
   if (offerDiscount > 0) detailRows.push({ label: 'Offer discount', value: `−${formatPrice(offerDiscount)}`, tone: 'discount' })
   if (promoDiscount > 0) detailRows.push({ label: 'Promo code', value: `−${formatPrice(Math.min(promoDiscount, displayPrice))}`, tone: 'discount' })
+  const displayedDetailRows = quoteMatchesCurrent
+    ? [...detailRows.slice(0, 3), { label: 'Final price', value: formatPrice(planTotal) }]
+    : detailRows
 
   const addonCount = Object.values(selectedAddons).filter(Boolean).length
   const addonSummary = addonCount ? `${addonCount} selected` : 'None selected'
@@ -2789,7 +2852,16 @@ export default function ServiceDetail() {
         </div>
       </section>
 
-      <BookingBar price={discountedPrice} discount={totalDiscount} submitting={submitting} note={totalNote} subnote={barSubnote} details={detailRows} />
+      <BookingBar
+        price={planTotal}
+        discount={planDiscount}
+        submitting={submitting}
+        disabled={!!token && (quoteLoading || !quoteMatchesCurrent)}
+        quoteError={quoteError}
+        note={totalNote}
+        subnote={barSubnote}
+        details={displayedDetailRows}
+      />
 
       <OfferModal
         open={offerModalOpen}

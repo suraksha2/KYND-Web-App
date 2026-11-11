@@ -2,32 +2,10 @@
 import { API_BASE, serviceImageUrl } from './api'
 import { slugify } from './catalogCategories'
 
-const DEFAULT_MARKUP_PCT = 30
-
-function markupPct(override) {
-  const pct = override !== null && override !== undefined ? Number(override) : DEFAULT_MARKUP_PCT
-  return pct / 100
-}
-
-/**
- * Sell price for a catalog row. A `flat` pricing rule is authoritative — it
- * holds the negotiated listed price. Everything else falls back to
- * cost x (1 + markup), which only approximates it.
- */
-function sellPrice(service) {
-  if (service.pricing_strategy === 'flat') {
-    const amount = Number(service.pricing_params?.amount)
-    if (Number.isFinite(amount) && amount > 0) return amount
-  }
-  if (service.pricing_strategy === 'custom_quote') return null
-
-  const cost = service.default_partner_cost !== null ? Number(service.default_partner_cost) : null
-  if (cost === null || Number.isNaN(cost)) return null
-  return Math.round(cost * (1 + markupPct(service.markup_pct_override)))
-}
-
 export function mapCatalogService(service) {
-  const price = sellPrice(service)
+  const price = service.customer_price !== null && service.customer_price !== undefined
+    ? Number(service.customer_price)
+    : null
 
   return {
     id: service.id,
@@ -82,7 +60,7 @@ export function mapCatalogService(service) {
     rating: 0,
     reviewCount: 0,
     bullets: ['Professional service', 'Quality guaranteed', 'Trusted providers'],
-    // Keep the raw catalog data for detail/quote screens.
+    // Keep the customer-safe catalog data for detail/quote screens.
     catalogId: service.id,
     _catalog: service
   }

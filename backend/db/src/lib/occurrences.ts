@@ -3,6 +3,7 @@ import type { PoolConnection } from 'mysql2/promise';
 import { PLANNED_OCCURRENCES, anchorWallMs, nextWeekdayVisits, type Recurrence } from './recurrence';
 import { sgtDateTime } from './sgt';
 import { inheritVisitFinancials, recordVendorCompletion } from './vendorFinance';
+import { verifyStoredCardPayment } from './paymentVerification';
 
 // Rows written to booking_occurrences: one per visit of a recurring booking.
 // `INSERT IGNORE` leans on the (booking_id, seq) unique key so a retried
@@ -45,6 +46,78 @@ export function createOccurrences(
     plan.occurrences.map((iso, i) => ({ seq: i + 1, at: sgtDateTime(iso) })),
     db
   );
+}
+
+/**
+ * Repair recurring bookings committed by older non-atomic flows that have no
+ * materialized visits. Card bookings are revalidated before they are repaired.
+ */
+export async function reconcileMissingOccurrences(limit = 100): Promise<number> {
+  const [candidates]: any = await pool.query(
+    `SELECT id, booking_id, user_id, total, payment, payment_intent_id, recurrence
+       FROM bookings b
+      WHERE b.schedule = 'recurring' AND b.status = 'upcoming' AND b.recurrence IS NOT NULL
+        AND (
+          (JSON_LENGTH(JSON_EXTRACT(b.recurrence, '$.occurrences')) >= 1
+            AND NOT EXISTS (SELECT 1 FROM booking_occurrences o WHERE o.booking_id = b.id AND o.seq = 1))
+          OR (JSON_LENGTH(JSON_EXTRACT(b.recurrence, '$.occurrences')) >= 2
+            AND NOT EXISTS (SELECT 1 FROM booking_occurrences o WHERE o.booking_id = b.id AND o.seq = 2))
+          OR (JSON_LENGTH(JSON_EXTRACT(b.recurrence, '$.occurrences')) >= 3
+            AND NOT EXISTS (SELECT 1 FROM booking_occurrences o WHERE o.booking_id = b.id AND o.seq = 3))
+          OR (JSON_LENGTH(JSON_EXTRACT(b.recurrence, '$.occurrences')) >= 4
+            AND NOT EXISTS (SELECT 1 FROM booking_occurrences o WHERE o.booking_id = b.id AND o.seq = 4))
+        )
+      ORDER BY b.id ASC LIMIT ?`,
+    [Math.max(1, Math.min(500, Math.floor(limit)))]
+  );
+  let repaired = 0;
+
+  for (const candidate of candidates as any[]) {
+    try {
+      const candidatePlan = typeof candidate.recurrence === 'string'
+        ? JSON.parse(candidate.recurrence)
+        : candidate.recurrence;
+      if (!Array.isArray(candidatePlan?.occurrences) || !candidatePlan.occurrences.length) continue;
+      if (candidate.payment === 'card') {
+        await verifyStoredCardPayment({
+          userId: Number(candidate.user_id),
+          paymentIntentId: String(candidate.payment_intent_id || ''),
+          merchantOrderId: String(candidate.booking_id),
+          expectedTotal: Number(candidate.total),
+        });
+      }
+    } catch (error) {
+      console.error(`[occurrence recovery] skipped booking ${candidate.id}:`, error);
+      continue;
+    }
+
+    const db = await pool.getConnection();
+    try {
+      await db.beginTransaction();
+      const [parents]: any = await db.query(
+        `SELECT provider_id, schedule, status, recurrence
+           FROM bookings WHERE id = ? FOR UPDATE`,
+        [candidate.id]
+      );
+      const parent = parents[0];
+      if (!parent || parent.schedule !== 'recurring' || parent.status !== 'upcoming') {
+        await db.rollback();
+        continue;
+      }
+      const plan: Recurrence = typeof parent.recurrence === 'string'
+        ? JSON.parse(parent.recurrence)
+        : parent.recurrence;
+      await createOccurrences(Number(candidate.id), parent.provider_id ?? null, plan, db);
+      await db.commit();
+      repaired++;
+    } catch (error) {
+      await db.rollback();
+      console.error(`[occurrence recovery] failed booking ${candidate.id}:`, error);
+    } finally {
+      db.release();
+    }
+  }
+  return repaired;
 }
 
 /**
@@ -201,8 +274,8 @@ export async function completeNextOccurrence(bookingDbId: number, providerId?: n
     }
     const [rows]: any = await db.query(
       `SELECT id, seq, ${SGT_STRING('scheduled_at', 'scheduled_at')}
-         FROM booking_occurrences
-        WHERE booking_id = ? AND status = 'upcoming'
+        FROM booking_occurrences
+        WHERE booking_id = ? AND status = 'upcoming' AND scheduled_at <= NOW()
           ${providerId == null ? '' : 'AND provider_id = ?'}
         ORDER BY scheduled_at ASC LIMIT 1 FOR UPDATE`,
       providerId == null ? [bookingDbId] : [bookingDbId, providerId]

@@ -97,7 +97,8 @@ export async function loadProviderSchedule(
             DATE_FORMAT(b.scheduled_at, '%Y-%m-%d %H:%i:%s') AS scheduled_at,
             b.items, NULL AS window_end
        FROM bookings b
-      WHERE b.provider_id IN (${ids}) AND b.status != 'cancelled'
+      WHERE b.provider_id IN (${ids}) AND b.status = 'upcoming'
+        AND b.schedule != 'recurring'
         AND b.id != ?
         AND NOT EXISTS (SELECT 1 FROM booking_occurrences o WHERE o.booking_id = b.id)
         AND b.scheduled_at BETWEEN DATE_SUB(?, INTERVAL 1 DAY) AND ?
@@ -105,14 +106,14 @@ export async function loadProviderSchedule(
      SELECT o.provider_id, DATE_FORMAT(o.scheduled_at, '%Y-%m-%d %H:%i:%s'),
             b.items, NULL
        FROM booking_occurrences o JOIN bookings b ON b.id = o.booking_id
-      WHERE o.provider_id IN (${ids}) AND o.status != 'cancelled' AND b.status != 'cancelled'
+      WHERE o.provider_id IN (${ids}) AND o.status = 'upcoming' AND b.status = 'upcoming'
         AND b.id != ?
         AND o.id != ? AND o.scheduled_at BETWEEN DATE_SUB(?, INTERVAL 1 DAY) AND ?
      UNION ALL
      SELECT j.assignee_provider_id, DATE_FORMAT(j.window_start, '%Y-%m-%d %H:%i:%s'),
             NULL, DATE_FORMAT(COALESCE(j.window_end, DATE_ADD(j.window_start, INTERVAL 2 HOUR)), '%Y-%m-%d %H:%i:%s')
        FROM jobs j
-      WHERE j.assignee_provider_id IN (${ids}) AND j.status != 'cancelled'
+      WHERE j.assignee_provider_id IN (${ids}) AND j.status IN ('accepted', 'assigned', 'in_progress')
         AND j.window_start <= ?
         AND COALESCE(j.window_end, DATE_ADD(j.window_start, INTERVAL 2 HOUR)) > ?
      UNION ALL
@@ -127,6 +128,45 @@ export async function loadProviderSchedule(
       ...providerIds, maxDate, minDate,
     ]
   );
+
+  // Older recurring bookings may not have materialized every planned visit
+  // yet. Read their existing sequence numbers and include only missing slots.
+  const [plannedRows]: any = await db.query(
+    `SELECT b.id, b.provider_id, b.items, b.recurrence, o.seq AS existing_seq
+       FROM bookings b
+       LEFT JOIN booking_occurrences o ON o.booking_id = b.id
+      WHERE b.provider_id IN (${ids}) AND b.status = 'upcoming'
+        AND b.schedule = 'recurring' AND b.recurrence IS NOT NULL
+        AND b.id != ?`,
+    [...providerIds, excludeBookingId]
+  );
+  const plans = new Map<number, { provider_id: number; items: unknown; dates: string[]; existing: Set<number> }>();
+  for (const row of plannedRows as any[]) {
+    const id = Number(row.id);
+    let plan = plans.get(id);
+    if (!plan) {
+      let recurrence: any = row.recurrence;
+      try {
+        if (typeof recurrence === 'string') recurrence = JSON.parse(recurrence);
+      } catch { continue; }
+      if (!Array.isArray(recurrence?.occurrences)) continue;
+      plan = {
+        provider_id: Number(row.provider_id),
+        items: row.items,
+        dates: recurrence.occurrences,
+        existing: new Set<number>(),
+      };
+      plans.set(id, plan);
+    }
+    if (row.existing_seq != null) plan.existing.add(Number(row.existing_seq));
+  }
+  for (const plan of plans.values()) {
+    plan.dates.forEach((scheduled_at, index) => {
+      if (!plan.existing.has(index + 1)) {
+        rows.push({ provider_id: plan.provider_id, scheduled_at, items: plan.items, window_end: null });
+      }
+    });
+  }
   return rows;
 }
 

@@ -1,7 +1,7 @@
 import pool from './mysql';
-import { retrievePaymentIntent } from './airwallex';
+import { paymentCurrency, retrievePaymentIntent, type PaymentIntent } from './airwallex';
 
-const PAID_STATUSES = new Set(['SUCCEEDED', 'REQUIRES_CAPTURE']);
+const PAID_STATUSES = new Set(['SUCCEEDED']);
 
 export class PaymentVerificationError extends Error {
   status: number;
@@ -9,6 +9,56 @@ export class PaymentVerificationError extends Error {
     super(message);
     this.status = status;
   }
+}
+
+export function validatePaymentIntent(intent: PaymentIntent, opts: {
+  userId: number;
+  paymentIntentId: string;
+  merchantOrderId: string;
+  expectedTotal: number;
+}): void {
+  if (String(intent.id || '') !== opts.paymentIntentId) {
+    throw new PaymentVerificationError('Payment intent does not match this request.', 409);
+  }
+  if (!PAID_STATUSES.has(String(intent.status || '').toUpperCase())) {
+    throw new PaymentVerificationError('Payment has not completed successfully.');
+  }
+
+  const meta = (intent as any).metadata || {};
+  if (
+    meta.userId == null
+    || !Number.isFinite(Number(meta.userId))
+    || Number(meta.userId) !== Number(opts.userId)
+  ) {
+    throw new PaymentVerificationError('Payment does not belong to this account.', 403);
+  }
+
+  if (!intent.merchant_order_id || String(intent.merchant_order_id) !== String(opts.merchantOrderId)) {
+    throw new PaymentVerificationError('Payment does not match this order.', 409);
+  }
+
+  if (String(intent.currency || '').toUpperCase() !== paymentCurrency.toUpperCase()) {
+    throw new PaymentVerificationError('Payment currency does not match the order.');
+  }
+
+  const paid = Number(intent.amount);
+  const expected = Number(opts.expectedTotal);
+  if (
+    !Number.isFinite(paid) || !Number.isFinite(expected)
+    || Math.round(paid * 100) !== Math.round(expected * 100)
+  ) {
+    throw new PaymentVerificationError('Payment amount does not match the order total.');
+  }
+}
+
+async function assertMatchingIntent(opts: {
+  userId: number;
+  paymentIntentId: string;
+  merchantOrderId: string;
+  expectedTotal: number;
+}): Promise<void> {
+  const intent = await retrievePaymentIntent(opts.paymentIntentId);
+  validatePaymentIntent(intent, opts);
 }
 
 /**
@@ -34,26 +84,18 @@ export async function verifyCardPaymentForBooking(opts: {
     throw new PaymentVerificationError('This payment has already been used for a booking.', 409);
   }
 
-  const intent = await retrievePaymentIntent(intentId);
-  if (!PAID_STATUSES.has(String(intent.status))) {
-    throw new PaymentVerificationError('Payment has not completed successfully.');
-  }
+  await assertMatchingIntent({ ...opts, paymentIntentId: intentId });
+}
 
-  const meta = (intent as any).metadata || {};
-  if (meta.userId != null && Number(meta.userId) !== Number(opts.userId)) {
-    throw new PaymentVerificationError('Payment does not belong to this account.', 403);
+/** Revalidate a persisted card booking before a recovery job repairs its visits. */
+export async function verifyStoredCardPayment(opts: {
+  userId: number;
+  paymentIntentId: string;
+  merchantOrderId: string;
+  expectedTotal: number;
+}): Promise<void> {
+  if (!opts.paymentIntentId || !opts.userId) {
+    throw new PaymentVerificationError('Stored card booking is missing its payment owner or intent.');
   }
-
-  if (
-    intent.merchant_order_id &&
-    String(intent.merchant_order_id) !== String(opts.merchantOrderId)
-  ) {
-    throw new PaymentVerificationError('Payment does not match this order.');
-  }
-
-  const paid = Number(intent.amount);
-  const expected = Number(opts.expectedTotal);
-  if (!Number.isFinite(paid) || Math.abs(paid - expected) > 0.02) {
-    throw new PaymentVerificationError('Payment amount does not match the order total.');
-  }
+  await assertMatchingIntent(opts);
 }

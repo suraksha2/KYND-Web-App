@@ -42,11 +42,56 @@ export default function Checkout() {
   const [pay, setPay] = useState('card')
   const [submitting, setSubmitting] = useState(false)
   const [payError, setPayError] = useState(null)
+  const [serverQuote, setServerQuote] = useState(null)
+  const [quoteLoading, setQuoteLoading] = useState(false)
 
   // A returning customer's details, from their most recent booking.
   const lastContact = useLastBookingDetails()
   const [autofilled, setAutofilled] = useState(false)
   const prefilled = useRef(false)
+  const schedule = state?.schedule || 'instant'
+  const scheduledAt = state?.scheduledAt || ''
+  const cadence = state?.cadence || 'weekly'
+  const recurrence = state?.recurrence || null
+  const quotePayload = {
+    items,
+    addOns: state?.addOns || [],
+    schedule,
+    scheduledAt: scheduledAt || null,
+    offer: state?.offer || null,
+    referralCode: state?.referralCode || null,
+  }
+  const quoteKey = JSON.stringify(quotePayload)
+
+  useEffect(() => {
+    if (!token || !items.length) return
+    let ignore = false
+    setQuoteLoading(true)
+    setServerQuote(null)
+    setPayError(null)
+    const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+    fetch(`${API_BASE}/api/payments/quote`, {
+      method: 'POST',
+      headers,
+      credentials: 'include',
+      body: quoteKey,
+    })
+      .then(async response => {
+        const data = await response.json()
+        if (!response.ok) throw new Error(data.error || 'Could not price this order.')
+        if (!ignore) setServerQuote({ key: quoteKey, token, data })
+      })
+      .catch(error => {
+        if (!ignore) {
+          setServerQuote(null)
+          setPayError(error.message)
+        }
+    })
+      .finally(() => {
+        if (!ignore) setQuoteLoading(false)
+      })
+    return () => { ignore = true }
+  }, [items.length, token, quoteKey])
 
   useEffect(() => {
     if (!lastContact || prefilled.current) return
@@ -129,18 +174,20 @@ export default function Checkout() {
 
   if (items.length === 0) return <Navigate to="/cart" replace />
 
-  const schedule = state?.schedule || 'instant'
-  const scheduledAt = state?.scheduledAt || ''
-  const cadence = state?.cadence || 'weekly'
-  const recurrence = state?.recurrence || null
+  const quoteMatchesCurrent = serverQuote?.key === quoteKey && serverQuote?.token === token
+  const pricedQuote = quoteMatchesCurrent ? serverQuote.data : null
+  const displayTotal = pricedQuote?.total ?? subtotal
 
   const buildOrder = () => {
     const bookingId = Math.random().toString(36).slice(2, 8).toUpperCase()
     return {
       bookingId,
-      items,
-      total: subtotal,
+      items: pricedQuote?.items || items,
+      addOns: pricedQuote?.addOns || state?.addOns || [],
+      total: displayTotal,
       schedule, scheduledAt, cadence, recurrence,
+      offer: state?.offer || null,
+      referralCode: pricedQuote?.referralCode || state?.referralCode || null,
       contact: { name, phone, address, city, pincode, area: selectedArea },
       notes: notes.trim(),
       payment: pay,
@@ -201,6 +248,10 @@ export default function Checkout() {
       navigate('/login', { state: { from: pathname } })
       return
     }
+    if (!quoteMatchesCurrent || quoteLoading || !pricedQuote) {
+      setPayError('Please wait while we confirm the current price.')
+      return
+    }
     const nextErrors = hasErrors()
     if (Object.keys(nextErrors).length) {
       alert(nextErrors.pincode || nextErrors.address || 'Please complete your address.')
@@ -234,11 +285,12 @@ export default function Checkout() {
         },
         credentials: 'include',
         body: JSON.stringify({
-          items: order.items,
-          addOns: order.addOns || [],
+          items: items,
+          addOns: state?.addOns || [],
           schedule: order.schedule,
           scheduledAt: order.scheduledAt || null,
           offer: order.offer || null,
+          referralCode: order.referralCode || null,
           merchantOrderId: order.bookingId,
           metadata: { bookingId: order.bookingId, customer: name, phone },
           returnUrl: appUrl('/booking/confirmed'),
@@ -246,6 +298,10 @@ export default function Checkout() {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Failed to start payment')
+      order.total = data.pricedTotal
+      order.items = data.items || order.items
+      order.addOns = data.addOns || order.addOns
+      order.discount = data.discount ?? order.discount
 
       // Store order data for verification after payment redirect
       try {
@@ -388,7 +444,7 @@ export default function Checkout() {
             <div className="rounded-2xl bg-white ring-1 ring-lightstone p-5 shadow-soft">
               <h3 className="font-bold text-charcoal">Summary</h3>
               <ul className="mt-4 space-y-2 text-sm">
-                {items.map(it => (
+                {(pricedQuote?.items || items).map(it => (
                   <li key={it.slug} className="flex justify-between gap-2 text-charcoal">
                     <span className="truncate">{it.name} × {it.qty}</span>
                     <span>S${(it.priceFrom * it.qty).toFixed(2)}</span>
@@ -397,14 +453,20 @@ export default function Checkout() {
               </ul>
               <div className="mt-4 pt-4 border-t text-xs text-warmgrey">{scheduleLabel}</div>
               <div className="mt-3 flex justify-between font-bold text-charcoal">
-                <span>Total</span><span>S${subtotal.toFixed(2)}</span>
+                <span>Total</span><span>{quoteLoading ? 'Updating…' : `S$${displayTotal.toFixed(2)}`}</span>
               </div>
-              <button disabled={submitting} className="mt-5 w-full rounded-full bg-terracotta hover:bg-charcoal disabled:opacity-60 text-white font-semibold py-3 transition">
+              {payError && <p className="mt-3 text-xs text-red-600">{payError}</p>}
+              <button
+                disabled={submitting || (!!token && (quoteLoading || !quoteMatchesCurrent))}
+                className="mt-5 w-full rounded-full bg-terracotta hover:bg-charcoal disabled:opacity-60 text-white font-semibold py-3 transition"
+              >
                 {submitting
                   ? 'Processing…'
+                  : token && quoteLoading
+                    ? 'Updating price…'
                   : pay === 'cod'
-                    ? `Place booking · S$${subtotal.toFixed(2)}`
-                    : `Pay & confirm · S$${subtotal.toFixed(2)}`}
+                    ? `Place booking · S$${displayTotal.toFixed(2)}`
+                    : `Pay & confirm · S$${displayTotal.toFixed(2)}`}
               </button>
             </div>
           </aside>

@@ -1,4 +1,5 @@
 import pool from './mysql';
+import type { Pool } from 'mysql2/promise';
 
 const DEFAULT_MARKUP_PCT = 30;
 
@@ -25,7 +26,9 @@ function minutesFromTime(t: string) {
 function resolveHourlyRate(params: any, startTime: string) {
   const schedule = Array.isArray(params?.rate_schedule) ? params.rate_schedule : null;
   if (!schedule) {
-    if (typeof params?.rate === 'number') return Number(params.rate);
+    if (typeof params?.rate === 'number' && Number.isFinite(params.rate) && params.rate > 0) {
+      return Number(params.rate);
+    }
     return null;
   }
   const startMin = minutesFromTime(startTime);
@@ -34,7 +37,8 @@ function resolveHourlyRate(params: any, startTime: string) {
     const s = minutesFromTime(window.start);
     const e = minutesFromTime(window.end);
     if (s === null || e === null) continue;
-    if (startMin >= s && startMin < e) return Number(window.rate);
+    const rate = Number(window.rate);
+    if (startMin >= s && startMin < e && Number.isFinite(rate) && rate > 0) return rate;
   }
   return null;
 }
@@ -48,12 +52,13 @@ export function computePartnerCostFromRule(
 
   switch (strategy) {
     case 'hourly': {
-      const rate = resolveHourlyRate(params, startTime) ?? 0;
+      const rate = resolveHourlyRate(params, startTime);
+      if (rate === null || !Number.isFinite(durationHours) || durationHours <= 0) return null;
       return roundMoney(rate * durationHours);
     }
     case 'per_unit': {
       const rate = Number(params?.rate ?? 0);
-      return roundMoney(rate * partySize);
+      return roundMoney(rate);
     }
     case 'flat': {
       return roundMoney(Number(params?.amount ?? 0));
@@ -90,6 +95,14 @@ export function parseDurationHours(duration: unknown): number {
   return 1;
 }
 
+export function parseCatalogDurationHours(duration: unknown): number | null {
+  if (duration === null || duration === undefined) return null;
+  const text = String(duration).trim();
+  if (!text || !/\d/.test(text)) return null;
+  const hours = parseDurationHours(text);
+  return Number.isFinite(hours) && hours > 0 ? hours : null;
+}
+
 export function startTimeFromScheduledAt(scheduledAt: string | null | undefined): string {
   if (!scheduledAt) return '09:00';
   const m = String(scheduledAt).match(/T(\d{2}):(\d{2})/);
@@ -98,11 +111,12 @@ export function startTimeFromScheduledAt(scheduledAt: string | null | undefined)
 }
 
 export async function loadPricingRulesByServiceIds(
-  serviceIds: number[]
+  serviceIds: number[],
+  db: Pick<Pool, 'query'> = pool
 ): Promise<Map<number, { strategy: string; params: any }>> {
   if (!serviceIds.length) return new Map();
   const placeholders = serviceIds.map(() => '?').join(',');
-  const [rows] = await pool.query(
+  const [rows] = await db.query(
     `SELECT service_id, strategy, params
      FROM service_pricing_rules
      WHERE service_id IN (${placeholders})
