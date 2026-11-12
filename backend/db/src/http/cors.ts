@@ -28,7 +28,7 @@ const allowedOrigins = Array.from(new Set([...devOrigins, ...envOrigins]));
 // Outside production, accept any loopback origin: Vite hops ports when one is
 // taken and IDE/browser previews proxy the app on a random port, which would
 // otherwise get a preflight with no Access-Control-Allow-Origin header.
-function isOriginAllowed(origin: string): boolean {
+export function isOriginAllowed(origin: string): boolean {
   if (allowedOrigins.includes(origin)) return true;
   return (
     process.env.NODE_ENV !== 'production' &&

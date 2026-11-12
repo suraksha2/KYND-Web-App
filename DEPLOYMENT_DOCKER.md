@@ -171,7 +171,15 @@ curl -I  http://localhost:8080/superadmin/login # superadmin login
 npm run docker:logs                       # or: docker compose --env-file .env.docker logs -f backend
 ```
 
-Create the first admin (needs `ADMIN_SIGNUP_SECRET` from `.env.docker`):
+Admin signup is disabled by default in production. For a controlled initial
+bootstrap, set a strong `ADMIN_SIGNUP_SECRET` (at least 16 bytes) and
+`ADMIN_SIGNUP_ENABLED=true` in `.env.docker`, then recreate the backend:
+
+```bash
+docker compose --env-file .env.docker up -d --force-recreate backend
+```
+
+Create the first admin:
 
 ```bash
 curl -X POST http://localhost:8080/api/auth/signup \
@@ -182,6 +190,9 @@ curl -X POST http://localhost:8080/api/auth/signup \
 Then log in at `http://localhost:8080/admin/`. Note that `db.sql` creates the **schema
 only** — no services/cities rows — so a fresh stack starts empty and lists
 render blank until you add data through the admin.
+
+After the admin account is created, set `ADMIN_SIGNUP_ENABLED=false`, clear
+`ADMIN_SIGNUP_SECRET`, and recreate the backend again.
 
 ### Recurring-visit reminders (cron)
 
@@ -229,6 +240,9 @@ APP_BASE=
 VITE_API_BASE=/api
 ALLOWED_ORIGINS=https://kyndpro.com,https://www.kyndpro.com
 ```
+
+The storefront's HTTPS origin must be listed here: payment return URLs are
+restricted to this origin allowlist and the booking confirmation route.
 
 Rebuild so SPA bundles bake the root base (required after changing `APP_BASE` /
 `VITE_API_BASE`):
@@ -343,8 +357,8 @@ The stack runs correctly out of the box, but these are on you:
       ```
       Artwork needs no migration step: commit it to `backend/db/public/images`
       and it ships with the backend image.
-- [ ] **Create the first admin** via `/api/auth/signup` with
-      `ADMIN_SIGNUP_SECRET` (Section 4), then consider clearing that variable.
+- [ ] **Create the first admin** using the controlled bootstrap flow in
+      Section 4, then disable admin signup and clear the secret.
 - [ ] **Schedule database backups.** Nothing here backs up `mysql-data` or
       `backend-data` for you.
 - [ ] **Firewall the host.** Only 80/443 should be reachable; the app ports

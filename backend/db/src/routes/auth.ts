@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
+import { createHash, timingSafeEqual } from 'crypto';
 import pool from '../lib/mysql';
 import { createSessionToken } from '../lib/auth';
 import {
@@ -129,12 +130,24 @@ router.post('/signup', async (req, res) => {
 
     const normalizedEmail = email.trim().toLowerCase();
 
-    // Check admin secret if provided. Require a configured, non-empty secret —
-    // never elevate when ADMIN_SIGNUP_SECRET is unset.
+    // Require an explicit production opt-in for one-time admin bootstrap.
     let assignedRole = 'user';
-    if (secret) {
+    if (secret !== undefined && secret !== null && secret !== '') {
+      if (process.env.NODE_ENV === 'production' && process.env.ADMIN_SIGNUP_ENABLED !== 'true') {
+        return res.status(403).json({ error: 'Admin signup is disabled.' });
+      }
+
       const adminSecret = process.env.ADMIN_SIGNUP_SECRET;
-      if (adminSecret && adminSecret.length >= 16 && secret === adminSecret) {
+      const suppliedHash = createHash('sha256')
+        .update(typeof secret === 'string' ? secret : '')
+        .digest();
+      const configuredHash = createHash('sha256')
+        .update(adminSecret || '')
+        .digest();
+      const secretsMatch = timingSafeEqual(suppliedHash, configuredHash);
+
+      if (adminSecret && Buffer.byteLength(adminSecret, 'utf8') >= 16
+        && typeof secret === 'string' && secretsMatch) {
         assignedRole = 'super_admin';
       } else {
         return res.status(403).json({ error: 'Invalid admin signup secret.' });

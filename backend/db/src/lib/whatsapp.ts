@@ -1,4 +1,5 @@
 import { parseSgt } from './sgt';
+import { normalizePhoneToE164 } from './phone';
 
 const WHATSAPP_API_URL = `https://graph.facebook.com/v19.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`;
 
@@ -31,11 +32,9 @@ async function sendWhatsAppText(
     return { success: false, error: 'WhatsApp credentials not configured' };
   }
 
-  // Normalize phone: strip non-digits, ensure country code
-  let phone = rawPhone.replace(/\D/g, '');
-  if (!phone.startsWith('91') && !phone.startsWith('65') && phone.length === 10) {
-    phone = '91' + phone;
-  }
+  const e164Phone = normalizePhoneToE164(rawPhone);
+  if (!e164Phone) return { success: false, error: 'Invalid WhatsApp phone number.' };
+  const phone = e164Phone.slice(1);
 
   try {
     const response = await fetch(WHATSAPP_API_URL, {

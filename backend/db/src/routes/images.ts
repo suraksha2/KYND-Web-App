@@ -5,6 +5,7 @@ import path from 'path';
 import multer from 'multer';
 import type { NextFunction, Request, Response } from 'express';
 import pool from '../lib/mysql';
+import { validateImageUpload } from '../lib/imageUpload';
 
 // SVG omitted: uploaded SVGs can carry script and become stored XSS when served.
 const IMAGE_EXTENSIONS = ['.webp', '.png', '.jpg', '.jpeg', '.gif', '.avif'];
@@ -109,13 +110,15 @@ router.post('/upload', uploadSingle, async (req: Request, res: Response) => {
   if (!file) {
     return res.status(400).json({ error: 'No image file provided.' });
   }
+  const image = validateImageUpload(file.buffer, file.mimetype, file.originalname);
+  if (!image) return res.status(400).json({ error: 'Image content does not match its file type.' });
   try {
-    const ext = path.extname(file.originalname).toLowerCase();
+    const ext = image.extension;
     const base = sanitizeBase(path.basename(file.originalname, ext)) || 'image';
     const filename = await pickFilename(base, ext);
     await pool.query(
       'INSERT INTO images (filename, mime_type, data, size_bytes) VALUES (?, ?, ?, ?)',
-      [filename, file.mimetype, file.buffer, file.size]
+      [filename, image.mime, file.buffer, file.size]
     );
     res.status(201).json({ data: `/images/${filename}` });
   } catch (err: any) {

@@ -11,6 +11,7 @@ server {
     server_name _;
     root ${ROOT};
     index index.html;
+    include /etc/nginx/snippets/security-headers.conf;
 
     resolver 127.0.0.11 valid=10s ipv6=off;
     set \$backend backend:3001;
@@ -77,6 +78,7 @@ cat >> /etc/nginx/conf.d/default.conf <<EOF
 
     location ${BASE}/assets/ {
         expires 1y;
+        include /etc/nginx/snippets/security-headers.conf;
         add_header Cache-Control "public, immutable";
         try_files \$uri =404;
     }
@@ -86,22 +88,27 @@ cat >> /etc/nginx/conf.d/default.conf <<EOF
     }
 
     location = ${BASE}/index.html {
+        include /etc/nginx/snippets/security-headers.conf;
         add_header Cache-Control "no-cache";
     }
 
     location = ${BASE}/admin/index.html {
+        include /etc/nginx/snippets/security-headers.conf;
         add_header Cache-Control "no-cache";
     }
 
     location = ${BASE}/provider/index.html {
+        include /etc/nginx/snippets/security-headers.conf;
         add_header Cache-Control "no-cache";
     }
 
     location = ${BASE}/vendor/index.html {
+        include /etc/nginx/snippets/security-headers.conf;
         add_header Cache-Control "no-cache";
     }
 
     location = ${BASE}/superadmin/index.html {
+        include /etc/nginx/snippets/security-headers.conf;
         add_header Cache-Control "no-cache";
     }
 }

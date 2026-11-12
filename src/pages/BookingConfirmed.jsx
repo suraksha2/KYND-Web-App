@@ -59,7 +59,9 @@ export default function BookingConfirmed() {
 
         const confirmedOrder = {
           ...paidOrder,
+          bookingId: data.bookingId,
           id: data.id,
+          placedAt: data.placedAt,
           provider: data.provider,
           cadence: data.cadence || paidOrder.cadence,
           recurrence: data.recurrence || paidOrder.recurrence,

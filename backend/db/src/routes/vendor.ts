@@ -7,6 +7,7 @@ import pool from '../lib/mysql';
 import { isVendorRole, canSeeVendorMoney, canManageVendorTeam } from '../lib/auth';
 import { getSession } from '../http/session';
 import { sgtDateTime } from '../lib/sgt';
+import { validateImageUpload } from '../lib/imageUpload';
 import { payoutMemberJobs } from '../lib/payouts';
 import { buildPayoutStatementPdf } from '../lib/pdfStatement';
 import { canonicalSkillTags, providerSupportsServices, skillRequirementsForJob, skillTagsForCategory } from '../lib/providerSkills';
@@ -2070,13 +2071,14 @@ router.post(mktPaths('/photos'), uploadJobPhoto, async (req, res) => {
 
     const file = (req as any).file;
     if (!file) return res.status(400).json({ error: 'No photo provided.' });
+    const image = validateImageUpload(file.buffer, file.mimetype, file.originalname);
+    if (!image) return res.status(400).json({ error: 'Photo content does not match its file type.' });
 
     const workId = await ensureVisitWork(visit);
-    const ext = JOB_PHOTO_MIMETYPES.includes(file.mimetype) ? `.${file.mimetype.split('/')[1].replace('jpeg', 'jpg')}` : '.jpg';
-    const filename = `visit-${visit.id}-${visit.occurrenceKey}-${Date.now()}${ext}`;
+    const filename = `visit-${visit.id}-${visit.occurrenceKey}-${Date.now()}${image.extension}`;
     const [imageResult]: any = await pool.query(
       'INSERT INTO images (filename, mime_type, data, size_bytes) VALUES (?, ?, ?, ?)',
-      [filename, file.mimetype, file.buffer, file.size]
+      [filename, image.mime, file.buffer, file.size]
     );
     const [photoResult]: any = await pool.query(
       'INSERT INTO booking_visit_photos (visit_work_id, image_id) VALUES (?, ?)',
@@ -2453,12 +2455,13 @@ router.post('/jobs/:id/photos', uploadJobPhoto, async (req, res) => {
 
     const file = (req as any).file;
     if (!file) return res.status(400).json({ error: 'No photo provided.' });
+    const image = validateImageUpload(file.buffer, file.mimetype, file.originalname);
+    if (!image) return res.status(400).json({ error: 'Photo content does not match its file type.' });
 
-    const ext = JOB_PHOTO_MIMETYPES.includes(file.mimetype) ? `.${file.mimetype.split('/')[1].replace('jpeg', 'jpg')}` : '.jpg';
-    const filename = `job-${req.params.id}-${Date.now()}${ext}`;
+    const filename = `job-${req.params.id}-${Date.now()}${image.extension}`;
     const [imageResult]: any = await pool.query(
       'INSERT INTO images (filename, mime_type, data, size_bytes) VALUES (?, ?, ?, ?)',
-      [filename, file.mimetype, file.buffer, file.size]
+      [filename, image.mime, file.buffer, file.size]
     );
     const [photoResult]: any = await pool.query(
       'INSERT INTO job_photos (job_id, image_id) VALUES (?, ?)',

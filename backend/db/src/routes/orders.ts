@@ -2,6 +2,7 @@ import { Router } from 'express';
 import pool from '../lib/mysql';
 import { withOccurrences } from '../lib/occurrences';
 import { recordVendorCompletion, VendorPricingError } from '../lib/vendorFinance';
+import { isAllowedBookingStatusTransition, isBookingStatus } from '../lib/bookingStatus';
 
 const router = Router();
 
@@ -46,23 +47,30 @@ router.get('/', async (_req, res) => {
 
 // Update an existing booking's status
 router.patch('/', async (req, res) => {
+  const { id, status } = req.body || {};
+  const bookingId = Number(id);
+  if (!Number.isSafeInteger(bookingId) || bookingId <= 0 || !isBookingStatus(status)) {
+    return res.status(400).json({ error: 'A valid id and status are required.' });
+  }
+
   const db = await pool.getConnection();
   try {
-    const { id, status } = req.body;
-    if (!id || !status) {
-      return res.status(400).json({ error: "id and status are required." });
-    }
-    if (!['upcoming', 'completed', 'cancelled'].includes(status)) {
-      return res.status(400).json({ error: 'Invalid booking status.' });
-    }
     await db.beginTransaction();
     const [[booking]]: any = await db.query(
       'SELECT schedule, status, scheduled_at FROM bookings WHERE id = ? FOR UPDATE',
-      [id]
+      [bookingId]
     );
     if (!booking) {
       await db.rollback();
       return res.status(404).json({ error: 'Booking not found.' });
+    }
+    if (status === booking.status) {
+      await db.commit();
+      return res.status(200).json({ success: true });
+    }
+    if (!isAllowedBookingStatusTransition(booking.status, status)) {
+      await db.rollback();
+      return res.status(409).json({ error: `Cannot change booking from ${booking.status} to ${status}.` });
     }
     if (status === 'completed' && booking.schedule === 'recurring') {
       await db.rollback();
@@ -72,11 +80,12 @@ router.patch('/', async (req, res) => {
       await db.rollback();
       return res.status(409).json({ error: 'Only a scheduled upcoming booking can be completed.' });
     }
-    if (booking.schedule !== 'recurring') await recordVendorCompletion(db, Number(id), 0, status === 'completed');
+    if (booking.schedule !== 'recurring') await recordVendorCompletion(db, bookingId, 0, status === 'completed');
     const [updated]: any = await db.query(
       `UPDATE bookings SET status = ? WHERE id = ?
-        ${status === 'completed' ? "AND status = 'upcoming' AND scheduled_at <= NOW()" : ''}`,
-      [status, id]
+        AND status = ?
+        ${status === 'completed' ? 'AND scheduled_at <= NOW()' : ''}`,
+      [status, bookingId, booking.status]
     );
     if (status === 'completed' && !updated.affectedRows) {
       await db.rollback();

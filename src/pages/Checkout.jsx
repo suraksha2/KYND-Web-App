@@ -179,9 +179,7 @@ export default function Checkout() {
   const displayTotal = pricedQuote?.total ?? subtotal
 
   const buildOrder = () => {
-    const bookingId = Math.random().toString(36).slice(2, 8).toUpperCase()
     return {
-      bookingId,
       items: pricedQuote?.items || items,
       addOns: pricedQuote?.addOns || state?.addOns || [],
       total: displayTotal,
@@ -190,8 +188,7 @@ export default function Checkout() {
       referralCode: pricedQuote?.referralCode || state?.referralCode || null,
       contact: { name, phone, address, city, pincode, area: selectedArea },
       notes: notes.trim(),
-      payment: pay,
-      placedAt: new Date().toISOString()
+      payment: pay
     }
   }
 
@@ -213,7 +210,9 @@ export default function Checkout() {
     // server normalized (it owns the planned visit dates).
     const orderWithId = {
       ...order,
+      bookingId: data.bookingId,
       id: data.id,
+      placedAt: data.placedAt,
       total: data.total ?? order.total,
       items: data.items || order.items,
       addOns: data.addOns || order.addOns,
@@ -291,13 +290,13 @@ export default function Checkout() {
           scheduledAt: order.scheduledAt || null,
           offer: order.offer || null,
           referralCode: order.referralCode || null,
-          merchantOrderId: order.bookingId,
-          metadata: { bookingId: order.bookingId, customer: name, phone },
+          contact: order.contact,
           returnUrl: appUrl('/booking/confirmed'),
         }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Failed to start payment')
+      order.bookingId = data.bookingId
       order.total = data.pricedTotal
       order.items = data.items || order.items
       order.addOns = data.addOns || order.addOns
@@ -306,7 +305,7 @@ export default function Checkout() {
       // Store order data for verification after payment redirect
       try {
         localStorage.setItem('kynd.pendingOrder', JSON.stringify({
-          bookingId: order.bookingId,
+          bookingId: data.bookingId,
           intentId: data.id,
           order,
         }))

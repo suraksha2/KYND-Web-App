@@ -6,6 +6,7 @@ import { withOccurrences, completeNextOccurrence } from '../lib/occurrences';
 import { sgtDateTime } from '../lib/sgt';
 import type { PoolConnection } from 'mysql2/promise';
 import { recordVendorCompletion, VendorPricingError } from '../lib/vendorFinance';
+import { isAllowedBookingStatusTransition } from '../lib/bookingStatus';
 
 const router = Router();
 
@@ -271,7 +272,22 @@ router.put('/bookings/:id', async (req, res) => {
     const entry = JSON.stringify(history[history.length - 1]);
     db = await pool.getConnection();
     await db.beginTransaction();
-    await db.query('SELECT id FROM bookings WHERE id = ? FOR UPDATE', [req.params.id]);
+    const [[lockedBooking]]: any = await db.query(
+      'SELECT id, status FROM bookings WHERE id = ? FOR UPDATE',
+      [req.params.id]
+    );
+    if (!lockedBooking) {
+      await db.rollback();
+      return res.status(404).json({ error: 'Booking not found.' });
+    }
+    if (!isAllowedBookingStatusTransition(lockedBooking.status, status)) {
+      await db.rollback();
+      return res.status(409).json({ error: `Cannot change booking from ${lockedBooking.status} to ${status}.` });
+    }
+    if (status === lockedBooking.status) {
+      await db.commit();
+      return res.status(200).json({ success: true, status });
+    }
     if (booking.schedule !== 'recurring') {
       await recordVendorCompletion(db, Number(req.params.id), 0, status === 'completed');
     }

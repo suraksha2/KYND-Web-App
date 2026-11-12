@@ -2363,12 +2363,10 @@ export default function ServiceDetail() {
     setErrors({})
     setSubmitting(true)
 
-    const bookingId = Math.random().toString(36).slice(2, 8).toUpperCase()
     const scheduledAt = schedule !== 'instant' && date && time
       ? toSgtIsoFromParts(date, time)
       : ''
     const order = {
-      bookingId,
       items: quoteItems,
       total: planTotal,
       discount: planDiscount,
@@ -2381,8 +2379,7 @@ export default function ServiceDetail() {
       recurrence: schedule === 'recurring' ? recurrence : null,
       contact: { name, phone, address, city, pincode, area },
       notes: notes.trim(),
-      payment: pay,
-      placedAt: new Date().toISOString()
+      payment: pay
     }
 
     const headers = { 'Content-Type': 'application/json' }
@@ -2401,7 +2398,9 @@ export default function ServiceDetail() {
         if (!response.ok) throw new Error(data.error || 'Failed to create booking')
         const orderWithId = {
           ...order,
+          bookingId: data.bookingId,
           id: data.id,
+          placedAt: data.placedAt,
           total: data.total ?? order.total,
           items: data.items || order.items,
           addOns: data.addOns || order.addOns,
@@ -2435,13 +2434,13 @@ export default function ServiceDetail() {
           scheduledAt: order.scheduledAt || null,
           offer: order.offer || null,
           referralCode: order.referralCode || null,
-          merchantOrderId: order.bookingId,
-          metadata: { bookingId: order.bookingId, customer: name, phone },
+          contact: order.contact,
           returnUrl: appUrl('/booking/confirmed'),
         }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Failed to start payment')
+      order.bookingId = data.bookingId
       order.total = data.pricedTotal
       order.items = data.items || order.items
       order.addOns = data.addOns || order.addOns
@@ -2449,7 +2448,7 @@ export default function ServiceDetail() {
 
       try {
         localStorage.setItem('kynd.pendingOrder', JSON.stringify({
-          bookingId: order.bookingId,
+          bookingId: data.bookingId,
           intentId: data.id,
           order,
         }))

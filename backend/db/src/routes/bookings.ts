@@ -15,6 +15,9 @@ import { sgtDateTime, parseSgt } from '../lib/sgt';
 import { priceOrder, PricingError } from '../lib/pricing';
 import { approvedVendorQuote, assignVendorFinancials, VendorPricingError } from '../lib/vendorFinance';
 import { verifyCardPaymentForBooking, PaymentVerificationError } from '../lib/paymentVerification';
+import {
+  newBookingReference, normalizeBookingContact, parseIsoDateTime,
+} from '../lib/bookingInput';
 // Offer inbox deferred until the multi-vendor stage.
 // import { fanOutOffersForBooking } from '../lib/offers';
 // import { parseDurationMinutes } from '../lib/providerSchedule';
@@ -70,9 +73,8 @@ async function notifyProviderAssignment(bookingDbId: number, providerId: number)
 
 router.post('/', requireCustomerSession, async (req, res) => {
   try {
-    const body = req.body;
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
     const {
-      bookingId,
       items,
       schedule,
       scheduledAt,
@@ -82,7 +84,6 @@ router.post('/', requireCustomerSession, async (req, res) => {
       notes,
       payment,
       referralCode,
-      placedAt,
       addOns,
       offer,
       paymentIntentId,
@@ -90,11 +91,11 @@ router.post('/', requireCustomerSession, async (req, res) => {
     // Never trust client-supplied booking status — new bookings always start upcoming.
     const status = 'upcoming';
 
-    if (
-      typeof bookingId !== 'string' || !bookingId.trim() || bookingId.length > 50
-      || !items || !contact || !payment
-    ) {
+    if (!Array.isArray(items) || !items.length || !contact || !payment) {
       return res.status(400).json({ error: 'Missing required fields' });
+    }
+    if (!['instant', 'scheduled', 'recurring'].includes(schedule)) {
+      return res.status(400).json({ error: 'Invalid booking schedule.' });
     }
 
     if (typeof payment !== 'string' || payment.length > 64) {
@@ -107,13 +108,9 @@ router.post('/', requireCustomerSession, async (req, res) => {
 
     // Validate Singapore address: full name, phone, street, city, area and a 6-digit
     // postal code. This is a hard guard for any client that bypasses the storefront.
-    const { name, phone, address, city, pincode, area } = contact || {};
-    const isValidPincode = (v: unknown) => typeof v === 'string' && /^\d{6}$/.test(v);
-    if (!name?.trim() || !phone?.trim() || !address?.trim() || !city?.trim() || !area?.trim() || !pincode) {
-      return res.status(400).json({ error: 'Missing contact/address fields' });
-    }
-    if (!isValidPincode(pincode)) {
-      return res.status(400).json({ error: 'Invalid postal code. Enter a 6-digit Singapore postal code.' });
+    const normalizedContact = normalizeBookingContact(contact);
+    if (!normalizedContact) {
+      return res.status(400).json({ error: 'Invalid contact details, Singapore mobile number, or postal code.' });
     }
 
     // Booking creation now requires an authenticated customer.
@@ -122,6 +119,11 @@ router.post('/', requireCustomerSession, async (req, res) => {
     const userId = session.id;
 
     // Server-side pricing — ignore client total / item prices.
+    const requestedDate = schedule === 'instant' ? new Date() : parseIsoDateTime(scheduledAt);
+    if (!requestedDate || (schedule !== 'instant' && requestedDate.getTime() <= Date.now())) {
+      return res.status(400).json({ error: 'A valid future booking time is required.' });
+    }
+
     const priced = await priceOrder({
       items,
       addOns,
@@ -129,7 +131,7 @@ router.post('/', requireCustomerSession, async (req, res) => {
       offer,
       referralCode,
       userId,
-      scheduledAt: scheduledAt || null,
+      scheduledAt: schedule === 'instant' ? null : requestedDate.toISOString(),
     });
     const total = priced.total;
     const pricedItems = priced.items;
@@ -141,10 +143,7 @@ router.post('/', requireCustomerSession, async (req, res) => {
     // A recurring booking carries its cadence: either a preset ('weekly') or a
     // custom frequency ('3 times/week'). Normalizing it here yields the visit
     // series the assignment engine below has to keep free.
-    const firstVisit = schedule === 'instant' ? new Date() : scheduledAt ? new Date(scheduledAt) : null;
-    if (!firstVisit || Number.isNaN(firstVisit.getTime())) {
-      return res.status(400).json({ error: 'A valid booking time is required.' });
-    }
+    const firstVisit = requestedDate;
     const plan = schedule === 'recurring'
       ? normalizeRecurrence(recurrence, cadence, firstVisit)
       : null;
@@ -152,19 +151,27 @@ router.post('/', requireCustomerSession, async (req, res) => {
       return res.status(400).json({ error: 'A recurring booking needs a valid cadence.' });
     }
 
+    let bookingId: string;
     let storedPaymentIntentId: string | null = null;
     if (payment === 'card') {
       const intentId = typeof paymentIntentId === 'string' ? paymentIntentId.trim() : '';
-      await verifyCardPaymentForBooking({
+      bookingId = await verifyCardPaymentForBooking({
         userId,
         paymentIntentId: intentId,
-        merchantOrderId: bookingId,
         expectedTotal: total,
       });
+      if (typeof body.bookingId === 'string' && body.bookingId !== bookingId) {
+        return res.status(409).json({ error: 'Payment does not match this booking.' });
+      }
       storedPaymentIntentId = intentId.trim();
     } else if (paymentIntentId) {
       return res.status(400).json({ error: 'Payment intent is only valid for card bookings.' });
+    } else {
+      bookingId = newBookingReference();
     }
+
+    const placedAt = new Date();
+    const placedAtSgt = sgtDateTime(placedAt);
 
     // Direct assignment for the current single-vendor stage. Every booked
     // service must match the worker's skills; never fall back to an unskilled
@@ -188,7 +195,7 @@ router.post('/', requireCustomerSession, async (req, res) => {
             AND (sp.vendor_id IS NULL OR v.status = 'active')
           ORDER BY sp.id ASC
           FOR UPDATE`,
-        [contact.city]
+        [normalizedContact.city]
       );
       // Acquire roster locks in id order, then retain the existing assignment
       // preference without making lock acquisition depend on changing ratings.
@@ -222,19 +229,19 @@ router.post('/', requireCustomerSession, async (req, res) => {
           sgtDateTime(firstVisit),
           plan?.cadence || cadence || null,
           plan ? JSON.stringify(plan) : null,
-          contact.name,
-          contact.phone,
-          contact.address,
-          contact.city,
-          contact.pincode,
-          contact.area || null,
+          normalizedContact.name,
+          normalizedContact.phone,
+          normalizedContact.address,
+          normalizedContact.city,
+          normalizedContact.pincode,
+          normalizedContact.area || null,
           trimmedNotes || null,
           payment,
           priced.referralCode,
           storedPaymentIntentId,
-          sgtDateTime(placedAt),
+          placedAtSgt,
           status,
-          JSON.stringify([{ at: sgtDateTime(placedAt), type: 'created', note: 'Booking placed' }]),
+          JSON.stringify([{ at: placedAtSgt, type: 'created', note: 'Booking placed' }]),
           userId
         ]
       );
@@ -290,8 +297,8 @@ router.post('/', requireCustomerSession, async (req, res) => {
         bookingDbId,
         catalogIds: [...new Set(itemList.map((it: any) => Number(it.catalogId)).filter(Boolean))],
         serviceLabel: itemList.map((it: any) => it.name).join(', '),
-        city: contact.city,
-        area: contact.area || null,
+        city: normalizedContact.city,
+        area: normalizedContact.area || null,
         windowStart: visitStart,
         windowEnd: new Date(visitStart.getTime() + totalDurationMin * 60000),
         price: total,
@@ -304,6 +311,7 @@ router.post('/', requireCustomerSession, async (req, res) => {
     return res.status(201).json({
       success: true,
       bookingId,
+      placedAt: placedAtSgt,
       id: bookingDbId,
       provider,
       total,
@@ -389,8 +397,9 @@ router.get('/', requireCustomerOrAdminSession, async (req, res) => {
 // PATCH cancel / reschedule booking (for clients)
 router.patch('/:id', requireCustomerOrAdminSession, async (req, res) => {
   try {
-    const body = req.body;
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
     const { status, reason, scheduledAt } = body;
+    const hasScheduledAt = Object.prototype.hasOwnProperty.call(body, 'scheduledAt');
 
     const session = await getSession(req);
     if (!session) {
@@ -409,10 +418,13 @@ router.patch('/:id', requireCustomerOrAdminSession, async (req, res) => {
       return res.status(403).json({ error: 'You can only modify your own bookings.' });
     }
 
-    // Reschedule booking
-    if (scheduledAt) {
-      const newDate = new Date(scheduledAt);
-      if (Number.isNaN(newDate.getTime()) || newDate.getTime() <= Date.now()) {
+    // Reschedule booking. Require a strict ISO datetime with an explicit zone.
+    if (hasScheduledAt) {
+      if (status !== undefined) {
+        return res.status(400).json({ error: 'Choose either rescheduling or cancellation.' });
+      }
+      const newDate = parseIsoDateTime(scheduledAt);
+      if (!newDate || newDate.getTime() <= Date.now()) {
         return res.status(400).json({ error: 'New date & time must be in the future.' });
       }
 
@@ -515,74 +527,87 @@ router.patch('/:id', requireCustomerOrAdminSession, async (req, res) => {
       }
     }
 
-    if (!status || status !== 'cancelled') {
+    if (status !== 'cancelled') {
       return res.status(400).json({ error: 'Only cancellation is allowed via this endpoint' });
     }
 
-    // Check if booking exists
-    const [rows]: any = await pool.query(
-      'SELECT id, history, contact_phone, status, cancelled_by, cancelled_at, cancel_reason FROM bookings WHERE id = ?',
-      [req.params.id]
-    );
+    const db = await pool.getConnection();
+    try {
+      await db.beginTransaction();
+      const [[booking]]: any = await db.query(
+        'SELECT id, user_id, history, status, cancelled_by, cancelled_at, cancel_reason FROM bookings WHERE id = ? FOR UPDATE',
+        [req.params.id]
+      );
+      if (!booking) {
+        await db.rollback();
+        return res.status(404).json({ error: 'Booking not found.' });
+      }
+      if (!hasAdminAccess(session.role) && Number(booking.user_id) !== Number(session.id)) {
+        await db.rollback();
+        return res.status(403).json({ error: 'You can only modify your own bookings.' });
+      }
 
-    if (!rows || rows.length === 0) {
-      return res.status(404).json({ error: 'Booking not found.' });
-    }
+      // Make retries idempotent without allowing a terminal booking to change again.
+      if (booking.status === 'cancelled') {
+        await db.commit();
+        return res.status(200).json({
+          success: true,
+          status: 'cancelled',
+          cancelledBy: booking.cancelled_by,
+          cancelledAt: booking.cancelled_at,
+          cancelReason: booking.cancel_reason,
+        });
+      }
+      if (booking.status !== 'upcoming') {
+        await db.rollback();
+        return res.status(409).json({ error: 'Only an upcoming booking can be cancelled.' });
+      }
 
-    const booking = rows[0];
+      const cancelledBy = hasAdminAccess(session.role) ? 'admin' : 'customer';
+      let history: any[] = [];
+      try {
+        history = typeof booking.history === 'string'
+          ? JSON.parse(booking.history)
+          : (booking.history || []);
+        if (!Array.isArray(history)) history = [];
+      } catch {
+        history = [];
+      }
 
-    // Already cancelled: report the existing cancellation instead of appending a
-    // duplicate history entry every time the client retries.
-    if (booking.status === 'cancelled') {
+      const now = sgtDateTime(new Date())!;
+      const trimmedReason = typeof reason === 'string' ? reason.trim().slice(0, 255) : '';
+      history.push({
+        at: now,
+        type: 'cancelled',
+        by: cancelledBy,
+        note: trimmedReason || `Cancelled by ${cancelledBy}`,
+      });
+
+      const [updated]: any = await db.query(
+        `UPDATE bookings
+            SET status = 'cancelled', cancelled_by = ?, cancelled_at = ?, cancel_reason = ?, history = ?
+          WHERE id = ? AND status = 'upcoming'`,
+        [cancelledBy, now, trimmedReason || null, JSON.stringify(history), req.params.id]
+      );
+      if (!updated.affectedRows) {
+        await db.rollback();
+        return res.status(409).json({ error: 'The booking changed. Refresh and try again.' });
+      }
+      await db.commit();
+
       return res.status(200).json({
         success: true,
         status: 'cancelled',
-        cancelledBy: booking.cancelled_by,
-        cancelledAt: booking.cancelled_at,
-        cancelReason: booking.cancel_reason,
+        cancelledBy,
+        cancelledAt: now,
+        cancelReason: trimmedReason || null,
       });
+    } catch (error) {
+      await db.rollback();
+      throw error;
+    } finally {
+      db.release();
     }
-    if (booking.status === 'completed') {
-      return res.status(409).json({ error: 'A completed booking cannot be cancelled.' });
-    }
-
-    // Who pulled the trigger — drives the "Cancelled by ..." label in the apps.
-    const cancelledBy = hasAdminAccess(session.role) ? 'admin' : 'customer';
-
-    // Append cancellation to history
-    let history: any[] = [];
-    try {
-      history = typeof booking.history === 'string'
-        ? JSON.parse(booking.history)
-        : (booking.history || []);
-      if (!Array.isArray(history)) history = [];
-    } catch {
-      history = [];
-    }
-
-    const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
-    const trimmedReason = typeof reason === 'string' ? reason.trim().slice(0, 255) : '';
-    history.push({
-      at: now,
-      type: 'cancelled',
-      by: cancelledBy,
-      note: trimmedReason || `Cancelled by ${cancelledBy}`,
-    });
-
-    await pool.query(
-      `UPDATE bookings
-          SET status = ?, cancelled_by = ?, cancelled_at = ?, cancel_reason = ?, history = ?
-        WHERE id = ?`,
-      [status, cancelledBy, now, trimmedReason || null, JSON.stringify(history), req.params.id]
-    );
-
-    return res.status(200).json({
-      success: true,
-      status,
-      cancelledBy,
-      cancelledAt: now,
-      cancelReason: trimmedReason || null,
-    });
   } catch (error) {
     console.error('[PATCH /api/bookings/[id]]', error);
     return res.status(500).json({ error: 'Failed to cancel booking' });
@@ -599,11 +624,18 @@ router.put('/:id', handleBookingAssignment);
 // without disturbing the rest of the plan.
 router.patch('/:id/occurrences/:occId', requireCustomerOrAdminSession, async (req, res) => {
   try {
-    const { scheduledAt, status } = req.body;
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const { scheduledAt, status } = body;
+    const hasScheduledAt = Object.prototype.hasOwnProperty.call(body, 'scheduledAt');
     const bookingDbId = Number(req.params.id);
     const occId = Number(req.params.occId);
-    if (!Number.isInteger(bookingDbId) || !Number.isInteger(occId)) {
+    if (!Number.isSafeInteger(bookingDbId) || bookingDbId <= 0
+      || !Number.isSafeInteger(occId) || occId <= 0) {
       return res.status(400).json({ error: 'Invalid booking or visit id.' });
+    }
+    if ((status !== undefined && status !== 'cancelled')
+      || (status === 'cancelled' && hasScheduledAt)) {
+      return res.status(400).json({ error: 'Only a visit skip or reschedule is allowed.' });
     }
 
     const session = await getSession(req);
@@ -650,7 +682,13 @@ router.patch('/:id/occurrences/:occId', requireCustomerOrAdminSession, async (re
     // Skip: cancel this one visit; topUpOccurrences adds a replacement at the
     // end of the series so the plan's length does not shrink.
     if (status === 'cancelled') {
-      await pool.query(`UPDATE booking_occurrences SET status = 'cancelled' WHERE id = ?`, [occId]);
+      const [updated]: any = await pool.query(
+        `UPDATE booking_occurrences SET status = 'cancelled' WHERE id = ? AND status = 'upcoming'`,
+        [occId]
+      );
+      if (!updated.affectedRows) {
+        return res.status(409).json({ error: 'Only an upcoming visit can be skipped.' });
+      }
       await topUpOccurrences(bookingDbId);
 
       history.push({
@@ -663,11 +701,11 @@ router.patch('/:id/occurrences/:occId', requireCustomerOrAdminSession, async (re
       return res.status(200).json({ success: true, skipped: true });
     }
 
-    if (!scheduledAt) {
+    if (!hasScheduledAt) {
       return res.status(400).json({ error: 'scheduledAt or status is required.' });
     }
-    const newDate = new Date(scheduledAt);
-    if (Number.isNaN(newDate.getTime()) || newDate.getTime() <= Date.now()) {
+    const newDate = parseIsoDateTime(scheduledAt);
+    if (!newDate || newDate.getTime() <= Date.now()) {
       return res.status(400).json({ error: 'New date & time must be in the future.' });
     }
 

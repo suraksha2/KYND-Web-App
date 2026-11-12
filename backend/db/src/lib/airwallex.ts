@@ -158,7 +158,7 @@ export async function createPaymentIntent(
 export async function retrievePaymentIntent(id: string): Promise<PaymentIntent> {
   const token = await getAccessToken();
 
-  const res = await fetch(`${API_BASE}/api/v1/pa/payment_intents/${id}`, {
+  const res = await fetch(`${API_BASE}/api/v1/pa/payment_intents/${encodeURIComponent(id)}`, {
     method: 'GET',
     headers: {
       Authorization: `Bearer ${token}`,

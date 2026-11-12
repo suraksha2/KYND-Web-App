@@ -30,7 +30,7 @@ test('accepts only a succeeded intent bound to this customer, order, and exact a
   );
   assert.throws(
     () => validatePaymentIntent(intent({ metadata: { userId: '43' } }), options),
-    { status: 403 }
+    { status: 404 }
   );
   assert.throws(
     () => validatePaymentIntent(intent({ merchant_order_id: 'OTHER-ORDER' }), options),

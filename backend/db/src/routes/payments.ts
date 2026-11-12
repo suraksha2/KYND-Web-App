@@ -2,6 +2,11 @@ import { Router } from 'express';
 import { createPaymentIntent, paymentCurrency, AirwallexConfigError, retrievePaymentIntent } from '../lib/airwallex';
 import { requireCustomerSession } from '../http/session';
 import { priceOrder, PricingError } from '../lib/pricing';
+import { paymentIntentBelongsToUser } from '../lib/paymentVerification';
+import { validatePaymentReturnUrl } from '../lib/paymentReturnUrl';
+import {
+  newBookingReference, normalizeBookingContact, parseIsoDateTime,
+} from '../lib/bookingInput';
 
 const router = Router();
 router.use(requireCustomerSession);
@@ -32,8 +37,8 @@ router.post('/quote', async (req, res) => {
 /**
  * Creates an Airwallex PaymentIntent for a checkout.
  *
- * Body: { items, addOns?, schedule?, offer?, merchantOrderId, metadata?, returnUrl? }
- * Amount is always derived server-side from catalog pricing.
+ * Body: { items, addOns?, schedule, scheduledAt?, contact, offer?, returnUrl? }
+ * Amount and merchant order reference are generated server-side.
  */
 router.post('/create-intent', async (req, res) => {
   try {
@@ -41,19 +46,32 @@ router.post('/create-intent', async (req, res) => {
 
     const body = req.body || {};
     const {
-      merchantOrderId, metadata, returnUrl, items, addOns, schedule, offer,
+      returnUrl, items, addOns, schedule, offer, contact,
       referralCode,
     } = body;
 
-    if (
-      typeof merchantOrderId !== 'string'
-      || !merchantOrderId.trim()
-      || merchantOrderId.length > 50
-    ) {
-      return res.status(400).json({ error: '"merchantOrderId" is required.' });
-    }
     if (!Array.isArray(items) || !items.length) {
       return res.status(400).json({ error: 'Order items are required to price the payment.' });
+    }
+    if (!['instant', 'scheduled', 'recurring'].includes(schedule)) {
+      return res.status(400).json({ error: 'Invalid booking schedule.' });
+    }
+    if (!normalizeBookingContact(contact)) {
+      return res.status(400).json({ error: 'Invalid contact or address details.' });
+    }
+
+    const scheduledDate = schedule === 'instant' ? null : parseIsoDateTime(body.scheduledAt);
+    if (schedule !== 'instant' && (!scheduledDate || scheduledDate.getTime() <= Date.now())) {
+      return res.status(400).json({ error: 'A valid future booking time is required.' });
+    }
+
+    let validatedReturnUrl: string | undefined;
+    if (returnUrl != null) {
+      const validated = validatePaymentReturnUrl(returnUrl);
+      if (!validated) {
+        return res.status(400).json({ error: 'Payment return URL is not allowed.' });
+      }
+      validatedReturnUrl = validated;
     }
 
     const priced = await priceOrder({
@@ -63,25 +81,27 @@ router.post('/create-intent', async (req, res) => {
       offer,
       referralCode,
       userId: session.id,
-      scheduledAt: body.scheduledAt || null,
+      scheduledAt: scheduledDate?.toISOString() || null,
     });
 
+    const bookingId = newBookingReference();
     const intent = await createPaymentIntent({
       amount: priced.total,
       currency: paymentCurrency,
-      merchantOrderId: merchantOrderId.trim(),
+      merchantOrderId: bookingId,
       metadata: {
-        ...(metadata && typeof metadata === 'object' ? metadata : {}),
         userId: String(session.id),
+        bookingId,
         total: String(priced.total),
         discount: String(priced.discount),
       },
-      returnUrl,
+      returnUrl: validatedReturnUrl,
       descriptor: 'Helpr Services',
     });
 
     return res.status(201).json({
       id: intent.id,
+      bookingId,
       clientSecret: intent.client_secret,
       amount: intent.amount,
       currency: intent.currency,
@@ -96,9 +116,9 @@ router.post('/create-intent', async (req, res) => {
       return res.status(error.status).json({ error: error.message });
     }
     if (error instanceof AirwallexConfigError) {
-      return res.status(503).json({ error: error.message });
+      return res.status(503).json({ error: 'Payments are temporarily unavailable.' });
     }
-    return res.status(500).json({ error: error?.message || 'Failed to create payment intent.' });
+    return res.status(500).json({ error: 'Failed to create payment intent.' });
   }
 });
 
@@ -111,7 +131,7 @@ router.get('/:id', async (req, res) => {
     const session = req.session!;
 
     const id = req.params.id;
-    if (!id || typeof id !== 'string' || id.length > 128) {
+    if (!id || typeof id !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(id)) {
       return res.status(400).json({ error: 'Payment intent id is required.' });
     }
 
@@ -120,10 +140,8 @@ router.get('/:id', async (req, res) => {
       return res.status(404).json({ error: 'Payment intent not found.' });
     }
 
-    const meta = (intent as any)?.metadata || {};
-    const metaUserId = meta.userId != null ? Number(meta.userId) : null;
-    if (metaUserId == null || !Number.isFinite(metaUserId) || metaUserId !== Number(session.id)) {
-      return res.status(403).json({ error: 'Payment intent not found.' });
+    if (!paymentIntentBelongsToUser(intent, session.id)) {
+      return res.status(404).json({ error: 'Payment intent not found.' });
     }
 
     return res.status(200).json({
@@ -135,7 +153,7 @@ router.get('/:id', async (req, res) => {
     });
   } catch (error: any) {
     console.error('[GET /api/payments/[id]]', error);
-    return res.status(500).json({ error: error?.message || 'Failed to retrieve payment intent.' });
+    return res.status(500).json({ error: 'Failed to retrieve payment intent.' });
   }
 });
 

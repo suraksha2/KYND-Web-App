@@ -11,6 +11,15 @@ export class PaymentVerificationError extends Error {
   }
 }
 
+export function paymentIntentBelongsToUser(intent: PaymentIntent, userId: number): boolean {
+  const metaUserId = (intent as any)?.metadata?.userId;
+  if (typeof metaUserId !== 'string' && typeof metaUserId !== 'number') return false;
+  if (metaUserId === '') return false;
+
+  const ownerId = Number(metaUserId);
+  return Number.isSafeInteger(ownerId) && ownerId === Number(userId);
+}
+
 export function validatePaymentIntent(intent: PaymentIntent, opts: {
   userId: number;
   paymentIntentId: string;
@@ -20,17 +29,11 @@ export function validatePaymentIntent(intent: PaymentIntent, opts: {
   if (String(intent.id || '') !== opts.paymentIntentId) {
     throw new PaymentVerificationError('Payment intent does not match this request.', 409);
   }
+  if (!paymentIntentBelongsToUser(intent, opts.userId)) {
+    throw new PaymentVerificationError('Payment intent not found.', 404);
+  }
   if (!PAID_STATUSES.has(String(intent.status || '').toUpperCase())) {
     throw new PaymentVerificationError('Payment has not completed successfully.');
-  }
-
-  const meta = (intent as any).metadata || {};
-  if (
-    meta.userId == null
-    || !Number.isFinite(Number(meta.userId))
-    || Number(meta.userId) !== Number(opts.userId)
-  ) {
-    throw new PaymentVerificationError('Payment does not belong to this account.', 403);
   }
 
   if (!intent.merchant_order_id || String(intent.merchant_order_id) !== String(opts.merchantOrderId)) {
@@ -68,11 +71,10 @@ async function assertMatchingIntent(opts: {
 export async function verifyCardPaymentForBooking(opts: {
   userId: number;
   paymentIntentId: string;
-  merchantOrderId: string;
   expectedTotal: number;
-}): Promise<void> {
+}): Promise<string> {
   const intentId = opts.paymentIntentId?.trim();
-  if (!intentId || intentId.length > 128) {
+  if (!intentId || !/^[A-Za-z0-9_-]{1,128}$/.test(intentId)) {
     throw new PaymentVerificationError('Payment intent id is required for card bookings.');
   }
 
@@ -84,7 +86,19 @@ export async function verifyCardPaymentForBooking(opts: {
     throw new PaymentVerificationError('This payment has already been used for a booking.', 409);
   }
 
-  await assertMatchingIntent({ ...opts, paymentIntentId: intentId });
+  const intent = await retrievePaymentIntent(intentId);
+  const merchantOrderId = typeof intent.merchant_order_id === 'string'
+    ? intent.merchant_order_id
+    : '';
+  if (!merchantOrderId || merchantOrderId.length > 50) {
+    throw new PaymentVerificationError('Payment does not match this order.', 409);
+  }
+  validatePaymentIntent(intent, {
+    ...opts,
+    paymentIntentId: intentId,
+    merchantOrderId,
+  });
+  return merchantOrderId;
 }
 
 /** Revalidate a persisted card booking before a recovery job repairs its visits. */

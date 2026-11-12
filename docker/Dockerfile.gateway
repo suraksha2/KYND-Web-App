@@ -69,6 +69,8 @@ RUN npm run build
 FROM nginx:1.27-alpine AS runner
 ARG APP_BASE=
 ENV APP_BASE=${APP_BASE}
+RUN mkdir -p /etc/nginx/snippets
+COPY docker/security-headers.conf /etc/nginx/snippets/security-headers.conf
 COPY docker/entrypoint-gateway.sh /entrypoint-gateway.sh
 RUN sed -i 's/\r$//' /entrypoint-gateway.sh && chmod +x /entrypoint-gateway.sh
 COPY --from=storefront /app/dist /usr/share/nginx/html${APP_BASE}/
