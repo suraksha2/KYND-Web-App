@@ -17,8 +17,31 @@ ios
 *.tsbuildinfo
 **/*.tsbuildinfo
 
-# phpMyAdmin dumps of a dev database — they hold users, bookings and password hashes.
+# Database exports/backups may contain customer PII, password hashes, and tokens.
 /urban_service*.sql
+**/[Bb]ackup*/
+**/[Dd]ump*/
+**/[Ee]xport*/
+**/*[Bb]ackup*.json*
+**/*[Dd]ump*.json*
+**/*[Ee]xport*.json*
+**/*[Bb]ackup*.sql
+**/*[Dd]ump*.sql
+**/*[Ee]xport*.sql
+**/*[Ss]napshot*.sql
+*.sql.*
+*.dump
+*.dump.*
+*.bak
+*.bak.*
+*.backup
+*.backup.*
+*.sqlite
+*.sqlite3
+*.db
+*.db-*
+*.csv
+*.csv.*
 
 # Planning/exported office files
 *.xlsx

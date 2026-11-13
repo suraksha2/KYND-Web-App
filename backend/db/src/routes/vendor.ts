@@ -29,7 +29,13 @@ const jobPhotoUpload = multer({
   fileFilter: (_req, file, cb) => {
     cb(null, JOB_PHOTO_MIMETYPES.includes(file.mimetype));
   },
-  limits: { fileSize: 5 * 1024 * 1024 },
+  limits: {
+    fileSize: 5 * 1024 * 1024,
+    files: 1,
+    fields: 8,
+    fieldSize: 32 * 1024,
+    parts: 9,
+  },
 });
 function uploadJobPhoto(req: Request, res: Response, next: NextFunction) {
   jobPhotoUpload.single('photo')(req, res, (err: any) => {

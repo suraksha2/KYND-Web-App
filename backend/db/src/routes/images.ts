@@ -29,7 +29,13 @@ const upload = multer({
       cb(new Error('Unsupported image type.'));
     }
   },
-  limits: { fileSize: 5 * 1024 * 1024 },
+  limits: {
+    fileSize: 5 * 1024 * 1024,
+    files: 1,
+    fields: 8,
+    fieldSize: 32 * 1024,
+    parts: 9,
+  },
 });
 
 function sanitizeBase(name: string) {

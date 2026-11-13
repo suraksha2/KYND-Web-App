@@ -12,10 +12,10 @@ services:
     image: mysql:8.0
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-urban_service}
-      MYSQL_USER: ${MYSQL_USER:-helpr}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env.docker}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:?Set MYSQL_DATABASE in .env.docker}
+      MYSQL_USER: ${MYSQL_USER:?Set MYSQL_USER in .env.docker}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env.docker}
     command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
     volumes:
       - mysql-data:/var/lib/mysql
@@ -46,14 +46,14 @@ services:
     environment:
       NODE_ENV: production
       MYSQL_HOST: mysql
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-urban_service}
-      MYSQL_USER: ${MYSQL_USER:-helpr}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
-      SESSION_SECRET: ${SESSION_SECRET}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:?Set MYSQL_DATABASE in .env.docker}
+      MYSQL_USER: ${MYSQL_USER:?Set MYSQL_USER in .env.docker}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env.docker}
+      SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET in .env.docker}
       # Bearer token for POST /api/internal/dispatch-due (recurring-visit cron).
       INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-}
       # Same-origin via nginx, so only add origins served from another host.
-      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:?Set ALLOWED_ORIGINS in .env.docker}
       ADMIN_SIGNUP_SECRET: ${ADMIN_SIGNUP_SECRET:-}
       ADMIN_SIGNUP_ENABLED: ${ADMIN_SIGNUP_ENABLED:-false}
       WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID:-}

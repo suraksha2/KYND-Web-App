@@ -1,24 +1,19 @@
-import path from 'path';
-import dotenv from 'dotenv';
-
-const projectRoot = path.join(__dirname, '..');
-
-// Next.js used to load these implicitly; Express does not.
-// Resolve relative to this source file so the API can be launched from any cwd.
-dotenv.config({ path: path.join(projectRoot, '.env.local') });
-dotenv.config({ path: path.join(projectRoot, '.env') });
-
 // Express 4 does not forward rejected promises from async handlers, which would
 // hang the request instead of returning a 500. A few ported handlers rely on
 // the framework catching throws (Next.js did), so patch Router to do the same.
 import 'express-async-errors';
 import express from 'express';
 import cookieParser from 'cookie-parser';
+import path from 'path';
 import { corsMiddleware } from './http/cors';
 import { apiAuthGate } from './http/session';
 import apiRouter from './routes';
 import pool from './lib/mysql';
 import { serveStoredImage } from './routes/images';
+import { validateProductionConfig } from './lib/runtimeConfig';
+
+const projectRoot = path.join(__dirname, '..');
+validateProductionConfig();
 
 const app = express();
 

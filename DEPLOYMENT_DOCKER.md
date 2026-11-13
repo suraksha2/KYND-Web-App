@@ -144,7 +144,9 @@ nano .env.docker              # set MySQL passwords + payment/WhatsApp keys
 
 `.env.docker` is gitignored — never commit it. Values used at **build** time
 (`VITE_API_BASE`) are baked into the SPA bundles; the rest are read at runtime by
-the backend container.
+the backend container. Compose requires the MySQL credentials, session secret,
+and allowed origins to be non-empty; the API also refuses production startup
+without valid HTTPS origins and Airwallex credentials for live payments.
 
 ## 3. Build & start
 
@@ -303,7 +305,7 @@ server {
         proxy_set_header X-Real-IP         $remote_addr;
         proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
-        client_max_body_size 20m;
+        client_max_body_size 6m;
     }
 }
 ```

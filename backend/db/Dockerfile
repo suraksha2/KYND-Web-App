@@ -45,4 +45,4 @@ COPY --chown=node:node backend/db/data ./data
 USER node
 
 EXPOSE 3001
-CMD ["node", "dist/server.js"]
+CMD ["node", "dist/bootstrap.js"]

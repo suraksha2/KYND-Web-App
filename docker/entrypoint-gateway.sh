@@ -16,7 +16,7 @@ server {
     resolver 127.0.0.11 valid=10s ipv6=off;
     set \$backend backend:3001;
 
-    client_max_body_size 20m;
+    client_max_body_size 6m;
 
     gzip on;
     gzip_types text/css application/javascript application/json image/svg+xml;
