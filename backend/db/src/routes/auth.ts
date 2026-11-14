@@ -59,7 +59,7 @@ router.post('/login', async (req, res) => {
 
     // Check if user is active
     if (user.status !== 'active') {
-      return res.status(403).json({ error: 'Account is inactive. Please contact support.' });
+      return res.status(401).json({ error: 'Invalid email or password.' });
     }
 
     // Verify password
@@ -161,7 +161,7 @@ router.post('/signup', async (req, res) => {
     );
 
     if (Array.isArray(existingUsers) && existingUsers.length > 0) {
-      return res.status(409).json({ error: 'An account with this email already exists.' });
+      return res.status(409).json({ error: 'Unable to create account. Please check your details or sign in.' });
     }
 
     // Hash password
@@ -308,13 +308,11 @@ router.post('/provider-login', async (req, res) => {
     const provider = providers[0];
 
     if (!provider.password_hash) {
-      return res
-        .status(403)
-        .json({ error: 'No password set for this account. Please contact the admin.' });
+      return res.status(401).json({ error: 'Invalid email or password.' });
     }
 
     if (provider.status !== 'active' && provider.status !== 'busy') {
-      return res.status(403).json({ error: 'Account is inactive. Please contact support.' });
+      return res.status(401).json({ error: 'Invalid email or password.' });
     }
 
     const isValidPassword = await bcrypt.compare(password, provider.password_hash);
@@ -377,10 +375,10 @@ router.post('/vendor-login', async (req, res) => {
     const seat = seats[0];
 
     if (seat.status !== 'active') {
-      return res.status(403).json({ error: 'This account is inactive. Please contact your Kynd partner manager.' });
+      return res.status(401).json({ error: 'Invalid email or password.' });
     }
     if (seat.vendor_status !== 'active') {
-      return res.status(403).json({ error: 'This vendor account is inactive. Please contact Kynd support.' });
+      return res.status(401).json({ error: 'Invalid email or password.' });
     }
 
     const isValidPassword = await bcrypt.compare(password, seat.password_hash);

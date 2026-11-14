@@ -1,13 +1,13 @@
 import { Router } from 'express';
 import pool from '../lib/mysql';
 import { requireCustomerSession } from '../http/session';
+import { normalizePhoneToE164 } from '../lib/phone';
 
 const router = Router();
 router.use(requireCustomerSession);
 
-// Payment methods the storefront can preselect. A saved value outside this set
-// would silently fail to apply, so reject it here instead.
-const PAYMENT_METHODS = ['card', 'wallet', 'upi', 'cod'];
+// Only methods offered by the Singapore storefront may be saved as defaults.
+const PAYMENT_METHODS = ['card', 'cod'];
 
 const MAX = { address: 255, city: 255, area: 255, phone: 40 };
 
@@ -64,6 +64,12 @@ router.put('/', async (req, res) => {
 
     const { phone, address, city, area, pincode, payment } = req.body || {};
 
+    const rawPhone = text(phone, MAX.phone);
+    const cleanPhone = rawPhone ? normalizePhoneToE164(rawPhone) : null;
+    if (rawPhone && !cleanPhone) {
+      return res.status(400).json({ error: 'Enter a valid Singapore mobile number.' });
+    }
+
     const cleanPincode = text(pincode, 10);
     if (cleanPincode && !/^\d{6}$/.test(cleanPincode)) {
       return res.status(400).json({ error: 'Invalid postal code. Enter a 6-digit Singapore postal code.' });
@@ -80,7 +86,7 @@ router.put('/', async (req, res) => {
               default_area = ?, default_pincode = ?, default_payment = ?
         WHERE id = ?`,
       [
-        text(phone, MAX.phone),
+        cleanPhone,
         text(address, MAX.address),
         text(city, MAX.city),
         text(area, MAX.area),

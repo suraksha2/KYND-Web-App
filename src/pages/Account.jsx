@@ -8,8 +8,9 @@ import Seo from '../components/Seo'
 import { useProfile } from '../context/ProfileContext'
 import { usePrefillDetails } from '../lib/lastBooking'
 import { API_BASE } from '../lib/api'
+import { formatSingaporePhoneInput, isValidSingaporePhone } from '../lib/phone'
 
-const PAYMENT_LABELS = { card: 'Card', wallet: 'Wallet', upi: 'UPI', cod: 'Cash after service' }
+const PAYMENT_LABELS = { card: 'Card', cod: 'Cash after service' }
 const PAYMENT_OPTIONS = Object.entries(PAYMENT_LABELS).map(([value, label]) => ({ value, label }))
 
 function Row({ icon: Icon, label, value, last, onClick }) {
@@ -65,7 +66,7 @@ export default function Account() {
       city: prefill.city || 'Singapore',
       area: prefill.area || '',
       pincode: prefill.pincode || '',
-      payment: prefill.payment || 'card',
+      payment: PAYMENT_LABELS[prefill.payment] ? prefill.payment : 'card',
     })
   }, [prefill, showSavedEdit])
 
@@ -109,7 +110,7 @@ export default function Account() {
       city: defaults.city || 'Singapore',
       area: defaults.area || '',
       pincode: defaults.pincode || '',
-      payment: defaults.payment || 'card',
+      payment: PAYMENT_LABELS[defaults.payment] ? defaults.payment : 'card',
     })
     setError('')
     setSuccess('')
@@ -117,6 +118,10 @@ export default function Account() {
   }
 
   const handleSave = async () => {
+    if (form.phone && !isValidSingaporePhone(form.phone)) {
+      setError('Enter a valid Singapore mobile number.')
+      return
+    }
     setSaving(true)
     setError('')
     setSuccess('')
@@ -211,8 +216,10 @@ export default function Account() {
                     className={inputCls}
                     type="tel"
                     value={form.phone}
-                    onChange={(e) => updateField('phone', e.target.value)}
+                    onChange={(e) => updateField('phone', formatSingaporePhoneInput(e.target.value))}
                     placeholder="+65"
+                    pattern="\\+65[89][0-9]{7}"
+                    title="Enter a valid Singapore mobile number: +65 followed by 8 digits starting with 8 or 9"
                   />
                 </label>
 

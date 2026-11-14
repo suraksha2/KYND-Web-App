@@ -5,84 +5,101 @@ import { useAuth } from '../context/AuthContext'
 import { API_ORIGIN as API_BASE, serviceImageUrl } from '../lib/api'
 import { readLastOrder, saveLastOrder } from '../lib/lastOrder'
 
+const confirmationRequests = new Map()
+
+function confirmPaidOrder(pendingOrder, token, userId, expireSession) {
+  const key = String(pendingOrder.intentId)
+  const existing = confirmationRequests.get(key)
+  if (existing) return existing
+
+  const request = (async () => {
+    const verifyRes = await fetch(`${API_BASE}/api/payments/${encodeURIComponent(key)}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      credentials: 'include',
+    })
+    const verify = await verifyRes.json().catch(() => ({}))
+    if (verifyRes.status === 401) expireSession()
+    const verified = verifyRes.ok
+      && verify.id === key
+      && verify.merchantOrderId === pendingOrder.bookingId
+      && verify.status === 'SUCCEEDED'
+    if (!verified) {
+      throw new Error(verify.error || 'Payment could not be verified. Please contact support.')
+    }
+
+    const paidOrder = {
+      ...pendingOrder.order,
+      payment: 'card',
+      total: verify.amount ?? pendingOrder.order.total,
+      paymentIntentId: key,
+      paymentStatus: verify.status,
+    }
+    const response = await fetch(`${API_BASE}/api/bookings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      credentials: 'include',
+      body: JSON.stringify(paidOrder),
+    })
+    const data = await response.json().catch(() => ({}))
+    if (response.status === 401) expireSession()
+    if (!response.ok) throw new Error(data.error || 'Failed to create booking')
+
+    const confirmedOrder = {
+      ...paidOrder,
+      bookingId: data.bookingId,
+      id: data.id,
+      placedAt: data.placedAt,
+      provider: data.provider,
+      cadence: data.cadence || paidOrder.cadence,
+      recurrence: data.recurrence || paidOrder.recurrence,
+    }
+    localStorage.removeItem('kynd.pendingOrder')
+    saveLastOrder(userId, confirmedOrder)
+    return confirmedOrder
+  })()
+
+  confirmationRequests.set(key, request)
+  request.then(
+    () => { if (confirmationRequests.get(key) === request) confirmationRequests.delete(key) },
+    () => { if (confirmationRequests.get(key) === request) confirmationRequests.delete(key) }
+  )
+  return request
+}
+
 export default function BookingConfirmed() {
   const { state } = useLocation()
-  const { token, user } = useAuth()
+  const { token, user, expireSession } = useAuth()
   const [order, setOrder] = useState(state || (() => readLastOrder(user?.id))())
   const [verifying, setVerifying] = useState(false)
   const [verificationError, setVerificationError] = useState(null)
 
   useEffect(() => {
+    let active = true
     const verifyPayment = async () => {
       try {
         const pendingOrderStr = localStorage.getItem('kynd.pendingOrder')
         if (!pendingOrderStr) return
-
         const pendingOrder = JSON.parse(pendingOrderStr)
         if (!pendingOrder.intentId || !pendingOrder.order) return
-
         setVerifying(true)
         setVerificationError(null)
 
-        const verifyRes = await fetch(`${API_BASE}/api/payments/${pendingOrder.intentId}`, {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-          credentials: 'include',
-        })
-        const verify = await verifyRes.json()
-        const ok = verifyRes.ok
-          && verify.id === pendingOrder.intentId
-          && verify.merchantOrderId === pendingOrder.bookingId
-          && verify.status === 'SUCCEEDED'
-
-        if (!ok) {
-          throw new Error('Payment could not be verified. Please contact support.')
-        }
-
-        const paidOrder = {
-          ...pendingOrder.order,
-          payment: 'card',
-          total: verify.amount ?? pendingOrder.order.total,
-          paymentIntentId: pendingOrder.intentId,
-          paymentStatus: verify.status,
-        }
-
-        const response = await fetch(`${API_BASE}/api/bookings`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-          credentials: 'include',
-          body: JSON.stringify(paidOrder),
-        })
-        const data = await response.json()
-        if (!response.ok) {
-          throw new Error(data.error || 'Failed to create booking')
-        }
-
-        const confirmedOrder = {
-          ...paidOrder,
-          bookingId: data.bookingId,
-          id: data.id,
-          placedAt: data.placedAt,
-          provider: data.provider,
-          cadence: data.cadence || paidOrder.cadence,
-          recurrence: data.recurrence || paidOrder.recurrence,
-        }
-
-        localStorage.removeItem('kynd.pendingOrder')
-        saveLastOrder(user?.id, confirmedOrder)
-        setOrder(confirmedOrder)
+        const confirmedOrder = await confirmPaidOrder(pendingOrder, token, user?.id, expireSession)
+        if (active) setOrder(confirmedOrder)
       } catch (error) {
+        if (!active) return
         console.error('Payment verification error:', error)
         setVerificationError(error.message || 'Payment verification failed.')
       } finally {
-        setVerifying(false)
+        if (active) setVerifying(false)
       }
     }
 
     if (!state) {
       verifyPayment()
     }
-  }, [state, token, user?.id])
-
+    return () => { active = false }
+  }, [state, token, user?.id, expireSession])
 
 
   if (!order && !verifying) return <Navigate to="/" replace />

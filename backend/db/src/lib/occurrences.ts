@@ -1,6 +1,8 @@
 import pool from './mysql';
 import type { PoolConnection } from 'mysql2/promise';
-import { PLANNED_OCCURRENCES, anchorWallMs, nextWeekdayVisits, type Recurrence } from './recurrence';
+import {
+  PLANNED_OCCURRENCES, anchorWallMs, nextWeekdayVisits, recurrenceOffsetDays, type Recurrence,
+} from './recurrence';
 import { sgtDateTime } from './sgt';
 import { inheritVisitFinancials, recordVendorCompletion } from './vendorFinance';
 import { verifyStoredCardPayment } from './paymentVerification';
@@ -147,6 +149,7 @@ async function topUpLocked(bookingDbId: number, db: PoolConnection): Promise<num
   const [rows]: any = await db.query(
     `SELECT b.recurrence, b.provider_id,
             MAX(o.seq) AS last_seq,
+            ${SGT_STRING('b.scheduled_at', 'first_at')},
             ${SGT_STRING('MAX(o.scheduled_at)', 'last_at')},
             SUM(o.status = 'upcoming' AND o.scheduled_at > NOW()) AS pending
        FROM bookings b
@@ -181,11 +184,17 @@ async function topUpLocked(bookingDbId: number, db: PoolConnection): Promise<num
 
   // Step forward from the last planned visit in MySQL's own wall-clock so the
   // cadence stays exact no matter what timezone the API process runs in.
+  const custom = plan.type === 'custom';
+  const offsets = Array.from({ length: missing }, (_, i) =>
+    custom
+      ? recurrenceOffsetDays(plan, lastSeq + i + 1)
+      : recurrenceOffsetDays(plan, i + 1)
+  );
   const [steps]: any = await db.query(
-    `SELECT ${Array.from({ length: missing },
-      (_, i) => `DATE_FORMAT(DATE_ADD(?, INTERVAL ${(i + 1) * plan.intervalDays} DAY), '%Y-%m-%d %H:%i:%s') AS at${i}`
+    `SELECT ${offsets.map((offset, i) =>
+      `DATE_FORMAT(DATE_ADD(?, INTERVAL ${offset} DAY), '%Y-%m-%d %H:%i:%s') AS at${i}`
     ).join(', ')}`,
-    Array.from({ length: missing }, () => row.last_at)
+    offsets.map(() => custom ? row.first_at : row.last_at)
   );
 
   const visits = Array.from({ length: missing }, (_, i) => ({

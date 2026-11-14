@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { Outlet, useLocation, useMatch, useNavigate } from 'react-router-dom'
+import { Link, Outlet, useLocation, useMatch, useNavigate } from 'react-router-dom'
 import { Home, CalendarDays, MessageSquare, User } from 'lucide-react'
 import Header from '../components/Header'
 import Footer from '../components/Footer'
@@ -10,7 +10,7 @@ import { useUnreadMessages } from '../hooks/useUnreadMessages.js'
 export default function MainLayout() {
   const { pathname, hash, state } = useLocation()
   const navigate = useNavigate()
-  const { isAuthenticated } = useAuth()
+  const { isAuthenticated, sessionExpired } = useAuth()
   const { activeCount } = useBookings()
   const unreadMessages = useUnreadMessages()
 
@@ -46,6 +46,18 @@ export default function MainLayout() {
   return (
     <div className="min-h-full flex flex-col">
       {!isServiceDetail && !isHelpDetail && !isChat && <Header />}
+      {sessionExpired && (
+        <div role="status" className="bg-accent-50 ring-1 ring-accent-200 px-4 py-3">
+          <div className="max-w-6xl mx-auto flex flex-wrap items-center gap-3">
+            <p className="flex-1 min-w-[180px] text-sm text-charcoal">
+              Your session expired. Sign in again to access your account and bookings.
+            </p>
+            <Link to="/login" className="inline-flex rounded-full bg-terracotta hover:bg-charcoal text-white font-semibold px-4 py-2 text-sm">
+              Sign in
+            </Link>
+          </div>
+        </div>
+      )}
       <main className="flex-1">
         <Outlet />
       </main>

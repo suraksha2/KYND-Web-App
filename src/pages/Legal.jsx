@@ -20,7 +20,7 @@ export function TnC() {
           </p>
           <Section title="1. Service" body="Kynd provides a platform to book trained, background-verified professionals (Pros) for household tasks. Services are offered subject to availability in your locality and as listed in the Kynd app." />
           <Section title="2. Bookings" body="Confirmed bookings are non-transferrable. You may reschedule or cancel a booking up to 2 hours before the slot at no charge. Late cancellations may attract a fee as per the Cancellation Policy." />
-          <Section title="3. Pricing & payment" body="Pricing for each service is shown upfront in the app and includes applicable taxes. Payment is made through the in-app gateway via UPI, card, netbanking or wallet." />
+          <Section title="3. Pricing & payment" body="Prices are shown in Singapore dollars before you book. Pay securely by card through the in-app gateway, or pay the professional in cash after the service." />
           <Section title="4. Conduct" body="You agree to provide a safe environment for the Pro and to treat them with respect. Kynd reserves the right to refuse service to any user violating this clause." />
           <Section title="5. Liability" body="Kynd's aggregate liability for any claim arising out of a service shall not exceed the value of the booking concerned." />
           <Section title="6. Contact" body="Questions? Email help@kynd.sg." />

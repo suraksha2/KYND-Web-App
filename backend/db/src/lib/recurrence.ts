@@ -85,6 +85,18 @@ const PRESETS: Record<string, { times: number; unit: 'day' | 'week' | 'month' | 
 // the pattern, without pinning the calendar months ahead.
 export const PLANNED_OCCURRENCES = 4;
 
+/**
+ * Return the day offset for a visit sequence. Custom frequencies are spread
+ * across their full unit instead of repeatedly rounding one average interval
+ * (which makes 3/week drift into 3.5/week).
+ */
+export function recurrenceOffsetDays(plan: Pick<Recurrence, 'type' | 'unit' | 'timesPerUnit' | 'intervalDays'>, seq: number): number {
+  if (plan.type === 'custom') {
+    return Math.max(1, Math.round((UNIT_DAYS[plan.unit] * seq) / plan.timesPerUnit));
+  }
+  return seq * plan.intervalDays;
+}
+
 export function normalizeRecurrence(
   input: RecurrenceInput | null | undefined,
   cadence: unknown,
@@ -99,9 +111,11 @@ export function normalizeRecurrence(
 
   if (raw.type === 'custom') {
     times = Number(raw.times);
-    if (!Number.isFinite(times) || times < 1) return null;
-    times = Math.min(Math.round(times), 31);
+    if (!Number.isInteger(times) || times < 1 || times > 31) return null;
     unit = (raw.unit && UNIT_DAYS[raw.unit] ? raw.unit : 'week') as 'day' | 'week' | 'month' | 'fourweeks';
+    // Appointments are date-based; multiple visits on one day would collapse
+    // onto the same slot and cannot be scheduled as a distinct recurrence.
+    if (times > UNIT_DAYS[unit]) return null;
   } else {
     const preset = PRESETS[String(raw.value || '').toLowerCase()];
     if (!preset) return null;
@@ -135,7 +149,15 @@ export function normalizeRecurrence(
     occurrences.push(new Date(first).toISOString());
     const rest = days
       ? nextWeekdayVisits(firstWall!, days, PLANNED_OCCURRENCES - 1, stride).map((t) => t - SGT_OFFSET_MS)
-      : Array.from({ length: PLANNED_OCCURRENCES - 1 }, (_, i) => first + (i + 1) * intervalDays * 86400000);
+      : Array.from(
+        { length: PLANNED_OCCURRENCES - 1 },
+        (_, i) => first + recurrenceOffsetDays({
+          type: raw.type === 'custom' ? 'custom' : 'preset',
+          unit,
+          timesPerUnit: times,
+          intervalDays,
+        }, i + 1) * 86400000
+      );
     for (const t of rest) occurrences.push(new Date(t).toISOString());
   }
 

@@ -238,15 +238,22 @@ function UpcomingCard({ booking }) {
 
   const onConfirmReschedule = async () => {
     if (!newAt) return
+    setRescheduling(true)
+    setRescheduleError(null)
+    let result
     if (isRecurring) {
-      if (!nextOcc?.id) return
-      setRescheduling(true)
-      setRescheduleError(null)
-      const result = await rescheduleOccurrence(booking.bookingId, nextOcc.id, new Date(newAt).toISOString())
-      setRescheduling(false)
-      if (!result?.ok) { setRescheduleError(result?.error || 'Failed to move visit.'); return }
+      if (!nextOcc?.id) {
+        setRescheduling(false)
+        return
+      }
+      result = await rescheduleOccurrence(booking.bookingId, nextOcc.id, new Date(newAt).toISOString())
     } else {
-      rescheduleBooking(booking.bookingId, new Date(newAt).toISOString())
+      result = await rescheduleBooking(booking.bookingId, new Date(newAt).toISOString())
+    }
+    setRescheduling(false)
+    if (!result?.ok) {
+      setRescheduleError(result?.error || 'Failed to reschedule booking.')
+      return
     }
     setShowReschedule(false)
   }
@@ -453,10 +460,10 @@ export default function Bookings() {
 
   // Redirect unauthenticated users to login
   useEffect(() => {
-    if (!isAuthenticated) {
+    if (!isAuthenticated && !sessionExpired) {
       navigate('/login')
     }
-  }, [isAuthenticated, navigate])
+  }, [isAuthenticated, sessionExpired, navigate])
 
   const list = tab === 'upcoming' ? upcoming : past
 
@@ -481,17 +488,6 @@ export default function Bookings() {
     <section className="pt-24 md:pt-28 pb-28">
       <div className="max-w-2xl mx-auto px-5">
         <h1 className="font-heading text-3xl font-extrabold text-charcoal">Bookings</h1>
-
-        {sessionExpired && (
-          <div className="mt-5 flex flex-wrap items-center gap-3 rounded-2xl bg-accent-50 ring-1 ring-accent-200 px-4 py-3">
-            <p className="flex-1 min-w-[180px] text-sm text-charcoal">
-              Your session expired. Sign in again to see your bookings.
-            </p>
-            <Link to="/login" className="inline-flex rounded-full bg-terracotta hover:bg-charcoal text-white font-semibold px-4 py-2 text-sm">
-              Sign in
-            </Link>
-          </div>
-        )}
 
         <div className="mt-6 flex border-b border-lightstone">
           {[

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { timingSafeEqual } from 'node:crypto';
-// Later multi-vendor stage (expire-offers): import pool from '../lib/mysql';
+import pool from '../lib/mysql';
 import {
   findDueOccurrences, markNotified, topUpOccurrences, reconcileMissingOccurrences,
 } from '../lib/occurrences';
@@ -41,106 +41,126 @@ router.post('/dispatch-due', async (req, res) => {
     return res.status(401).json({ error: 'Invalid internal token.' });
   }
 
-  const withinHours = Math.min(Math.max(Number(req.body?.withinHours) || 24, 1), 168);
-  const occurrencesReconciled = await reconcileMissingOccurrences();
-  const due = await findDueOccurrences(withinHours);
-
-  let notified = 0;
-  const failures: { occurrenceId: number; error: string }[] = [];
-  const touchedBookings = new Set<number>();
-
-  for (const o of due) {
-    if (!o.provider_mobile) continue;
-    const result = await sendProviderAssignmentWhatsApp(o.provider_mobile, o.provider_name || 'Partner', {
-      bookingId: o.booking_ref,
-      serviceName: serviceNameOf(o.items),
-      scheduledAt: o.scheduled_at,
-      schedule: o.schedule,
-      cadence: o.cadence,
-      visitSeq: o.seq,
-      contactName: o.contact_name,
-      contactPhone: o.contact_phone,
-      contactAddress: o.contact_address,
-      contactArea: o.contact_area,
-      contactCity: o.contact_city,
-      contactPincode: o.contact_pincode,
-      notes: o.notes,
-      total: o.total,
-      payment: o.payment,
-    });
-
-    // Only mark on success, so a WhatsApp outage retries on the next run
-    // instead of silently swallowing the visit.
-    if (result.success) {
-      await markNotified(o.id);
-      notified++;
-      touchedBookings.add(o.booking_id);
-    } else {
-      failures.push({ occurrenceId: o.id, error: result.error || 'send failed' });
+  // Named locks are shared across API processes, unlike an in-memory guard.
+  // Hold one for the complete sweep so two cron invocations cannot both send
+  // the same due notifications before either marks them as delivered.
+  const lockConnection = await pool.getConnection();
+  let lockAcquired = false;
+  try {
+    const [lockRows]: any = await lockConnection.query(
+      "SELECT GET_LOCK('dispatch_due_notifications', 0) AS acquired"
+    );
+    lockAcquired = Number(lockRows?.[0]?.acquired) === 1;
+    if (!lockAcquired) {
+      return res.status(409).json({ error: 'A dispatch run is already in progress.' });
     }
-  }
 
-  let added = 0;
-  for (const bookingDbId of touchedBookings) {
-    added += await topUpOccurrences(bookingDbId);
-  }
+    const withinHours = Math.min(Math.max(Number(req.body?.withinHours) || 24, 1), 168);
+    const occurrencesReconciled = await reconcileMissingOccurrences();
+    const due = await findDueOccurrences(withinHours);
 
-  if (failures.length) {
-    console.error('[POST /api/internal/dispatch-due] failures:', failures);
-  }
+    let notified = 0;
+    const failures: { occurrenceId: number; error: string }[] = [];
+    const touchedBookings = new Set<number>();
 
-  // Second pass: jobs whose slot has already passed without being marked done.
-  // The admin gets one consolidated WhatsApp; `missed_notified_at` makes it
-  // fire once per job. Skipped entirely when ADMIN_WHATSAPP_NUMBER is unset so
-  // the flags are left clear and the alert sends once a number is configured.
-  const missedGraceMinutes = Math.min(
-    Math.max(Number(req.body?.missedGraceMinutes) || 60, 5),
-    7 * 24 * 60
-  );
-  const adminPhone = process.env.ADMIN_WHATSAPP_NUMBER;
-  let missedAlerted = 0;
+    for (const o of due) {
+      if (!o.provider_mobile) continue;
+      const result = await sendProviderAssignmentWhatsApp(o.provider_mobile, o.provider_name || 'Partner', {
+        bookingId: o.booking_ref,
+        serviceName: serviceNameOf(o.items),
+        scheduledAt: o.scheduled_at,
+        schedule: o.schedule,
+        cadence: o.cadence,
+        visitSeq: o.seq,
+        contactName: o.contact_name,
+        contactPhone: o.contact_phone,
+        contactAddress: o.contact_address,
+        contactArea: o.contact_area,
+        contactCity: o.contact_city,
+        contactPincode: o.contact_pincode,
+        notes: o.notes,
+        total: o.total,
+        payment: o.payment,
+      });
 
-  if (adminPhone) {
-    const missed = [
-      ...(await findMissedOccurrences(missedGraceMinutes)),
-      ...(await findMissedBookings(missedGraceMinutes)),
-    ];
-
-    if (missed.length) {
-      const result = await sendMissedJobsWhatsApp(
-        adminPhone,
-        missed.map((m) => ({
-          bookingId: m.booking_ref,
-          serviceName: serviceNameOf(m.service_items),
-          visitSeq: m.seq,
-          dueAt: m.due_at,
-          minsLate: m.mins_late,
-          providerName: m.provider_name,
-          contactName: m.contact_name,
-          contactArea: m.contact_area,
-          contactCity: m.contact_city,
-        }))
-      );
-
+      // Only mark on success, so a WhatsApp outage retries on the next run
+      // instead of silently swallowing the visit.
       if (result.success) {
-        for (const job of missed) {
-          await markMissedNotified(job);
-        }
-        missedAlerted = missed.length;
+        await markNotified(o.id);
+        notified++;
+        touchedBookings.add(o.booking_id);
       } else {
-        console.error('[POST /api/internal/dispatch-due] missed-job alert failed:', result.error);
+        failures.push({ occurrenceId: o.id, error: result.error || 'send failed' });
       }
     }
-  }
 
-  return res.status(200).json({
-    due: due.length,
-    notified,
-    failed: failures.length,
-    occurrencesAdded: added,
-    occurrencesReconciled,
-    missedAlerted,
-  });
+    let added = 0;
+    for (const bookingDbId of touchedBookings) {
+      added += await topUpOccurrences(bookingDbId);
+    }
+
+    if (failures.length) {
+      console.error('[POST /api/internal/dispatch-due] failures:', failures);
+    }
+
+    // Second pass: jobs whose slot has already passed without being marked done.
+    // The admin gets one consolidated WhatsApp; `missed_notified_at` makes it
+    // fire once per job. Skipped entirely when ADMIN_WHATSAPP_NUMBER is unset so
+    // the flags are left clear and the alert sends once a number is configured.
+    const missedGraceMinutes = Math.min(
+      Math.max(Number(req.body?.missedGraceMinutes) || 60, 5),
+      7 * 24 * 60
+    );
+    const adminPhone = process.env.ADMIN_WHATSAPP_NUMBER;
+    let missedAlerted = 0;
+
+    if (adminPhone) {
+      const missed = [
+        ...(await findMissedOccurrences(missedGraceMinutes)),
+        ...(await findMissedBookings(missedGraceMinutes)),
+      ];
+
+      if (missed.length) {
+        const result = await sendMissedJobsWhatsApp(
+          adminPhone,
+          missed.map((m) => ({
+            bookingId: m.booking_ref,
+            serviceName: serviceNameOf(m.service_items),
+            visitSeq: m.seq,
+            dueAt: m.due_at,
+            minsLate: m.mins_late,
+            providerName: m.provider_name,
+            contactName: m.contact_name,
+            contactArea: m.contact_area,
+            contactCity: m.contact_city,
+          }))
+        );
+
+        if (result.success) {
+          for (const job of missed) {
+            await markMissedNotified(job);
+          }
+          missedAlerted = missed.length;
+        } else {
+          console.error('[POST /api/internal/dispatch-due] missed-job alert failed:', result.error);
+        }
+      }
+    }
+
+    return res.status(200).json({
+      due: due.length,
+      notified,
+      failed: failures.length,
+      occurrencesAdded: added,
+      occurrencesReconciled,
+      missedAlerted,
+    });
+  } finally {
+    if (lockAcquired) {
+      await lockConnection.query("SELECT RELEASE_LOCK('dispatch_due_notifications')").catch(() => {});
+    }
+    lockConnection.release();
+  }
 });
 
 /**

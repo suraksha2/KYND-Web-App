@@ -11,33 +11,45 @@ const fmtDay = (d) => new Date(d).toLocaleDateString('en-GB', { weekday: 'short'
 const fmtShortDay = (d) => new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', ...SGT }).toUpperCase()
 
 export default function Messages() {
-  const { token, user } = useAuth()
+  const { token, user, expireSession } = useAuth()
   const navigate = useNavigate()
   const [conversations, setConversations] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
   useEffect(() => {
-    fetchConversations()
+    const controller = new AbortController()
+    setConversations([])
+    setLoading(true)
+    setError('')
+    fetchConversations(token, controller.signal)
+    return () => controller.abort()
   }, [token])
 
-  const fetchConversations = async () => {
+  const fetchConversations = async (currentToken, signal) => {
     try {
       const res = await fetch(`${API_BASE}/messages`, {
         headers: {
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...(currentToken ? { Authorization: `Bearer ${currentToken}` } : {}),
         },
+        signal,
       })
-      const data = await res.json()
+      const data = await res.json().catch(() => ({}))
+      if (signal?.aborted) return
+      if (res.status === 401 && currentToken) {
+        expireSession()
+        throw new Error('Authentication required.')
+      }
       if (!res.ok) throw new Error(data.error || 'Failed to load conversations')
       setConversations(data.data || [])
       setError('')
     } catch (err) {
+      if (err.name === 'AbortError') return
       console.error('Failed to fetch conversations:', err)
       const errorMessage = err.message || 'Failed to load conversations'
       setError(errorMessage === 'Authentication required.' ? 'Please login or sign up' : errorMessage)
     } finally {
-      setLoading(false)
+      if (!signal?.aborted) setLoading(false)
     }
   }
 

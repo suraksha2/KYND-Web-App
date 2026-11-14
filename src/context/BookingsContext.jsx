@@ -137,6 +137,7 @@ export function BookingsProvider({ children }) {
           headers: { 'Authorization': `Bearer ${token}` },
           credentials: 'include'
         })
+        if (ignore) return
         // The session died server-side (expired or revoked): drop it so the UI
         // stops claiming to be signed in, and clear bookings.
         if (response.status === 401) {
@@ -146,7 +147,6 @@ export function BookingsProvider({ children }) {
           return
         }
         const json = await response.json()
-        if (ignore) return
         if (response.ok && Array.isArray(json.data)) {
           setBookings(json.data.map(transformBooking))
         } else {
@@ -155,7 +155,7 @@ export function BookingsProvider({ children }) {
       } catch (error) {
         console.error('Error fetching bookings:', error)
       } finally {
-        setLoaded(true)
+        if (!ignore) setLoaded(true)
       }
     }
     fetchBookings()
@@ -189,6 +189,7 @@ export function BookingsProvider({ children }) {
         credentials: 'include'
       })
       const json = await res.json()
+      if (res.status === 401) expireSession()
       if (res.ok && Array.isArray(json.data)) {
         setBookings(json.data.map(transformBooking))
       }
@@ -196,7 +197,7 @@ export function BookingsProvider({ children }) {
       console.error('Failed to sync bookings:', error)
     }
     return booking
-  }, [user?.id, token])
+  }, [user?.id, token, expireSession])
 
   const applyCancelLocally = useCallback((bookingId, reason, cancelledBy = 'customer') => {
     setBookings(prev => prev.map(b => b.bookingId === bookingId
@@ -231,6 +232,7 @@ export function BookingsProvider({ children }) {
         body: JSON.stringify({ status: 'cancelled', reason })
       })
       const json = await response.json().catch(() => ({}))
+      if (response.status === 401) expireSession()
       if (!response.ok) {
         return { ok: false, error: json.error || 'Failed to cancel booking. Please try again.' }
       }
@@ -243,6 +245,7 @@ export function BookingsProvider({ children }) {
         credentials: 'include'
       })
       const list = await res.json().catch(() => ({}))
+      if (res.status === 401) expireSession()
       if (res.ok && Array.isArray(list.data)) setBookings(list.data.map(transformBooking))
 
       return { ok: true }
@@ -250,37 +253,61 @@ export function BookingsProvider({ children }) {
       console.error('Error cancelling booking:', error)
       return { ok: false, error: 'Network error. Please check your connection and try again.' }
     }
-  }, [bookings, token, applyCancelLocally])
+  }, [bookings, token, applyCancelLocally, expireSession])
 
   const rescheduleBooking = useCallback(async (bookingId, newAt) => {
-    setBookings(prev => prev.map(b => b.bookingId === bookingId
-      ? {
-          ...b,
-          schedule: 'scheduled',
-          scheduledAt: newAt,
-          history: [...(b.history || []), { at: new Date().toISOString(), type: 'rescheduled', note: `Rescheduled to ${new Date(newAt).toLocaleString('en-SG', { timeZone: 'Asia/Singapore' })}` }],
-        }
-      : b
+    const booking = bookings.find(b => b.bookingId === bookingId)
+    if (!booking) return { ok: false, error: 'Booking not found.' }
+    if (booking.id && !token) return { ok: false, error: 'Your session expired. Please sign in again.' }
+
+    const optimistic = {
+      ...booking,
+      schedule: 'scheduled',
+      scheduledAt: newAt,
+      history: [...(booking.history || []), { at: new Date().toISOString(), type: 'rescheduled', note: `Rescheduled to ${new Date(newAt).toLocaleString('en-SG', { timeZone: 'Asia/Singapore' })}` }],
+    }
+    setBookings(prev => prev.map(b => b.bookingId === bookingId ? optimistic : b))
+    if (!booking.id) return { ok: true }
+
+    const rollback = () => setBookings(prev => prev.map(b =>
+      b.bookingId === bookingId && b.scheduledAt === newAt ? booking : b
     ))
 
+    let saved = false
     try {
-      const booking = bookings.find(b => b.bookingId === bookingId)
-      if (!booking?.id) return
-
       const response = await fetch(`${API_BASE}/bookings/${booking.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         credentials: 'include',
         body: JSON.stringify({ scheduledAt: newAt })
       })
-
+      const json = await response.json().catch(() => ({}))
+      if (response.status === 401) expireSession()
       if (!response.ok) {
-        console.error('Failed to reschedule booking on backend:', await response.text())
+        rollback()
+        return { ok: false, error: json.error || 'Failed to reschedule booking. Please try again.' }
       }
+      saved = true
+
+      try {
+        const res = await fetch(`${API_BASE}/bookings`, {
+          headers: { Authorization: `Bearer ${token}` },
+          credentials: 'include',
+        })
+        const list = await res.json().catch(() => ({}))
+        if (res.status === 401) expireSession()
+        if (res.ok && Array.isArray(list.data)) setBookings(list.data.map(transformBooking))
+      } catch (error) {
+        console.error('Failed to refresh bookings after reschedule:', error)
+      }
+      return { ok: true }
     } catch (error) {
       console.error('Error rescheduling booking:', error)
+      if (saved) return { ok: true }
+      rollback()
+      return { ok: false, error: 'Network error. Please check your connection and try again.' }
     }
-  }, [bookings, token])
+  }, [bookings, token, expireSession])
 
   // Moves a single visit of a recurring booking's series; the rest of the plan
   // is untouched. Server-first, like cancelBooking, so the UI never claims a
@@ -297,6 +324,7 @@ export function BookingsProvider({ children }) {
         body: JSON.stringify({ scheduledAt: newAt })
       })
       const json = await response.json().catch(() => ({}))
+      if (response.status === 401) expireSession()
       if (!response.ok) {
         return { ok: false, error: json.error || 'Failed to move visit. Please try again.' }
       }
@@ -307,6 +335,7 @@ export function BookingsProvider({ children }) {
         credentials: 'include'
       })
       const list = await res.json().catch(() => ({}))
+      if (res.status === 401) expireSession()
       if (res.ok && Array.isArray(list.data)) setBookings(list.data.map(transformBooking))
 
       return { ok: true, reassignNeeded: !!json.reassignNeeded }
@@ -314,7 +343,7 @@ export function BookingsProvider({ children }) {
       console.error('Error moving visit:', error)
       return { ok: false, error: 'Network error. Please check your connection and try again.' }
     }
-  }, [bookings, token])
+  }, [bookings, token, expireSession])
 
   // Cancels just the next/chosen visit of a recurring booking; the backend
   // tops the series back up so the plan keeps the same number of visits ahead.
@@ -330,6 +359,7 @@ export function BookingsProvider({ children }) {
         body: JSON.stringify({ status: 'cancelled' })
       })
       const json = await response.json().catch(() => ({}))
+      if (response.status === 401) expireSession()
       if (!response.ok) {
         return { ok: false, error: json.error || 'Failed to skip visit. Please try again.' }
       }
@@ -339,6 +369,7 @@ export function BookingsProvider({ children }) {
         credentials: 'include'
       })
       const list = await res.json().catch(() => ({}))
+      if (res.status === 401) expireSession()
       if (res.ok && Array.isArray(list.data)) setBookings(list.data.map(transformBooking))
 
       return { ok: true }
@@ -346,7 +377,7 @@ export function BookingsProvider({ children }) {
       console.error('Error skipping visit:', error)
       return { ok: false, error: 'Network error. Please check your connection and try again.' }
     }
-  }, [bookings, token])
+  }, [bookings, token, expireSession])
 
   const getBooking = useCallback((bookingId) => bookings.find(b => b.bookingId === bookingId) || null, [bookings])
 

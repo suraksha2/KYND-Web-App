@@ -1,15 +1,15 @@
 import { useState, useEffect, useRef } from 'react'
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
-import { CreditCard, Wallet, Banknote, ShieldCheck } from 'lucide-react'
+import { CreditCard, Banknote, ShieldCheck } from 'lucide-react'
 import { useCart } from '../context/CartContext'
 import { useBookings } from '../context/BookingsContext'
 import { useAuth } from '../context/AuthContext'
-import { API_ORIGIN as API_BASE, appUrl } from '../lib/api'
+import { API_BASE, appUrl } from '../lib/api'
 import { useLastBookingDetails, rememberedPayment } from '../lib/lastBooking'
 import { saveLastOrder } from '../lib/lastOrder'
+import { formatSingaporePhoneInput, isValidSingaporePhone } from '../lib/phone'
 
 const PAY_METHODS = [
-  { id: 'upi', label: 'UPI', icon: Wallet },
   { id: 'card', label: 'Card', icon: CreditCard },
   { id: 'cod', label: 'Cash after service', icon: Banknote }
 ]
@@ -70,7 +70,7 @@ export default function Checkout() {
     setServerQuote(null)
     setPayError(null)
     const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
-    fetch(`${API_BASE}/api/payments/quote`, {
+    fetch(`${API_BASE}/payments/quote`, {
       method: 'POST',
       headers,
       credentials: 'include',
@@ -134,7 +134,7 @@ export default function Checkout() {
   useEffect(() => {
     const fetchCities = async () => {
       try {
-        const response = await fetch(`${API_BASE}/api/cities`)
+        const response = await fetch(`${API_BASE}/cities`)
         if (!response.ok) {
           throw new Error('Failed to fetch cities')
         }
@@ -196,7 +196,7 @@ export default function Checkout() {
   const finalizeBooking = async (order) => {
     const headers = { 'Content-Type': 'application/json' }
     if (token) headers['Authorization'] = `Bearer ${token}`
-    const response = await fetch(`${API_BASE}/api/bookings`, {
+    const response = await fetch(`${API_BASE}/bookings`, {
       method: 'POST',
       headers,
       credentials: 'include',
@@ -233,6 +233,7 @@ export default function Checkout() {
     const next = {}
     if (!name.trim()) next.name = 'Required'
     if (!phone.trim()) next.phone = 'Required'
+    else if (!isValidSingaporePhone(phone)) next.phone = 'Enter a valid Singapore mobile number'
     if (!address.trim()) next.address = 'Required'
     if (!city) next.city = 'Required'
     if (!selectedArea) next.area = 'Required'
@@ -253,7 +254,7 @@ export default function Checkout() {
     }
     const nextErrors = hasErrors()
     if (Object.keys(nextErrors).length) {
-      alert(nextErrors.pincode || nextErrors.address || 'Please complete your address.')
+      alert(nextErrors.phone || nextErrors.pincode || nextErrors.address || 'Please complete your address.')
       return
     }
     setPayError(null)
@@ -276,7 +277,7 @@ export default function Checkout() {
 
     // Online payment via Airwallex Hosted Payment Page: create a PaymentIntent and redirect.
     try {
-      const res = await fetch(`${API_BASE}/api/payments/create-intent`, {
+      const res = await fetch(`${API_BASE}/payments/create-intent`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -357,7 +358,17 @@ export default function Checkout() {
               <h2 className="font-heading font-bold text-charcoal">Contact</h2>
               <div className="mt-4 grid sm:grid-cols-2 gap-4">
                 <Field label="Full name"><input className={inputCls} value={name} onChange={e => setName(e.target.value)} required /></Field>
-                <Field label="Phone"><input className={inputCls} type="tel" value={phone} onChange={e => setPhone(e.target.value)} required /></Field>
+                <Field label="Phone">
+                  <input
+                    className={inputCls}
+                    type="tel"
+                    value={phone}
+                    onChange={e => setPhone(formatSingaporePhoneInput(e.target.value))}
+                    pattern="\\+65[89][0-9]{7}"
+                    title="Enter a valid Singapore mobile number: +65 followed by 8 digits starting with 8 or 9"
+                    required
+                  />
+                </Field>
               </div>
             </div>
 

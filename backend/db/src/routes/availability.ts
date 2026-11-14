@@ -29,11 +29,12 @@ function sgtDayKey(date: string): string {
   return label.toLowerCase();
 }
 
-function providerSlots(
+export function providerSlots(
   provider: any,
   date: string,
   durationMin: number,
-  existingBookings: any[]
+  existingBookings: any[],
+  now = Date.now()
 ): string[] {
   const hours = providerWorkingHours(provider);
 
@@ -52,6 +53,7 @@ function providerSlots(
   const durationMs = durationMin * 60 * 1000;
 
   for (let t = start.getTime(); t + durationMs <= end.getTime(); t += stepMs) {
+    if (t <= now) continue;
     const candidateStart = new Date(t);
     if (isFreeAt(provider, hours, candidateStart, durationMin, existingBookings)) {
       slots.push(sgtTime(candidateStart));

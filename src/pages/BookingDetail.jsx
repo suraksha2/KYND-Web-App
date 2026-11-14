@@ -8,6 +8,7 @@ import { useBookings } from '../context/BookingsContext'
 import { useAuth } from '../context/AuthContext'
 import { iconForService } from '../lib/serviceIcon'
 import DateTimePicker from '../components/DateTimePicker'
+import { normalizeSingaporePhone } from '../lib/phone'
 
 const paymentLabel = (p) => p === 'cod' ? 'Cash after service' : p === 'upi' ? 'UPI' : p === 'card' ? 'Card' : (p || '').toUpperCase()
 const paymentIcon = (p) => p === 'cod' ? Banknote : p === 'card' ? CreditCard : Wallet
@@ -90,6 +91,8 @@ export default function BookingDetail() {
   const [showReschedule, setShowReschedule] = useState(false)
   const [showCancel, setShowCancel] = useState(false)
   const [newAt, setNewAt] = useState(() => toLocalInput(booking?.scheduledAt) || '')
+  const [rescheduleError, setRescheduleError] = useState(null)
+  const [rescheduling, setRescheduling] = useState(false)
   const [reason, setReason] = useState('')
   const [cancelling, setCancelling] = useState(false)
   const [cancelError, setCancelError] = useState(null)
@@ -107,10 +110,18 @@ export default function BookingDetail() {
   if (!booking) return <Navigate to="/bookings" replace />
 
   const PIcon = paymentIcon(booking.payment)
+  const callablePhone = normalizeSingaporePhone(booking.contact?.phone)
 
-  const onConfirmReschedule = () => {
+  const onConfirmReschedule = async () => {
     if (!newAt) return
-    rescheduleBooking(booking.bookingId, new Date(newAt).toISOString())
+    setRescheduling(true)
+    setRescheduleError(null)
+    const result = await rescheduleBooking(booking.bookingId, new Date(newAt).toISOString())
+    setRescheduling(false)
+    if (!result?.ok) {
+      setRescheduleError(result?.error || 'Failed to reschedule booking.')
+      return
+    }
     setShowReschedule(false)
   }
 
@@ -217,7 +228,9 @@ export default function BookingDetail() {
               <Phone className="w-4 h-4 text-terracotta mt-0.5" />
               <div className="min-w-0">
                 <div className="text-xs text-warmgrey">Phone</div>
-                <a href={`tel:${booking.contact?.phone}`} className="text-sm font-semibold text-charcoal">{booking.contact?.phone}</a>
+                {callablePhone
+                  ? <a href={`tel:${callablePhone}`} className="text-sm font-semibold text-charcoal">{booking.contact?.phone}</a>
+                  : <span className="text-sm font-semibold text-charcoal">{booking.contact?.phone || '—'}</span>}
               </div>
             </div>
           </div>
@@ -373,10 +386,11 @@ export default function BookingDetail() {
             </div>
             <div className="mt-4 px-5 overflow-y-auto">
               <DateTimePicker value={newAt} min={minDt} onChange={setNewAt} />
+              {rescheduleError && <p className="mt-2 text-xs text-red-600">{rescheduleError}</p>}
             </div>
             <div className="p-5 pt-4 flex gap-2">
-              <button onClick={() => setShowReschedule(false)} className="flex-1 rounded-full bg-warmlinen hover:bg-lightstone text-charcoal font-semibold py-2.5 text-sm">Back</button>
-              <button onClick={onConfirmReschedule} disabled={!newAt} className="flex-1 rounded-full bg-terracotta hover:bg-charcoal disabled:opacity-50 text-white font-semibold py-2.5 text-sm">Confirm</button>
+              <button onClick={() => setShowReschedule(false)} disabled={rescheduling} className="flex-1 rounded-full bg-warmlinen hover:bg-lightstone text-charcoal font-semibold py-2.5 text-sm disabled:opacity-50">Back</button>
+              <button onClick={onConfirmReschedule} disabled={!newAt || rescheduling} className="flex-1 rounded-full bg-terracotta hover:bg-charcoal disabled:opacity-50 text-white font-semibold py-2.5 text-sm">{rescheduling ? 'Saving…' : 'Confirm'}</button>
             </div>
           </div>
         </div>

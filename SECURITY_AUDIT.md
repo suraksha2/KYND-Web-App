@@ -172,6 +172,13 @@ sequenceDiagram
 | Legacy `services` vs `catalog_services` | Some city/help pages still use legacy tables — catalog is authoritative for checkout |
 | `react-router-dom` v7 | Smoke-test all SPAs after upgrade |
 
+## Maintainability backlog (separate from launch security)
+
+Code-quality, data-integrity, and UX follow-ups are tracked in
+[`MAINTAINABILITY_NOTES.md`](./MAINTAINABILITY_NOTES.md). They are not additional
+Critical/High security findings and are excluded from the security severity
+totals above.
+
 ---
 
 ## Files touched (remediation)

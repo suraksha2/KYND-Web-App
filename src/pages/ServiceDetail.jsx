@@ -16,6 +16,7 @@ import { serviceSchema, breadcrumbSchema } from '../lib/schema'
 import { usePrefillDetails, rememberedPayment } from '../lib/lastBooking'
 import { saveLastOrder } from '../lib/lastOrder'
 import { slugify } from '../lib/catalogCategories'
+import { formatSingaporePhoneInput, isValidSingaporePhone } from '../lib/phone'
 
 /** Payment methods this form offers — anything else cannot be prefilled. */
 const PAY_METHODS = ['card', 'cod']
@@ -38,12 +39,6 @@ const parseDurationMinutes = (str = '') => {
 }
 
 const formatPrice = (n) => `S$${Math.round(n)}`
-
-const normalizePhone = (value) => {
-  const digits = value.replace(/\D/g, '')
-  const after65 = digits.startsWith('65') ? digits.slice(2) : digits
-  return '+65' + after65.slice(0, 8)
-}
 
 const inputCls = 'w-full rounded-xl border border-lightstone bg-white px-4 py-3 text-sm text-charcoal placeholder-warmgrey/60 focus:outline-none focus:border-terracotta focus:ring-2 focus:ring-terracotta/20 transition'
 const selectCls = 'w-full rounded-xl border border-lightstone bg-white px-4 py-3 pr-10 text-sm text-charcoal focus:outline-none focus:border-terracotta focus:ring-2 focus:ring-terracotta/20 transition appearance-none'
@@ -1292,10 +1287,14 @@ const GenericRecurringPanel = ({ recurrence, setRecurrence, customTimes, setCust
   const isRepeat = (iso) => {
     if (!date || iso <= date) return false
     if (isWeekly && days.length) return days.includes(weekdayOf(iso))
-    const step = recurrence.type === 'custom'
-      ? Math.max(1, Math.round((GENERIC_UNIT_DAYS[recurrence.unit] || 7) / (recurrence.times || 1)))
-      : recurrence.value === 'daily' ? 1 : recurrence.value === 'monthly' ? 30 : 7
-    return Math.round((Date.parse(`${iso}T00:00:00Z`) - Date.parse(`${date}T00:00:00Z`)) / 86400000) % step === 0
+    const delta = Math.round((Date.parse(`${iso}T00:00:00Z`) - Date.parse(`${date}T00:00:00Z`)) / 86400000)
+    if (recurrence.type === 'custom') {
+      const unitDays = GENERIC_UNIT_DAYS[recurrence.unit] || 7
+      return Array.from({ length: 90 }, (_, i) => Math.round(unitDays * (i + 1) / (recurrence.times || 1)))
+        .some(offset => offset === delta)
+    }
+    const step = recurrence.value === 'daily' ? 1 : recurrence.value === 'monthly' ? 30 : 7
+    return delta % step === 0
   }
 
   return (
@@ -1341,10 +1340,10 @@ const GenericRecurringPanel = ({ recurrence, setRecurrence, customTimes, setCust
           <input
             type="number"
             min={1}
-            max={31}
+            max={GENERIC_UNIT_DAYS[customUnit] || 31}
             value={customTimes}
             onChange={(e) => {
-              const n = Math.max(1, Math.min(31, Number(e.target.value) || 1))
+              const n = Math.max(1, Math.min(GENERIC_UNIT_DAYS[customUnit] || 31, Number(e.target.value) || 1))
               setCustomTimes(n)
               setRecurrence({ type: 'custom', times: n, unit: customUnit })
             }}
@@ -1355,8 +1354,10 @@ const GenericRecurringPanel = ({ recurrence, setRecurrence, customTimes, setCust
             value={customUnit}
             onChange={(e) => {
               const u = e.target.value
+              const times = Math.min(customTimes, GENERIC_UNIT_DAYS[u] || 31)
               setCustomUnit(u)
-              setRecurrence({ type: 'custom', times: customTimes, unit: u })
+              setCustomTimes(times)
+              setRecurrence({ type: 'custom', times, unit: u })
             }}
             className="rounded-lg border border-lightstone px-2 py-1.5 text-sm bg-white"
           >
@@ -1631,7 +1632,7 @@ const AddressPaymentPanel = ({
               className={fieldInputClass('phone')}
               type="tel"
               value={phone}
-              onChange={(e) => setPhone(normalizePhone(e.target.value))}
+              onChange={(e) => setPhone(formatSingaporePhoneInput(e.target.value))}
               pattern="[+]65[89][0-9]{7}"
               title="Enter a valid Singapore number: +65 followed by 8 digits starting with 8 or 9"
               required
@@ -1901,7 +1902,7 @@ export default function ServiceDetail() {
     // re-run until then.
     prefilled.current = true
     setName(prev => prev || prefill.name || '')
-    setPhone(prev => (prev === '+65' ? normalizePhone(prefill.phone || '') : prev))
+    setPhone(prev => (prev === '+65' ? formatSingaporePhoneInput(prefill.phone || '') : prev))
     setAddress(prev => prev || prefill.address || '')
     setPincode(prev => prev || prefill.pincode || '')
     const remembered = rememberedPayment(prefill.payment, PAY_METHODS)
@@ -2350,6 +2351,7 @@ export default function ServiceDetail() {
     if (schedule !== 'instant' && (!date || !time)) nextErrors.datetime = 'Please pick a date & time'
     if (!name.trim()) nextErrors.name = 'Required'
     if (!phone.trim()) nextErrors.phone = 'Required'
+    else if (!isValidSingaporePhone(phone)) nextErrors.phone = 'Enter a valid Singapore mobile number'
     if (!address.trim()) nextErrors.address = 'Required'
     if (!city) nextErrors.city = 'Required'
     if (!area) nextErrors.area = 'Required'

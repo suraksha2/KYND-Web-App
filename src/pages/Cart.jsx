@@ -6,6 +6,8 @@ import { useServices } from '../context/ServicesContext'
 import { iconForService } from '../lib/serviceIcon'
 import DateTimePicker from '../components/DateTimePicker'
 
+const CUSTOM_UNIT_DAYS = { day: 1, week: 7, month: 30 }
+
 const ScheduleOption = ({ value, current, onChange, icon: Icon, title, sub }) => {
   const active = current === value
   return (
@@ -179,10 +181,10 @@ export default function Cart() {
                     <input
                       type="number"
                       min={1}
-                      max={31}
+                      max={CUSTOM_UNIT_DAYS[customUnit] || 31}
                       value={customTimes}
                       onChange={(e) => {
-                        const n = Math.max(1, Math.min(31, Number(e.target.value) || 1))
+                        const n = Math.max(1, Math.min(CUSTOM_UNIT_DAYS[customUnit] || 31, Number(e.target.value) || 1))
                         setCustomTimes(n)
                         setRecurrence({ type: 'custom', times: n, unit: customUnit })
                       }}
@@ -193,8 +195,10 @@ export default function Cart() {
                       value={customUnit}
                       onChange={(e) => {
                         const u = e.target.value
+                        const times = Math.min(customTimes, CUSTOM_UNIT_DAYS[u] || 31)
                         setCustomUnit(u)
-                        setRecurrence({ type: 'custom', times: customTimes, unit: u })
+                        setCustomTimes(times)
+                        setRecurrence({ type: 'custom', times, unit: u })
                       }}
                       className="rounded-lg border border-lightstone px-2 py-1.5 text-sm bg-white"
                     >

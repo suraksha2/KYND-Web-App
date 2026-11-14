@@ -41,7 +41,11 @@ export async function catalogSkillTagsForService(
       [id]
     );
     row = (rows as any[])[0];
-  } else {
+  }
+  // Older cart items can carry a stale catalog id after a catalog refresh.
+  // Preserve canonical subcategory/category fallback by resolving the name
+  // when that id no longer exists.
+  if (!row) {
     for (const candidate of nameCandidates) {
       const [rows]: any = await db.query(
         `SELECT s.name AS service_name, sc.name AS subcategory_name, c.name AS category_name

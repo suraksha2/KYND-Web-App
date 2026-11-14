@@ -12,7 +12,7 @@ export default function Faq() {
     { q: 'Do you support recurring bookings?', a: 'Yes — daily, weekly, or a custom cadence. The system auto-assigns the best available trained Pro for every visit.' },
     { q: 'Are the Pros verified?', a: 'Every Kynd Pro completes a formal training program and a thorough background check before their first booking.' },
     { q: 'How is pricing calculated?', a: 'Transparent and shown upfront in the app — per visit, no per-bedroom multipliers, no hidden charges, no advance deposits.' },
-    { q: 'Which cities is Kynd in?', a: '15 Indian cities: Ahmedabad, Bangalore, Chennai, Delhi, Faridabad, Ghaziabad, Gurgaon, Hyderabad, Jaipur, Kolkata, Mumbai, Navi Mumbai, Noida, Pune, and Thane.' }
+    { q: 'Which cities is Kynd in?', a: 'Availability depends on your service address. Use the city selector in the booking form to see whether Kynd serves your area.' }
   ]
   const [open, setOpen] = useState(0)
   return (

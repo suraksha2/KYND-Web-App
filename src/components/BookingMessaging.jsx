@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useCallback, useState, useEffect, useRef } from 'react'
 import { Send, MessageCircle, X, Loader2 } from 'lucide-react'
 import { API_BASE } from '../lib/api'
 import { useAuth } from '../context/AuthContext'
@@ -6,7 +6,7 @@ import { useAuth } from '../context/AuthContext'
 export default function BookingMessaging({ bookingId, isProvider = false, bookingDbId, isOpen: externalIsOpen, onClose: externalOnClose, isFullPage = false }) {
   // Use bookingDbId if provided, otherwise use bookingId
   const dbId = bookingDbId || bookingId
-  const { token, user } = useAuth()
+  const { token, user, expireSession } = useAuth()
   const [messages, setMessages] = useState([])
   const [newMessage, setNewMessage] = useState('')
   const [loading, setLoading] = useState(true)
@@ -18,32 +18,33 @@ export default function BookingMessaging({ bookingId, isProvider = false, bookin
   const setIsOpen = externalOnClose !== undefined ? externalOnClose : setInternalIsOpen
   const messagesEndRef = useRef(null)
   const pollIntervalRef = useRef(null)
+  const requestControllerRef = useRef(null)
 
-  // If externally controlled, we need to fetch messages when isOpen becomes true
-  useEffect(() => {
-    if (externalIsOpen !== undefined && externalIsOpen && dbId) {
-      fetchMessages()
-    }
-  }, [externalIsOpen, dbId])
-
-  const fetchMessages = async () => {
+  const fetchMessages = useCallback(async (signal) => {
     try {
       const res = await fetch(`${API_BASE}/messages/${dbId}`, {
         headers: {
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
+        signal,
       })
-      const data = await res.json()
+      const data = await res.json().catch(() => ({}))
+      if (signal?.aborted) return
+      if (res.status === 401) {
+        expireSession()
+        throw new Error(data.error || 'Please sign in again to view messages.')
+      }
       if (!res.ok) throw new Error(data.error || 'Failed to load messages')
       setMessages(data.data || [])
       setError('')
     } catch (err) {
+      if (err.name === 'AbortError') return
       console.error('Failed to fetch messages:', err)
       setError(err.message || 'Failed to load messages')
     } finally {
-      setLoading(false)
+      if (!signal?.aborted) setLoading(false)
     }
-  }
+  }, [dbId, token, expireSession])
 
   const sendMessage = async (e) => {
     e.preventDefault()
@@ -59,14 +60,21 @@ export default function BookingMessaging({ bookingId, isProvider = false, bookin
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({ content: newMessage.trim() }),
+        signal: requestControllerRef.current?.signal,
       })
-      const data = await res.json()
+      const data = await res.json().catch(() => ({}))
+      if (requestControllerRef.current?.signal.aborted) return
+      if (res.status === 401) {
+        expireSession()
+        throw new Error(data.error || 'Please sign in again to send messages.')
+      }
       if (!res.ok) throw new Error(data.error || 'Failed to send message')
       
       setMessages(prev => [...prev, data.data])
       setNewMessage('')
       setError('')
     } catch (err) {
+      if (err.name === 'AbortError') return
       console.error('Failed to send message:', err)
       setError(err.message || 'Failed to send message')
     } finally {
@@ -75,18 +83,22 @@ export default function BookingMessaging({ bookingId, isProvider = false, bookin
   }
 
   useEffect(() => {
-    if (isOpen && dbId) {
-      fetchMessages()
-      // Poll for new messages every 10 seconds when chat is open
-      pollIntervalRef.current = setInterval(fetchMessages, 10000)
-    }
-    
+    if (!isOpen || !dbId) return undefined
+    const controller = new AbortController()
+    requestControllerRef.current = controller
+    setMessages([])
+    setLoading(true)
+    setError('')
+    fetchMessages(controller.signal)
+    pollIntervalRef.current = setInterval(() => fetchMessages(controller.signal), 10000)
     return () => {
       if (pollIntervalRef.current) {
         clearInterval(pollIntervalRef.current)
       }
+      controller.abort()
+      if (requestControllerRef.current === controller) requestControllerRef.current = null
     }
-  }, [isOpen, dbId])
+  }, [isOpen, dbId, fetchMessages])
 
   useEffect(() => {
     // Scroll to bottom when messages change

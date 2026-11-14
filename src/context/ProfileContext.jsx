@@ -12,7 +12,7 @@ const EMPTY = { phone: null, address: null, city: null, area: null, pincode: nul
  * see the same value after a save.
  */
 export function ProfileProvider({ children }) {
-  const { user, token } = useAuth()
+  const { user, token, expireSession } = useAuth()
   const [profile, setProfile] = useState(EMPTY)
   // False while the request is in flight, so consumers never read the empty
   // default as "nothing saved".
@@ -34,6 +34,10 @@ export function ProfileProvider({ children }) {
         })
         const json = await response.json()
         if (cancelled) return
+        if (response.status === 401) {
+          expireSession()
+          return
+        }
         if (response.ok && json.data) setProfile({ ...EMPTY, ...json.data })
         else console.error('Failed to fetch saved details:', json.error)
       } catch (error) {
@@ -44,7 +48,7 @@ export function ProfileProvider({ children }) {
     }
     fetchProfile()
     return () => { cancelled = true }
-  }, [user?.id, token])
+  }, [user?.id, token, expireSession])
 
   // Returns { ok, error } so the caller can surface a failure instead of
   // pretending the save went through.
@@ -58,13 +62,17 @@ export function ProfileProvider({ children }) {
         body: JSON.stringify(next),
       })
       const json = await response.json().catch(() => ({}))
+      if (response.status === 401) {
+        expireSession()
+        return { ok: false, error: 'Your session expired. Please sign in again.' }
+      }
       if (!response.ok) return { ok: false, error: json.error || 'Could not save your details.' }
       setProfile({ ...EMPTY, ...json.data })
       return { ok: true }
     } catch {
       return { ok: false, error: 'Network error. Please check your connection and try again.' }
     }
-  }, [token])
+  }, [token, expireSession])
 
   return (
     <ProfileContext.Provider value={{ profile, loaded, saveProfile }}>

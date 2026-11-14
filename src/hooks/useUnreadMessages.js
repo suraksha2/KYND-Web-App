@@ -3,24 +3,35 @@ import { API_BASE } from '../lib/api'
 import { useAuth } from '../context/AuthContext'
 
 export function useUnreadMessages() {
-  const { token } = useAuth()
+  const { token, expireSession } = useAuth()
   const [unreadCount, setUnreadCount] = useState(0)
 
   useEffect(() => {
-    if (!token) return
+    if (!token) {
+      setUnreadCount(0)
+      return
+    }
 
+    const controller = new AbortController()
     const fetchUnreadCount = async () => {
       try {
         const res = await fetch(`${API_BASE}/messages/unread-count`, {
           headers: {
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            Authorization: `Bearer ${token}`,
           },
+          signal: controller.signal,
         })
-        const data = await res.json()
+        const data = await res.json().catch(() => ({}))
+        if (controller.signal.aborted) return
+        if (res.status === 401) {
+          expireSession()
+          return
+        }
         if (res.ok) {
           setUnreadCount(data.count || 0)
         }
       } catch (err) {
+        if (err.name === 'AbortError') return
         console.error('Failed to fetch unread count:', err)
       }
     }
@@ -30,8 +41,11 @@ export function useUnreadMessages() {
     // Poll every 30 seconds for new messages
     const interval = setInterval(fetchUnreadCount, 30000)
     
-    return () => clearInterval(interval)
-  }, [token])
+    return () => {
+      clearInterval(interval)
+      controller.abort()
+    }
+  }, [token, expireSession])
 
   return unreadCount
 }

@@ -71,10 +71,19 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     const onStorage = (e) => {
       if (e.key !== USER_KEY) return
+      if (!e.newValue) {
+        setUser(null)
+        setSessionExpired(false)
+        return
+      }
       try {
-        setUser(e.newValue ? liveSession(JSON.parse(e.newValue)) : null)
+        const next = JSON.parse(e.newValue)
+        const session = liveSession(next)
+        setUser(session)
+        setSessionExpired(!session && !!next?.token)
       } catch {
         setUser(null)
+        setSessionExpired(false)
       }
     }
     window.addEventListener('storage', onStorage)
