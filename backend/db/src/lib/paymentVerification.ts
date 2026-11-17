@@ -39,6 +39,10 @@ export function validatePaymentIntent(intent: PaymentIntent, opts: {
   if (!intent.merchant_order_id || String(intent.merchant_order_id) !== String(opts.merchantOrderId)) {
     throw new PaymentVerificationError('Payment does not match this order.', 409);
   }
+  const metadataOrderId = (intent as any)?.metadata?.bookingId;
+  if (typeof metadataOrderId !== 'string' || metadataOrderId !== String(opts.merchantOrderId)) {
+    throw new PaymentVerificationError('Payment does not match this order.', 409);
+  }
 
   if (String(intent.currency || '').toUpperCase() !== paymentCurrency.toUpperCase()) {
     throw new PaymentVerificationError('Payment currency does not match the order.');

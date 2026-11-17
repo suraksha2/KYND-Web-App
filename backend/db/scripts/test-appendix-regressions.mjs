@@ -101,6 +101,23 @@ test('checkout uses the configured API base exactly once for payment intent rout
   assert.match(confirmation, /encodeURIComponent\(key\)/);
 });
 
+test('provider assignment locks the roster before checking and saving a booking', () => {
+  const bookings = fs.readFileSync(
+    path.join(projectRoot, 'backend/db/src/routes/bookings.ts'),
+    'utf8'
+  );
+  const createRoute = bookings.slice(
+    bookings.indexOf("router.post('/',"),
+    bookings.indexOf("router.get('/',")
+  );
+  const transaction = createRoute.indexOf('await conn.beginTransaction()');
+  const rosterLock = createRoute.indexOf('ORDER BY sp.id ASC\n          FOR UPDATE');
+  const availabilityCheck = createRoute.indexOf('findAvailableProvider(candidates');
+  const assignmentSave = createRoute.indexOf('UPDATE bookings SET provider_id');
+  assert.ok(transaction >= 0 && transaction < rosterLock);
+  assert.ok(rosterLock < availabilityCheck && availabilityCheck < assignmentSave);
+});
+
 test('auth errors do not reveal whether an account is inactive or passwordless', () => {
   const auth = fs.readFileSync(
     path.join(projectRoot, 'backend/db/src/routes/auth.ts'),

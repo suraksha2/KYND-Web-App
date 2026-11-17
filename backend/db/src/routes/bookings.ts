@@ -160,7 +160,8 @@ router.post('/', requireCustomerSession, async (req, res) => {
         paymentIntentId: intentId,
         expectedTotal: total,
       });
-      if (typeof body.bookingId === 'string' && body.bookingId !== bookingId) {
+      if (body.bookingId != null
+        && (typeof body.bookingId !== 'string' || body.bookingId !== bookingId)) {
         return res.status(409).json({ error: 'Payment does not match this booking.' });
       }
       storedPaymentIntentId = intentId.trim();

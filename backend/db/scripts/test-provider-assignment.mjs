@@ -61,6 +61,10 @@ test('direct assignment respects skills and the combined provider schedule', asy
     await conn.query(`INSERT INTO bookings
       (id, provider_id, scheduled_at, items, status, schedule) VALUES
       (1, 1, '2030-01-07 10:00:00', '[{"duration":"2 hours"}]', 'upcoming', 'scheduled')`);
+    await t.test('a recurring series cannot claim a worker with an overlapping one-time booking', async () => {
+      assert.equal(await pick([visit('07'), visit('14')], [workers[0]]), null);
+      assert.equal((await pick([visit('07'), visit('14')])).id, 2);
+    });
     await t.test('skips a busy worker and never falls back when everyone is busy', async () => {
       assert.equal((await pick()).id, 2);
       assert.equal(await pick([visit('07')], [workers[0]]), null);
@@ -89,6 +93,8 @@ test('direct assignment respects skills and the combined provider schedule', asy
       (1, 2, 1, '2030-01-14 10:00:00', 'upcoming', 2),
       (2, 3, 2, '2030-01-14 10:00:00', 'upcoming', 2)`);
     await t.test('checks repeat visits, ignores cancelled parents and avoids stale parent times', async () => {
+      assert.equal(await pick([visit('14')], [workers[0]]), null,
+        'a one-time booking cannot overlap a recurring occurrence');
       assert.equal((await pick([visit('08'), visit('14')])).id, 2);
       assert.equal((await pick([visit('08')])).id, 1);
       assert.equal(await pick([visit('08'), visit('14')], [workers[0]]), null);

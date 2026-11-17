@@ -18,7 +18,7 @@ const intent = (overrides = {}) => ({
   merchant_order_id: options.merchantOrderId,
   amount: 100.25,
   currency: 'SGD',
-  metadata: { userId: '42' },
+  metadata: { userId: '42', bookingId: options.merchantOrderId },
   ...overrides,
 });
 
@@ -34,6 +34,14 @@ test('accepts only a succeeded intent bound to this customer, order, and exact a
   );
   assert.throws(
     () => validatePaymentIntent(intent({ merchant_order_id: 'OTHER-ORDER' }), options),
+    { status: 409 }
+  );
+  assert.throws(
+    () => validatePaymentIntent(intent({ metadata: { userId: '42', bookingId: 'OTHER-ORDER' } }), options),
+    { status: 409 }
+  );
+  assert.throws(
+    () => validatePaymentIntent(intent({ metadata: { userId: '42' } }), options),
     { status: 409 }
   );
   assert.throws(
