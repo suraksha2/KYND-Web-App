@@ -7,6 +7,8 @@ import {
   verifySessionToken,
   type SessionPayload,
 } from '../lib/auth';
+import pool from '../lib/mysql';
+import { isOriginAllowed } from './cors';
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
@@ -17,19 +19,110 @@ declare global {
   }
 }
 
-// Extract a session token from either the httpOnly cookie (same-origin) or an
-// Authorization: Bearer header (cross-origin SPAs, which cannot rely on
-// cross-site cookies).
+export const CUSTOMER_SESSION_COOKIE_NAME = `${SESSION_COOKIE_NAME}_customer`;
+export const PROVIDER_SESSION_COOKIE_NAME = `${SESSION_COOKIE_NAME}_provider`;
+
+const CUSTOMER_SESSION_PATHS = [
+  /^\/bookings(?:\/|$)/,
+  /^\/payments(?:\/|$)/,
+  /^\/profile$/,
+  /^\/reviews$/,
+  /^\/vendor-services\/[^/]+\/book$/,
+  /^\/auth\/(?:referral-code|validate-referral|change-password)$/,
+];
+
+function apiPath(req: Request): string {
+  const pathname = (req.originalUrl || req.path).split('?')[0];
+  return pathname.replace(/^\/api(?=\/|$)/, '') || '/';
+}
+
+function expectedSessionRole(req: Request): string | undefined {
+  const requestedRole = req.get('X-Helpr-Expected-Role');
+  if (requestedRole) return requestedRole;
+
+  const pathname = apiPath(req);
+  if (pathname.startsWith('/provider/')) return 'provider';
+  if (CUSTOMER_SESSION_PATHS.some((pattern) => pattern.test(pathname))) return 'user';
+  return undefined;
+}
+
+function cookieNameForRole(role?: string): string {
+  if (role === 'user') return CUSTOMER_SESSION_COOKIE_NAME;
+  if (role === 'provider') return PROVIDER_SESSION_COOKIE_NAME;
+  return SESSION_COOKIE_NAME;
+}
+
+// Select the app-specific httpOnly cookie when a route's role is known. Keep
+// falling back to the legacy cookie so existing sessions survive deployment.
 export function getSessionToken(req: Request): string | undefined {
+  const cookieToken = req.cookies?.[cookieNameForRole(expectedSessionRole(req))]
+    || req.cookies?.[SESSION_COOKIE_NAME];
+  if (cookieToken) return cookieToken;
   const authHeader = req.headers.authorization;
   if (authHeader && authHeader.toLowerCase().startsWith('bearer ')) {
     return authHeader.slice(7).trim();
   }
-  return req.cookies?.[SESSION_COOKIE_NAME];
+  return undefined;
 }
 
-export function getSession(req: Request): Promise<SessionPayload | null> {
-  return verifySessionToken(getSessionToken(req));
+const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+
+export function hasValidCsrfOrigin(req: Pick<Request, 'method' | 'headers' | 'cookies'>): boolean {
+  const hasCookieSession = Boolean(
+    req.cookies?.[SESSION_COOKIE_NAME]
+      || req.cookies?.[CUSTOMER_SESSION_COOKIE_NAME]
+      || req.cookies?.[PROVIDER_SESSION_COOKIE_NAME]
+  );
+  if (SAFE_METHODS.has(req.method.toUpperCase()) || !hasCookieSession) return true;
+
+  const origin = req.headers.origin;
+  return typeof origin === 'string' && isOriginAllowed(origin);
+}
+
+type Queryable = Pick<typeof pool, 'query'>;
+
+export async function validateSessionVersion(
+  session: SessionPayload | null,
+  db: Queryable = pool
+): Promise<SessionPayload | null> {
+  if (!session || !Number.isInteger(session.sv) || session.sv < 1) return null;
+
+  let sql: string;
+  let params: any[];
+  let allowedStatuses: string[];
+  if (session.role === 'provider') {
+    sql = 'SELECT session_version, status FROM service_providers WHERE id = ?';
+    params = [session.id];
+    allowedStatuses = ['active', 'busy'];
+  } else if (session.role.startsWith('vendor_')) {
+    sql = `SELECT vu.session_version, vu.status, v.status AS vendor_status,
+                  sp.status AS provider_status
+             FROM vendor_users vu
+             JOIN vendors v ON v.id = vu.vendor_id
+             LEFT JOIN service_providers sp ON sp.id = vu.provider_id
+            WHERE vu.id = ? AND vu.vendor_id = ?`;
+    params = [session.id, session.vendorId];
+    allowedStatuses = ['active'];
+  } else {
+    sql = 'SELECT session_version, status FROM users WHERE id = ? AND role = ?';
+    params = [session.id, session.role];
+    allowedStatuses = ['active'];
+  }
+
+  const [rows] = await db.query(sql, params);
+  const account = (rows as any[])?.[0];
+  if (!account || Number(account.session_version) !== session.sv) return null;
+  if (!allowedStatuses.includes(String(account.status))) return null;
+  if (session.role.startsWith('vendor_')) {
+    if (account.vendor_status !== 'active') return null;
+    if (session.role === 'vendor_field' && !['active', 'busy'].includes(account.provider_status)) return null;
+  }
+  return session;
+}
+
+export async function getSession(req: Request): Promise<SessionPayload | null> {
+  const signed = await verifySessionToken(getSessionToken(req));
+  return validateSessionVersion(signed);
 }
 
 export async function requireCustomerSession(
@@ -68,21 +161,24 @@ export async function requireCustomerOrAdminSession(
   next();
 }
 
-export function setSessionCookie(res: Response, token: string): void {
-  res.cookie(SESSION_COOKIE_NAME, token, {
+export function setSessionCookie(res: Response, token: string, role?: string): void {
+  const sameSite = process.env.SESSION_COOKIE_SAME_SITE?.toLowerCase() || 'lax';
+  const secure = process.env.NODE_ENV === 'production' || process.env.SESSION_COOKIE_SECURE === 'true';
+  res.cookie(cookieNameForRole(role), token, {
     httpOnly: true,
-    sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
+    sameSite: sameSite as 'lax' | 'strict' | 'none',
+    secure: sameSite === 'none' || secure,
     path: '/',
     maxAge: SESSION_MAX_AGE_SECONDS * 1000,
   });
 }
 
-export function clearSessionCookie(res: Response): void {
-  res.cookie(SESSION_COOKIE_NAME, '', {
+export function clearSessionCookie(res: Response, role?: string): void {
+  const sameSite = process.env.SESSION_COOKIE_SAME_SITE?.toLowerCase() || 'lax';
+  res.cookie(cookieNameForRole(role), '', {
     httpOnly: true,
-    sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
+    sameSite: sameSite as 'lax' | 'strict' | 'none',
+    secure: sameSite === 'none' || process.env.NODE_ENV === 'production' || process.env.SESSION_COOKIE_SECURE === 'true',
     path: '/',
     maxAge: 0,
   });
@@ -98,11 +194,12 @@ export async function refreshSessionCookie(
     id: session.id,
     email: session.email,
     role: session.role,
+    sessionVersion: session.sv,
     vendorId: session.vendorId,
     providerId: session.providerId,
     name: session.name,
   });
-  setSessionCookie(res, token);
+  setSessionCookie(res, token, session.role);
 }
 
 // Endpoints the public customer storefront legitimately needs without an admin
@@ -155,6 +252,12 @@ function isPublicApi(pathname: string, method: string): boolean {
 // Gate mounted in front of the API router. Mirrors what Next.js middleware.ts
 // used to do: public allowlist, then a valid session, then an admin role.
 export async function apiAuthGate(req: Request, res: Response, next: NextFunction) {
+  // Cookie-authenticated writes require a trusted browser Origin. Non-browser
+  // clients must use the explicit Bearer authentication path instead.
+  if (!hasValidCsrfOrigin(req)) {
+    return res.status(403).json({ error: 'Untrusted or missing request origin.' });
+  }
+
   const pathname = req.path.replace(/\/+$/, '') || '/';
   if (isPublicApi(pathname, req.method)) return next();
 

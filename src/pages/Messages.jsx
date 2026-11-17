@@ -11,7 +11,7 @@ const fmtDay = (d) => new Date(d).toLocaleDateString('en-GB', { weekday: 'short'
 const fmtShortDay = (d) => new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', ...SGT }).toUpperCase()
 
 export default function Messages() {
-  const { token, user, expireSession } = useAuth()
+  const { token, user, expireSession, sessionReady } = useAuth()
   const navigate = useNavigate()
   const [conversations, setConversations] = useState([])
   const [loading, setLoading] = useState(true)
@@ -20,18 +20,24 @@ export default function Messages() {
   useEffect(() => {
     const controller = new AbortController()
     setConversations([])
-    setLoading(true)
     setError('')
-    fetchConversations(token, controller.signal)
+    if (!sessionReady) {
+      setLoading(true)
+    } else if (user?.role === 'user' && token) {
+      setLoading(true)
+      fetchConversations(token, controller.signal)
+    } else {
+      setLoading(false)
+      setError('Please login or sign up')
+    }
     return () => controller.abort()
-  }, [token])
+  }, [sessionReady, token, user?.id, user?.role])
 
   const fetchConversations = async (currentToken, signal) => {
     try {
       const res = await fetch(`${API_BASE}/messages`, {
-        headers: {
-          ...(currentToken ? { Authorization: `Bearer ${currentToken}` } : {}),
-        },
+        credentials: 'include',
+        headers: { 'X-Helpr-Expected-Role': 'user' },
         signal,
       })
       const data = await res.json().catch(() => ({}))
@@ -39,6 +45,9 @@ export default function Messages() {
       if (res.status === 401 && currentToken) {
         expireSession()
         throw new Error('Authentication required.')
+      }
+      if (res.status === 403 && data.error?.includes('different account type')) {
+        throw new Error('Please login or sign up')
       }
       if (!res.ok) throw new Error(data.error || 'Failed to load conversations')
       setConversations(data.data || [])

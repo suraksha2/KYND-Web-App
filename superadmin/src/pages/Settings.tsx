@@ -99,6 +99,7 @@ export default function SettingsPage() {
         setPasswordSuccess("Password changed successfully");
         setPassword({ current: "", new: "", confirm: "" });
         setTimeout(() => setPasswordSuccess(""), 3000);
+        window.dispatchEvent(new Event("helpr:session-expired"));
       } else setPasswordError(data.error || "Failed to change password");
     } catch { setPasswordError("Failed to change password"); }
     finally { setPasswordLoading(false); }

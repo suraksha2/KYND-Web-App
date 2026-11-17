@@ -6,14 +6,13 @@ interface User {
   name: string
   email: string
   role: string
-  token: string
 }
 
 interface AuthContextType {
   isAuthenticated: boolean
   user: User | null
   login: (email: string, password: string) => Promise<boolean>
-  logout: () => void
+  logout: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -24,7 +23,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(() => {
     try {
       const raw = localStorage.getItem(TOKEN_KEY)
-      return raw ? (JSON.parse(raw) as User) : null
+      if (!raw) return null
+      const user = JSON.parse(raw) as User & { token?: string }
+      delete user.token
+      return user
     } catch {
       return null
     }
@@ -42,13 +44,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const onStorage = (e: StorageEvent) => {
       if (e.key !== TOKEN_KEY) return
       try {
-        setUser(e.newValue ? (JSON.parse(e.newValue) as User) : null)
+        const next = e.newValue ? (JSON.parse(e.newValue) as User & { token?: string }) : null
+        if (next) delete next.token
+        setUser(next)
       } catch {
         setUser(null)
       }
     }
     window.addEventListener('storage', onStorage)
     return () => window.removeEventListener('storage', onStorage)
+  }, [])
+
+  useEffect(() => {
+    apiFetch('/api/auth/session')
+      .then(async (response) => {
+        if (response.status === 401) {
+          window.dispatchEvent(new Event('helpr:session-expired'))
+          return
+        }
+        if (response.ok) {
+          const session = await response.json()
+          setUser(isAdminRole(session.role) ? session : null)
+        }
+      })
+      .catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    const onExpired = () => {
+      setUser(null)
+      apiFetch('/api/auth/logout', { method: 'POST' }).catch(() => {})
+    }
+    window.addEventListener('helpr:session-expired', onExpired)
+    return () => window.removeEventListener('helpr:session-expired', onExpired)
   }, [])
 
   const login = async (email: string, password: string): Promise<boolean> => {
@@ -71,7 +99,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         name: data.name,
         email: data.email,
         role: data.role,
-        token: data.token,
       })
       return true
     } catch (error) {
@@ -80,10 +107,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
-  const logout = async () => {
+  const logout = async (): Promise<void> => {
     setUser(null)
     try {
-      // Clear the httpOnly session cookie on the server.
       await apiFetch('/api/auth/logout', { method: 'POST' })
     } catch (error) {
       console.error('Logout error:', error)

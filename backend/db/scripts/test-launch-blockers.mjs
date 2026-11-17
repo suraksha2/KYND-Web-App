@@ -15,13 +15,14 @@ const { computePartnerCostFromRule } = require('../dist/lib/pricingRules');
 const { isReviewableBooking } = require('../dist/routes/reviews');
 const { providerBookingView } = require('../dist/routes/provider');
 
-async function callMiddleware(middleware, role, path = '/bookings', method = 'GET') {
+async function callMiddleware(middleware, role, path = '/bookings', method = 'GET', session = null) {
   const token = await createSessionToken({ id: 42, email: 'test@example.com', role });
   const req = {
     headers: { authorization: `Bearer ${token}` },
     cookies: {},
     method,
     path,
+    ...(session ? { session } : {}),
   };
   const res = {
     statusCode: 200,
@@ -76,25 +77,27 @@ const baseInput = (overrides = {}) => ({
 });
 
 test('provider sessions cannot pass customer booking or private customer auth guards', async () => {
-  const gated = await callMiddleware(apiAuthGate, 'provider', '/bookings');
-  assert.equal(gated.res.statusCode, 403);
-  assert.equal(gated.nextCalls, 0);
-
   const publicAuthPath = await callMiddleware(apiAuthGate, 'provider', '/auth/update-profile', 'PUT');
   assert.equal(publicAuthPath.nextCalls, 1, 'auth routes remain public at the outer gate');
-  const privateAuthHandler = await callMiddleware(requireCustomerSession, 'provider', '/update-profile', 'PUT');
+  const providerSession = { id: 42, email: 'test@example.com', role: 'provider' };
+  const customerSession = { id: 42, email: 'test@example.com', role: 'user' };
+  const privateAuthHandler = await callMiddleware(
+    requireCustomerSession, 'provider', '/update-profile', 'PUT', providerSession
+  );
   assert.equal(privateAuthHandler.res.statusCode, 403);
   assert.equal(privateAuthHandler.nextCalls, 0);
 
   const providerBookingEdit = await callMiddleware(
-    requireCustomerOrAdminSession, 'provider', '/bookings/7', 'PATCH'
+    requireCustomerOrAdminSession, 'provider', '/bookings/7', 'PATCH', providerSession
   );
   assert.equal(providerBookingEdit.res.statusCode, 403);
   assert.equal(providerBookingEdit.nextCalls, 0);
 
-  const customer = await callMiddleware(apiAuthGate, 'user', '/bookings');
+  const customer = await callMiddleware(requireCustomerSession, 'user', '/bookings', 'GET', customerSession);
   assert.equal(customer.nextCalls, 1);
-  const customerQuote = await callMiddleware(apiAuthGate, 'user', '/payments/quote', 'POST');
+  const customerQuote = await callMiddleware(
+    requireCustomerOrAdminSession, 'user', '/payments/quote', 'POST', customerSession
+  );
   assert.equal(customerQuote.nextCalls, 1);
 });
 

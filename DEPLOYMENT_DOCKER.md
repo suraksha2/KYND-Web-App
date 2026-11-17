@@ -173,28 +173,25 @@ curl -I  http://localhost:8080/superadmin/login # superadmin login
 npm run docker:logs                       # or: docker compose --env-file .env.docker logs -f backend
 ```
 
-Admin signup is disabled by default in production. For a controlled initial
-bootstrap, set a strong `ADMIN_SIGNUP_SECRET` (at least 16 bytes) and
-`ADMIN_SIGNUP_ENABLED=true` in `.env.docker`, then recreate the backend:
+Public admin signup has been removed; production startup rejects the retired
+`ADMIN_SIGNUP_ENABLED=true` setting. Bootstrap an administrator with the
+backend's controlled script instead. Use a unique password of at least 12
+characters. The script reads it from `ADMIN_BOOTSTRAP_PASSWORD` and never logs it:
 
 ```bash
-docker compose --env-file .env.docker up -d --force-recreate backend
-```
-
-Create the first admin:
-
-```bash
-curl -X POST http://localhost:8080/api/auth/signup \
-  -H 'Content-Type: application/json' \
-  -d '{"name":"Admin","email":"you@example.com","password":"...","secret":"<ADMIN_SIGNUP_SECRET>"}'
+read -s -p 'Admin password: ' ADMIN_BOOTSTRAP_PASSWORD; echo
+docker compose --env-file .env.docker exec -e ADMIN_BOOTSTRAP_PASSWORD \
+  backend node scripts/create-admin.mjs you@example.com
+unset ADMIN_BOOTSTRAP_PASSWORD
 ```
 
 Then log in at `http://localhost:8080/admin/`. Note that `db.sql` creates the **schema
 only** — no services/cities rows — so a fresh stack starts empty and lists
 render blank until you add data through the admin.
 
-After the admin account is created, set `ADMIN_SIGNUP_ENABLED=false`, clear
-`ADMIN_SIGNUP_SECRET`, and recreate the backend again.
+For an existing database, apply `backend/db/migrations/022-api-rate-limits.sql`
+before deploying the API version that uses shared rate limiting. Fresh Docker
+volumes get this table from `backend/db/db.sql`.
 
 ### Recurring-visit reminders (cron)
 

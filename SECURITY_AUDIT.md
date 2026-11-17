@@ -105,7 +105,7 @@ Whole-project review found application and dependency issues. Remediation closed
 ### 12. Low — Info leaks / weak policy
 
 **Issue:** Login logged email/role; signup returned `error.message`; password min 6.  
-**Fix:** Removed login log; generic signup errors; min password **8**. Admin elevation requires configured `ADMIN_SIGNUP_SECRET` (≥16 chars).
+**Fix:** Generic signup errors; minimum password **8**. Public signup only creates customer accounts; admin accounts use the controlled bootstrap script.
 
 ### 13. Hardening extras
 

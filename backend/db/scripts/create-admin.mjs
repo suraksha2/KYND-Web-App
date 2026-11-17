@@ -1,9 +1,7 @@
 // Seed/create an admin user with a bcrypt-hashed password.
 //
 // Usage:
-//   node scripts/create-admin.mjs [email] [password] [name] [role]
-//
-// Defaults: admin@helpr.com / helpr@123 / "Admin" / super_admin
+//   ADMIN_BOOTSTRAP_PASSWORD=... node scripts/create-admin.mjs <email> [name] [role]
 // DB connection is read from env vars (falls back to the same defaults as src/lib/mysql.ts).
 
 import mysql from 'mysql2/promise';
@@ -36,12 +34,16 @@ try {
   // No .env.local; rely on process env / defaults.
 }
 
-const email = (process.argv[2] || 'admin@helpr.com').trim().toLowerCase();
-const password = process.argv[3] || 'helpr@123';
-const name = process.argv[4] || 'Admin';
-const role = process.argv[5] || 'super_admin';
+const email = (process.argv[2] || '').trim().toLowerCase();
+const password = process.env.ADMIN_BOOTSTRAP_PASSWORD || '';
+const name = process.env.ADMIN_BOOTSTRAP_NAME || process.argv[3] || 'Admin';
+const role = process.env.ADMIN_BOOTSTRAP_ROLE || process.argv[4] || 'super_admin';
 
 async function main() {
+  if (!email || password.length < 12) {
+    throw new Error('Set ADMIN_BOOTSTRAP_PASSWORD (12+ characters) and provide an email.');
+  }
+
   const pool = mysql.createPool({
     host: process.env.MYSQL_HOST || 'localhost',
     user: process.env.MYSQL_USER || 'root',
@@ -70,9 +72,7 @@ async function main() {
       console.log(`Created admin user "${email}" with role=${role}`);
     }
 
-    console.log('Done. You can now log in at /login with:');
-    console.log(`  email:    ${email}`);
-    console.log(`  password: ${password}`);
+    console.log('Admin bootstrap complete. Sign in through the admin portal.');
   } finally {
     await pool.end();
   }

@@ -12,7 +12,7 @@
 --     bash -c 'mysql -u root -p"$MYSQL_ROOT_PASSWORD" urban_service'
 --
 -- NEVER commit password hashes, reset tokens, or real PII into this file.
--- Create admins via POST /api/auth/signup + ADMIN_SIGNUP_SECRET after deploy.
+-- Create admins with the controlled backend/db/scripts/create-admin.mjs script.
 -- =============================================================================
 
 SET NAMES utf8mb4;

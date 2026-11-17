@@ -87,9 +87,7 @@ async function main() {
         [passwordHash, email]
       );
       console.log(`Set password for provider "${email}".`);
-      console.log('They can now sign in to the provider portal with:');
-      console.log(`  email:    ${email}`);
-      console.log(`  password: ${password}`);
+      console.log('The provider can now sign in to the provider portal.');
     } else {
       console.log('No email/password provided — ran migration only.');
     }

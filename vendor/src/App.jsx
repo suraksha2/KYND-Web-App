@@ -22,8 +22,11 @@ import Payouts from './pages/Payouts'
 import ComingSoon from './pages/ComingSoon'
 
 function RequireVendor({ children }) {
-  const { isVendor } = useAuth()
+  const { authReady, isVendor } = useAuth()
   const location = useLocation()
+  if (!authReady) {
+    return <div className="flex min-h-screen items-center justify-center bg-warmlinen"><span className="h-8 w-8 animate-spin rounded-full border-2 border-lightstone border-t-terracotta" /></div>
+  }
   if (!isVendor) {
     return <Navigate to="/login" state={{ from: location.pathname }} replace />
   }

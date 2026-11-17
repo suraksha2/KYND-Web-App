@@ -120,16 +120,17 @@ router.put('/', async (req, res) => {
     if (password) {
       const passwordHash = await bcrypt.hash(password, 10);
       await pool.query(
-        'UPDATE service_providers SET password_hash = ? WHERE id = ?',
+        'UPDATE service_providers SET password_hash = ?, session_version = session_version + 1 WHERE id = ?',
         [passwordHash, id]
       );
     }
 
     const [result] = await pool.query(
-      `UPDATE service_providers 
-       SET name = ?, email = ?, mobile = ?, services = ?, city = ?, status = ?, avatar = ?, working_hours = ?
+      `UPDATE service_providers
+       SET session_version = session_version + IF(? IS NOT NULL AND status <> ?, 1, 0),
+           name = ?, email = ?, mobile = ?, services = ?, city = ?, status = ?, avatar = ?, working_hours = ?
        WHERE id = ?`,
-      [name, email.trim().toLowerCase(), mobile, JSON.stringify(skillTags), city, status, avatar, working_hours ? JSON.stringify(working_hours) : null, id]
+      [status, status, name, email.trim().toLowerCase(), mobile, JSON.stringify(skillTags), city, status, avatar, working_hours ? JSON.stringify(working_hours) : null, id]
     );
 
     return res.status(200).json({ success: true });

@@ -4,7 +4,7 @@ import { CreditCard, Banknote, ShieldCheck } from 'lucide-react'
 import { useCart } from '../context/CartContext'
 import { useBookings } from '../context/BookingsContext'
 import { useAuth } from '../context/AuthContext'
-import { API_BASE, appUrl } from '../lib/api'
+import { API_BASE, apiFetch, appUrl } from '../lib/api'
 import { useLastBookingDetails, rememberedPayment } from '../lib/lastBooking'
 import { saveLastOrder } from '../lib/lastOrder'
 import { formatSingaporePhoneInput, isValidSingaporePhone } from '../lib/phone'
@@ -69,8 +69,8 @@ export default function Checkout() {
     setQuoteLoading(true)
     setServerQuote(null)
     setPayError(null)
-    const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
-    fetch(`${API_BASE}/payments/quote`, {
+    const headers = { 'Content-Type': 'application/json' }
+    apiFetch(`${API_BASE}/payments/quote`, {
       method: 'POST',
       headers,
       credentials: 'include',
@@ -195,8 +195,7 @@ export default function Checkout() {
   // Persist the booking on the backend and route to the confirmation page.
   const finalizeBooking = async (order) => {
     const headers = { 'Content-Type': 'application/json' }
-    if (token) headers['Authorization'] = `Bearer ${token}`
-    const response = await fetch(`${API_BASE}/bookings`, {
+    const response = await apiFetch(`${API_BASE}/bookings`, {
       method: 'POST',
       headers,
       credentials: 'include',
@@ -277,11 +276,10 @@ export default function Checkout() {
 
     // Online payment via Airwallex Hosted Payment Page: create a PaymentIntent and redirect.
     try {
-      const res = await fetch(`${API_BASE}/payments/create-intent`, {
+      const res = await apiFetch(`${API_BASE}/payments/create-intent`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         credentials: 'include',
         body: JSON.stringify({

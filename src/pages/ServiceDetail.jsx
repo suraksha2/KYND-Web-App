@@ -7,7 +7,7 @@ import { useAuth } from '../context/AuthContext'
 import { iconForService } from '../lib/serviceIcon'
 import { localServiceImage, servicePeopleImage } from '../lib/serviceImage'
 import { taglineForService } from '../lib/serviceTagline'
-import { API_BASE, appUrl } from '../lib/api'
+import { API_BASE, apiFetch, appUrl } from '../lib/api'
 import { toSgtIsoFromParts } from '../lib/sgt'
 import { OFFERS, getStoredOffer, storeOffer, clearStoredOffer, computeDiscount, offerIsApplicable, validateReferralCode } from '../lib/offers'
 import Seo from '../components/Seo'
@@ -1004,9 +1004,29 @@ const HouseRecurringPanel = ({ oneTimePrice, recurrence, setRecurrence, date, se
     <div className="mt-5">
       <h4 className="font-heading text-base sm:text-lg font-bold text-charcoal">How often?</h4>
       <div className="mt-3 space-y-3">
-        {HOUSE_PLANS.map(p => (
-          <PlanCard key={p.id} selected={p.id === plan.id} onClick={() => choosePlan(p)} title={p.title} subtitle={p.subtitle} price={Math.round(oneTimePrice * (1 - p.pct))} save={`Save ${Math.round(p.pct * 100)}%`} />
-        ))}
+        {HOUSE_PLANS.map(p => {
+          const selectedDays = p.id === plan.id
+            ? planDays(recurrence, date)
+            : weeklyDays(
+                (p.defaultDays || recurrence.days || [])
+                  .filter(d => !p.allowedDays || p.allowedDays.includes(d))
+                  .slice(0, p.maxDays),
+                date
+              )
+          const count = selectedDays.length || p.defaultDays?.length || 1
+          const pct = planDiscount(p, count)
+          return (
+            <PlanCard
+              key={p.id}
+              selected={p.id === plan.id}
+              onClick={() => choosePlan(p)}
+              title={p.title}
+              subtitle={p.subtitle}
+              price={Math.round(oneTimePrice * (1 - pct))}
+              save={`Save ${Math.round(pct * 100)}%`}
+            />
+          )
+        })}
       </div>
 
       <div className="mt-6 flex items-baseline justify-between">
@@ -1076,7 +1096,7 @@ const HouseRecurringPanel = ({ oneTimePrice, recurrence, setRecurrence, date, se
 // the plan price comes straight from the office-size table instead of a %
 // off the one-time rate, and a plan/size with no fixed rate is a "Contact us"
 // quote link rather than a selectable card.
-const OfficeRecurringPanel = ({ officeSize, sizes, dedicated, recurrence, setRecurrence, date, setDate, time, setTime, minDate, onContinue, error, serviceName, city, duration }) => {
+const OfficeRecurringPanel = ({ officeSize, sizes, dedicated, cleaners, recurrence, setRecurrence, date, setDate, time, setTime, minDate, onContinue, error, serviceName, city, duration }) => {
   const plan = officePlanOf(recurrence) || OFFICE_PLANS[0]
   const size = officeSizeOf(sizes, officeSize)
   const days = planDays(recurrence, date)
@@ -1128,6 +1148,18 @@ const OfficeRecurringPanel = ({ officeSize, sizes, dedicated, recurrence, setRec
       <div className="mt-3 space-y-3">
         {OFFICE_PLANS.map(p => {
           const pPrice = officePlanPrice(size, p)
+          const cardDays = p.id === plan.id
+            ? days
+            : weeklyDays(
+                (p.defaultDays || recurrence.days || [])
+                  .filter(d => !p.allowedDays || p.allowedDays.includes(d))
+                  .slice(0, p.maxDays),
+                date
+              )
+          const dayCount = cardDays.length || p.defaultDays?.length || p.maxDays
+          const visitPrice = pPrice === null
+            ? null
+            : Math.round((pPrice * cleaners) / (dayCount * 52 / 12))
           return pPrice === null ? (
             <a
               key={p.id}
@@ -1146,8 +1178,8 @@ const OfficeRecurringPanel = ({ officeSize, sizes, dedicated, recurrence, setRec
               selected={p.id === plan.id}
               onClick={() => choosePlan(p)}
               title={p.title}
-              subtitle={`${p.subtitle} · ${size.label}`}
-              price={pPrice}
+              subtitle={`Monthly contract · ${size.label}`}
+              price={visitPrice}
             />
           )
         })}
@@ -1508,7 +1540,7 @@ const HowSoonPanel = ({ open, setOpen, summary, goToAddons, schedule, setSchedul
           selected={schedule === 'recurring'}
           onClick={selectRecurring}
           title="Recurring"
-          subtitle={officeMode ? 'monthly contract' : 'save 15%'}
+          subtitle={officeMode ? 'monthly contract' : houseMode ? 'tiered savings' : 'save 15%'}
           error={datetimeError && schedule === 'recurring'}
         />
       </div>
@@ -1551,6 +1583,7 @@ const HowSoonPanel = ({ open, setOpen, summary, goToAddons, schedule, setSchedul
           officeSize={officeSize}
           sizes={officePricing.sizes}
           dedicated={officePricing.dedicated}
+          cleaners={cleaners}
           recurrence={recurrence}
           setRecurrence={setRecurrence}
           date={date}
@@ -2245,6 +2278,7 @@ export default function ServiceDetail() {
     items: quoteItems,
     addOns: quoteAddOns,
     schedule,
+    recurrence: schedule === 'recurring' ? recurrence : null,
     scheduledAt: quoteScheduledAt,
     offer: selectedOffer,
     referralCode: appliedReferralCode,
@@ -2255,9 +2289,9 @@ export default function ServiceDetail() {
     let ignore = false
     setQuoteLoading(true)
     setQuoteError('')
-    fetch(`${API_BASE}/payments/quote`, {
+    apiFetch(`${API_BASE}/payments/quote`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
       body: quoteKey,
     })
@@ -2309,9 +2343,9 @@ export default function ServiceDetail() {
     setPromoLoading(true)
     setPromoError('')
     try {
-      const data = await validateReferralCode(promoCodeInput.trim())
+      const data = await validateReferralCode(promoCodeInput.trim(), token)
       setPromoDiscount(data.discount || 15)
-      setAppliedReferralCode(data.code)
+      setAppliedReferralCode(promoCodeInput.trim().toUpperCase())
       setPromoCodeInput('')
     } catch (err) {
       setPromoDiscount(0)
@@ -2385,12 +2419,11 @@ export default function ServiceDetail() {
     }
 
     const headers = { 'Content-Type': 'application/json' }
-    if (token) headers['Authorization'] = `Bearer ${token}`
 
     if (pay !== 'card') {
       // Cash: create the booking directly.
       try {
-        const response = await fetch(`${API_BASE}/bookings`, {
+        const response = await apiFetch(`${API_BASE}/bookings`, {
           method: 'POST',
           headers,
           credentials: 'include',
@@ -2425,7 +2458,7 @@ export default function ServiceDetail() {
 
     // Card: start an Airwallex PaymentIntent and redirect to the hosted payment page.
     try {
-      const res = await fetch(`${API_BASE}/payments/create-intent`, {
+      const res = await apiFetch(`${API_BASE}/payments/create-intent`, {
         method: 'POST',
         headers,
         credentials: 'include',
@@ -2433,6 +2466,7 @@ export default function ServiceDetail() {
           items: order.items,
           addOns: order.addOns || [],
           schedule: order.schedule,
+          recurrence: order.recurrence || null,
           scheduledAt: order.scheduledAt || null,
           offer: order.offer || null,
           referralCode: order.referralCode || null,
@@ -2574,7 +2608,7 @@ export default function ServiceDetail() {
   if (schedule === 'recurring') {
     detailRows.push({ label: `Price per ${wellnessMode ? 'session' : 'visit'}`, value: formatPrice(basePrice) })
     if (addOnTotal > 0) detailRows.push({ label: 'Add-ons', value: `+${formatPrice(addOnTotal)}` })
-    const planCut = basePrice - visitPrice
+    const planCut = officeMode ? 0 : basePrice - visitPrice
     if (planCut > 0) {
       const planName = houseMode
         ? { weekly: 'Weekly', biweekly: 'Every 2 weeks', weekdays: 'Mon–Fri', daily: 'Daily' }[housePlan?.id] || 'Recurring'

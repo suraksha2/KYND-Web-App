@@ -107,7 +107,7 @@ Storefront/admin/provider/superadmin persist token + profile in **separate** `lo
 |------|--------|-------------|----------------------|
 | Customer | `users` | `POST /auth/login` | `users.id` |
 | Admin | `users` | same | `users.id` (role checked in admin UIs) |
-| Super admin | `users` | signup + `ADMIN_SIGNUP_SECRET` | `users.id` |
+| Super admin | `users` | controlled `backend/db/scripts/create-admin.mjs` bootstrap | `users.id` |
 | Provider | `service_providers` | `POST /auth/provider-login` | **`service_providers.id`** |
 
 **Important:** Provider routes filter `bookings.provider_id = session.id`. Provider tokens must never reuse a customer `users.id`.

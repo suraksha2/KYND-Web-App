@@ -16,14 +16,10 @@ export default function LoginPage() {
     setError("");
     setLoading(true);
 
-    console.log("Form submitted with:", { email, password });
     const success = await login(email, password);
-    console.log("Login result:", success);
     if (success) {
-      console.log("Redirecting to /dashboard");
       navigate("/dashboard");
     } else {
-      console.log("Showing error");
       setError("Invalid email or password");
     }
     setLoading(false);

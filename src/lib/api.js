@@ -5,6 +5,16 @@
 // Falls back to the local Express backend during development.
 export const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:3001/api'
 
+export async function apiFetch(input, init = {}) {
+  const response = await fetch(input, { ...init, credentials: 'include' })
+  const path = String(input).split('?')[0]
+  const isPublicAuthEndpoint = /\/auth\/(login|signup|session|logout|forgot-password|reset-password)$/.test(path)
+  if (response.status === 401 && !isPublicAuthEndpoint) {
+    window.dispatchEvent(new Event('helpr:session-expired'))
+  }
+  return response
+}
+
 // Same host without the trailing "/api" — useful for callers that build their
 // own "/api/..." paths or need static asset URLs.
 export const API_ORIGIN = API_BASE.replace(/\/api\/?$/, '')

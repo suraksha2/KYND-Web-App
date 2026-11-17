@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { CheckCircle2, Loader2, ShieldCheck, Store, X } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
-import { API_BASE, API_ORIGIN } from '../lib/api'
+import { API_BASE, API_ORIGIN, apiFetch } from '../lib/api'
 import Seo from '../components/Seo'
 
 const UNIT_LABELS = { hour: 'per hour', sqft: 'per sq ft', day: 'per day', job: 'per job' }
@@ -60,11 +60,10 @@ function BookPartnerModal({ listing, onClose }) {
     setError('')
     try {
       const scheduledAt = date && time ? new Date(`${date}T${time}:00+08:00`).toISOString() : null
-      const res = await fetch(`${API_BASE}/vendor-services/${listing.id}/book`, {
+      const res = await apiFetch(`${API_BASE}/vendor-services/${listing.id}/book`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
         },
         credentials: 'include',
         body: JSON.stringify({

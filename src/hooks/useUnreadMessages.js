@@ -16,9 +16,8 @@ export function useUnreadMessages() {
     const fetchUnreadCount = async () => {
       try {
         const res = await fetch(`${API_BASE}/messages/unread-count`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
+          credentials: 'include',
+          headers: { 'X-Helpr-Expected-Role': 'user' },
           signal: controller.signal,
         })
         const data = await res.json().catch(() => ({}))

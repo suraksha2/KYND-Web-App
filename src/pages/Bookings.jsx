@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { Star, MessageCircle, Calendar, Clock, RotateCcw, SkipForward, Eye, Plus, Sparkles, X, AlertTriangle } from 'lucide-react'
 import { useBookings } from '../context/BookingsContext'
 import { useAuth } from '../context/AuthContext'
-import { API_BASE } from '../lib/api'
+import { API_BASE, apiFetch } from '../lib/api'
 import DateTimePicker from '../components/DateTimePicker'
 
 const SGT = { timeZone: 'Asia/Singapore' }
@@ -85,11 +85,10 @@ function UserRating({ booking }) {
     if (!rating || !booking?.id) return
     setSubmitting(true)
     try {
-      const res = await fetch(`${API_BASE}/reviews`, {
+      const res = await apiFetch(`${API_BASE}/reviews`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
         },
         credentials: 'include',
         body: JSON.stringify({ bookingId: booking.id, rating, comment })

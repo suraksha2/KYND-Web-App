@@ -1,13 +1,33 @@
-import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Loader2, MessageCircle } from 'lucide-react'
+import { useParams, useNavigate, Link } from 'react-router-dom'
+import { ArrowLeft, Loader2, Lock } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import BookingMessaging from '../components/BookingMessaging'
 
 export default function Chat() {
   const { bookingId } = useParams()
   const navigate = useNavigate()
-  const { user } = useAuth()
-  const isProvider = user?.role === 'provider'
+  const { user, sessionReady } = useAuth()
+
+  if (!sessionReady) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-warmlinen/30">
+        <Loader2 className="w-8 h-8 animate-spin text-terracotta" />
+      </div>
+    )
+  }
+
+  if (user?.role !== 'user') {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center bg-warmlinen/30 px-6 text-center">
+        <Lock className="mb-4 h-10 w-10 text-terracotta" />
+        <h1 className="mb-2 text-lg font-semibold text-charcoal">Sign in to view this conversation</h1>
+        <p className="mb-6 text-sm text-warmgrey">Customer conversations are only available to the signed-in customer.</p>
+        <Link to="/login" className="rounded-full bg-terracotta px-6 py-3 text-sm font-semibold text-white">
+          Sign in
+        </Link>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-warmlinen/30">
@@ -23,7 +43,7 @@ export default function Chat() {
           <div className="flex-1">
             <h1 className="font-semibold text-charcoal">Chat</h1>
             <p className="text-xs text-warmgrey">
-              Conversation with your {isProvider ? 'customer' : 'service partner'}
+              Conversation with your service partner
             </p>
           </div>
         </div>
@@ -34,7 +54,6 @@ export default function Chat() {
         {bookingId ? (
           <BookingMessaging
             bookingDbId={bookingId}
-            isProvider={isProvider}
             isOpen={true}
             onClose={() => navigate('/messages')}
             isFullPage={true}

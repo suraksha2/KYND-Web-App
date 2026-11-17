@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { Send, MessageCircle, X, Loader2 } from 'lucide-react'
 import { useAuth, API_BASE } from '../context/AuthContext'
+import { providerFetch } from '../lib/api'
 
 export default function BookingMessaging({ bookingId, isOpen: externalIsOpen, onClose: externalOnClose }) {
-  const { token, user } = useAuth()
+  const { user } = useAuth()
   const [messages, setMessages] = useState([])
   const [newMessage, setNewMessage] = useState('')
   const [loading, setLoading] = useState(true)
@@ -25,10 +26,8 @@ export default function BookingMessaging({ bookingId, isOpen: externalIsOpen, on
 
   const fetchMessages = async () => {
     try {
-      const res = await fetch(`${API_BASE}/messages/${bookingId}`, {
-        headers: {
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
+      const res = await providerFetch(`${API_BASE}/messages/${bookingId}`, {
+        headers: { 'X-Helpr-Expected-Role': 'provider' },
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Failed to load messages')
@@ -49,11 +48,11 @@ export default function BookingMessaging({ bookingId, isOpen: externalIsOpen, on
     setSending(true)
     setError('')
     try {
-      const res = await fetch(`${API_BASE}/messages/${bookingId}`, {
+      const res = await providerFetch(`${API_BASE}/messages/${bookingId}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          'X-Helpr-Expected-Role': 'provider',
         },
         body: JSON.stringify({ content: newMessage.trim() }),
       })

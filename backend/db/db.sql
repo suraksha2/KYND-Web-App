@@ -120,6 +120,7 @@ CREATE TABLE IF NOT EXISTS users (
   name VARCHAR(255) NOT NULL,
   email VARCHAR(255) NOT NULL UNIQUE,
   password_hash VARCHAR(255) NOT NULL,
+  session_version INT UNSIGNED NOT NULL DEFAULT 1,
   role VARCHAR(50) DEFAULT 'user',
   status VARCHAR(50) DEFAULT 'active',
   joined DATE DEFAULT (CURRENT_DATE),
@@ -189,6 +190,7 @@ CREATE TABLE IF NOT EXISTS service_providers (
   -- applies to every non-NULL value; MySQL allows multiple NULLs.
   email VARCHAR(255) NULL UNIQUE,
   password_hash VARCHAR(255),
+  session_version INT UNSIGNED NOT NULL DEFAULT 1,
   mobile VARCHAR(20) NOT NULL,
   services JSON NOT NULL,
   city VARCHAR(100) NOT NULL,
@@ -244,6 +246,16 @@ CREATE TABLE IF NOT EXISTS bookings (
   UNIQUE KEY idx_bookings_payment_intent (payment_intent_id),
   FOREIGN KEY (provider_id) REFERENCES service_providers(id) ON DELETE SET NULL,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+);
+
+-- A unique redemption row makes the first-booking offer single-use even when
+-- multiple checkout requests pass the earlier booking-history eligibility check.
+CREATE TABLE IF NOT EXISTS first_booking_discount_redemptions (
+  user_id INT NOT NULL PRIMARY KEY,
+  booking_id INT NULL UNIQUE,
+  redeemed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE SET NULL
 );
 
 -- Migration: add user_id to bookings tables created before it existed.
@@ -397,6 +409,14 @@ CREATE TABLE IF NOT EXISTS waitlist (
   source VARCHAR(50) DEFAULT 'landing',
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY unique_waitlist_email (email)
+);
+
+-- Shared API rate-limit counters; hashed keys avoid storing client IPs.
+CREATE TABLE IF NOT EXISTS api_rate_limits (
+  bucket_key CHAR(64) NOT NULL PRIMARY KEY,
+  hit_count INT UNSIGNED NOT NULL,
+  expires_at DATETIME NOT NULL,
+  KEY idx_api_rate_limits_expiry (expires_at)
 );
 
 -- Modular catalog schema (v2). Legacy `services` and `service_categories` tables
@@ -900,6 +920,7 @@ CREATE TABLE IF NOT EXISTS vendor_users (
   name VARCHAR(255) NOT NULL,
   email VARCHAR(255) NOT NULL UNIQUE,
   password_hash VARCHAR(255) NOT NULL,
+  session_version INT UNSIGNED NOT NULL DEFAULT 1,
   role ENUM('owner', 'manager', 'field') NOT NULL DEFAULT 'owner',
   status ENUM('active', 'invited', 'disabled') DEFAULT 'active',
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,

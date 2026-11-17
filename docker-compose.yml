@@ -54,8 +54,6 @@ services:
       INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-}
       # Same-origin via nginx, so only add origins served from another host.
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:?Set ALLOWED_ORIGINS in .env.docker}
-      ADMIN_SIGNUP_SECRET: ${ADMIN_SIGNUP_SECRET:-}
-      ADMIN_SIGNUP_ENABLED: ${ADMIN_SIGNUP_ENABLED:-false}
       WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID:-}
       WHATSAPP_ACCESS_TOKEN: ${WHATSAPP_ACCESS_TOKEN:-}
       # Recipient of the missed-job alert sent by the dispatch-due cron.

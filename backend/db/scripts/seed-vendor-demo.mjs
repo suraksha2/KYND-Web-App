@@ -35,7 +35,7 @@ try {
 }
 
 const ownerEmail = (process.argv[2] || 'owner@limhome.sg').trim().toLowerCase();
-const ownerPassword = process.argv[3] || 'vendor@123';
+const ownerPassword = process.env.VENDOR_DEMO_PASSWORD || '';
 
 // DATETIME columns hold Singapore wall-clock time regardless of where this
 // script runs, so format every date against the Asia/Singapore timezone
@@ -56,6 +56,10 @@ function sgtDate(date) {
 }
 
 async function main() {
+  if (ownerPassword.length < 12) {
+    throw new Error('Provide VENDOR_DEMO_PASSWORD or a password argument with at least 12 characters.');
+  }
+
   const pool = mysql.createPool({
     host: process.env.MYSQL_HOST || 'localhost',
     user: process.env.MYSQL_USER || 'root',
@@ -101,7 +105,7 @@ async function main() {
         [vendorId, 'Daniel Lim', ownerEmail, passwordHash, 'owner', 'active']
       );
     }
-    console.log(`Owner seat ready: ${ownerEmail} / ${ownerPassword}`);
+    console.log(`Owner seat ready: ${ownerEmail}`);
 
     // 3. Team (service_providers rows owned by this vendor)
     const team = [
@@ -289,9 +293,7 @@ async function main() {
     );
     console.log('Seeded 1 leave entry (Siti Rahman).');
 
-    console.log('\nDone. Sign in to the vendor portal with:');
-    console.log(`  email:    ${ownerEmail}`);
-    console.log(`  password: ${ownerPassword}`);
+    console.log('\nDemo seed complete. Sign in to the vendor portal with the owner email and password supplied to this script.');
   } finally {
     await pool.end();
   }

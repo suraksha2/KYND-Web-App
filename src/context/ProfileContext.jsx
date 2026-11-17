@@ -29,7 +29,6 @@ export function ProfileProvider({ children }) {
     const fetchProfile = async () => {
       try {
         const response = await fetch(`${API_BASE}/profile`, {
-          headers: { Authorization: `Bearer ${token}` },
           credentials: 'include',
         })
         const json = await response.json()
@@ -57,7 +56,7 @@ export function ProfileProvider({ children }) {
     try {
       const response = await fetch(`${API_BASE}/profile`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify(next),
       })

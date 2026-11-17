@@ -23,9 +23,8 @@ export default function BookingMessaging({ bookingId, isProvider = false, bookin
   const fetchMessages = useCallback(async (signal) => {
     try {
       const res = await fetch(`${API_BASE}/messages/${dbId}`, {
-        headers: {
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
+        credentials: 'include',
+        headers: { 'X-Helpr-Expected-Role': isProvider ? 'provider' : 'user' },
         signal,
       })
       const data = await res.json().catch(() => ({}))
@@ -33,6 +32,9 @@ export default function BookingMessaging({ bookingId, isProvider = false, bookin
       if (res.status === 401) {
         expireSession()
         throw new Error(data.error || 'Please sign in again to view messages.')
+      }
+      if (res.status === 403 && data.error?.includes('different account type')) {
+        throw new Error(data.error)
       }
       if (!res.ok) throw new Error(data.error || 'Failed to load messages')
       setMessages(data.data || [])
@@ -44,7 +46,7 @@ export default function BookingMessaging({ bookingId, isProvider = false, bookin
     } finally {
       if (!signal?.aborted) setLoading(false)
     }
-  }, [dbId, token, expireSession])
+  }, [dbId, token, isProvider, expireSession])
 
   const sendMessage = async (e) => {
     e.preventDefault()
@@ -55,9 +57,10 @@ export default function BookingMessaging({ bookingId, isProvider = false, bookin
     try {
       const res = await fetch(`${API_BASE}/messages/${dbId}`, {
         method: 'POST',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          'X-Helpr-Expected-Role': isProvider ? 'provider' : 'user',
         },
         body: JSON.stringify({ content: newMessage.trim() }),
         signal: requestControllerRef.current?.signal,
@@ -67,6 +70,9 @@ export default function BookingMessaging({ bookingId, isProvider = false, bookin
       if (res.status === 401) {
         expireSession()
         throw new Error(data.error || 'Please sign in again to send messages.')
+      }
+      if (res.status === 403 && data.error?.includes('different account type')) {
+        throw new Error(data.error)
       }
       if (!res.ok) throw new Error(data.error || 'Failed to send message')
       
@@ -175,31 +181,33 @@ export default function BookingMessaging({ bookingId, isProvider = false, bookin
       )}
 
       {/* Input form */}
-      <form onSubmit={sendMessage} className="p-4 border-t border-lightstone">
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={newMessage}
-            onChange={(e) => setNewMessage(e.target.value)}
-            placeholder="Type a message..."
-            maxLength={2000}
-            disabled={sending}
-            className="flex-1 rounded-lg border border-lightstone px-4 py-2.5 text-sm focus:outline-none focus:border-terracotta focus:ring-2 focus:ring-terracotta/25 disabled:opacity-60"
-          />
-          <button
-            type="submit"
-            disabled={!newMessage.trim() || sending}
-            className="inline-flex items-center justify-center gap-2 rounded-lg bg-terracotta hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2.5 text-sm font-semibold transition-colors"
-          >
-            {sending ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Send className="w-4 h-4" />
-            )}
-            <span className="hidden sm:inline">Send</span>
-          </button>
-        </div>
-      </form>
+      {!error.includes('different account type') && (
+        <form onSubmit={sendMessage} className="p-4 border-t border-lightstone">
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={newMessage}
+              onChange={(e) => setNewMessage(e.target.value)}
+              placeholder="Type a message..."
+              maxLength={2000}
+              disabled={sending}
+              className="flex-1 rounded-lg border border-lightstone px-4 py-2.5 text-sm focus:outline-none focus:border-terracotta focus:ring-2 focus:ring-terracotta/25 disabled:opacity-60"
+            />
+            <button
+              type="submit"
+              disabled={!newMessage.trim() || sending}
+              className="inline-flex items-center justify-center gap-2 rounded-lg bg-terracotta hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2.5 text-sm font-semibold transition-colors"
+            >
+              {sending ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Send className="w-4 h-4" />
+              )}
+              <span className="hidden sm:inline">Send</span>
+            </button>
+          </div>
+        </form>
+      )}
     </>
   )
 

@@ -4,6 +4,7 @@ import {
   CheckCircle2, Flame, Mail, User, LogOut,
 } from 'lucide-react'
 import { useAuth, API_BASE } from '../context/AuthContext'
+import { providerFetch } from '../lib/api'
 import { Sidebar, MobileTabBar } from '../components/Sidebar'
 import MetricCard from '../components/MetricCard'
 import TrendChart from '../components/TrendChart'
@@ -20,7 +21,7 @@ const SECTION_COPY = {
 }
 
 export default function Dashboard() {
-  const { user, token, logout } = useAuth()
+  const { user, logout } = useAuth()
 
   const [bookings, setBookings] = useState([])
   const [loading, setLoading] = useState(true)
@@ -38,20 +39,11 @@ export default function Dashboard() {
   }, [])
 
 
-  const authFetch = (url, options = {}) =>
-    fetch(url, {
-      ...options,
-      headers: {
-        ...(options.headers || {}),
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-    })
-
   const loadBookings = async () => {
     setLoading(true)
     setError('')
     try {
-      const res = await authFetch(`${API_BASE}/provider/bookings`)
+      const res = await providerFetch(`${API_BASE}/provider/bookings`)
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Failed to load tasks.')
       setBookings(data.data || [])
@@ -71,7 +63,7 @@ export default function Dashboard() {
     setUpdatingId(id)
     setError('')
     try {
-      const res = await authFetch(`${API_BASE}/provider/bookings/${id}`, {
+      const res = await providerFetch(`${API_BASE}/provider/bookings/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status }),

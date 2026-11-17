@@ -42,14 +42,15 @@ export function validateProductionConfig(): void {
   requiredSecret('SESSION_SECRET');
   validateProductionOrigins();
 
+  if (process.env.ADMIN_SIGNUP_ENABLED === 'true') {
+    throw new Error('Public admin signup is removed. Create administrators through the controlled bootstrap script.');
+  }
+
   // The production default is live payments, so don't boot with checkout
   // configured to fail only after a customer submits an order.
   if ((process.env.AIRWALLEX_ENV || 'prod').toLowerCase() === 'prod') {
     requiredIntegrationValue('AIRWALLEX_CLIENT_ID');
     requiredIntegrationValue('AIRWALLEX_API_KEY');
-  }
-  if (process.env.ADMIN_SIGNUP_ENABLED === 'true') {
-    requiredSecret('ADMIN_SIGNUP_SECRET');
   }
   const internalToken = process.env.INTERNAL_API_TOKEN?.trim();
   if (internalToken && (internalToken.length < 16 || PLACEHOLDER_SECRET.test(internalToken))) {

@@ -1,17 +1,14 @@
 import { API_BASE } from '../context/AuthContext'
 
-// Thin bearer-token fetch wrapper for the vendor portal. Callers pass the
-// token from useAuth(); a 401 means the session expired or was revoked
-// server-side, so we hand back a distinguishable error the caller can use to
-// force a logout instead of showing a generic "failed to load" message.
-export async function vendorFetch(path, token, options = {}) {
+// Cookie-authenticated API wrapper. Callers retain the token argument only as
+// a transition shim; bearer tokens are no longer issued or stored.
+export async function vendorFetch(path, _token, options = {}) {
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
-    headers: {
-      ...(options.headers || {}),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
+    credentials: 'include',
+    headers: options.headers || {},
   })
+  if (res.status === 401) window.dispatchEvent(new Event('helpr:session-expired'))
 
   let data = null
   try {
@@ -34,10 +31,11 @@ export async function vendorFetch(path, token, options = {}) {
 
 // Download a binary response (e.g. a payout's PDF statement) through the
 // same bearer-token auth — a bare <a href> wouldn't send the token.
-export async function vendorDownload(path, token, filename) {
+export async function vendorDownload(path, _token, filename) {
   const res = await fetch(`${API_BASE}${path}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    credentials: 'include',
   })
+  if (res.status === 401) window.dispatchEvent(new Event('helpr:session-expired'))
 
   if (!res.ok) {
     let message = `Download failed (${res.status})`

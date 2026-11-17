@@ -39,6 +39,8 @@ export interface SessionPayload {
   email: string;
   role: string;
   exp: number; // unix seconds
+  // Incremented in the account table to invalidate every previously issued token.
+  sv: number;
   // Present only for vendor sessions (vendor_owner/vendor_manager/vendor_field).
   vendorId?: number;
   // Present only for vendor_field sessions, linking the seat to its worker row.
@@ -86,7 +88,7 @@ async function getKey(): Promise<CryptoKey> {
 }
 
 export async function createSessionToken(
-  user: { id: number; email: string; role: string; vendorId?: number; providerId?: number; name?: string },
+  user: { id: number; email: string; role: string; sessionVersion?: number; vendorId?: number; providerId?: number; name?: string },
   maxAgeSeconds: number = SESSION_MAX_AGE_SECONDS
 ): Promise<string> {
   const payload: SessionPayload = {
@@ -94,6 +96,7 @@ export async function createSessionToken(
     email: user.email,
     role: user.role,
     exp: Math.floor(Date.now() / 1000) + maxAgeSeconds,
+    sv: user.sessionVersion ?? 1,
     ...(user.vendorId !== undefined ? { vendorId: user.vendorId } : {}),
     ...(user.providerId !== undefined ? { providerId: user.providerId } : {}),
     ...(user.name !== undefined ? { name: user.name } : {}),

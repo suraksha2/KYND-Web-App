@@ -2837,6 +2837,7 @@ router.patch('/team/:id', async (req, res) => {
     const { name, email, mobile, services, status, password, payMode, payRate, isTeamLead } = req.body || {};
     const fields: string[] = [];
     const params: any[] = [];
+    let revokeSessions = false;
 
     if (isTeamLead !== undefined) {
       fields.push('is_team_lead = ?');
@@ -2863,6 +2864,7 @@ router.patch('/team/:id', async (req, res) => {
       }
       fields.push('status = ?');
       params.push(status);
+      revokeSessions = true;
     }
     if (name !== undefined) {
       if (!String(name).trim()) return res.status(400).json({ error: 'Name cannot be empty.' });
@@ -2898,7 +2900,10 @@ router.patch('/team/:id', async (req, res) => {
     if (password) {
       fields.push('password_hash = ?');
       params.push(await bcrypt.hash(password, 10));
+      revokeSessions = true;
     }
+
+    if (revokeSessions) fields.push('session_version = session_version + 1');
 
     if (fields.length === 0) {
       return res.status(400).json({ error: 'No changes provided.' });

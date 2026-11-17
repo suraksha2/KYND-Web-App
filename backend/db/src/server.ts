@@ -7,6 +7,7 @@ import cookieParser from 'cookie-parser';
 import path from 'path';
 import { corsMiddleware } from './http/cors';
 import { apiAuthGate } from './http/session';
+import { createSharedRateLimit } from './http/rateLimit';
 import apiRouter from './routes';
 import pool from './lib/mysql';
 import { serveStoredImage } from './routes/images';
@@ -52,7 +53,7 @@ app.get('/health', (_req, res) => res.json({ ok: true }));
 pool.query('UPDATE users SET reset_token = NULL, reset_token_expiry = NULL WHERE reset_token IS NOT NULL')
   .catch((err) => console.warn('[boot] could not clear reset tokens:', err?.message || err));
 
-app.use('/api', apiAuthGate, apiRouter);
+app.use('/api', createSharedRateLimit(), apiAuthGate, apiRouter);
 
 app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found.' }));
 

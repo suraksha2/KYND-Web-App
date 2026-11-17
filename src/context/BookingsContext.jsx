@@ -134,7 +134,6 @@ export function BookingsProvider({ children }) {
     const fetchBookings = async () => {
       try {
         const response = await fetch(`${API_BASE}/bookings`, {
-          headers: { 'Authorization': `Bearer ${token}` },
           credentials: 'include'
         })
         if (ignore) return
@@ -185,7 +184,6 @@ export function BookingsProvider({ children }) {
     try {
       // Re-fetch from API to sync with the backend booking.
       const res = await fetch(`${API_BASE}/bookings`, {
-        headers: { 'Authorization': `Bearer ${token}` },
         credentials: 'include'
       })
       const json = await res.json()
@@ -227,7 +225,7 @@ export function BookingsProvider({ children }) {
     try {
       const response = await fetch(`${API_BASE}/bookings/${booking.id}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({ status: 'cancelled', reason })
       })
@@ -241,7 +239,6 @@ export function BookingsProvider({ children }) {
 
       // Re-read the server state so status/history match the backend exactly.
       const res = await fetch(`${API_BASE}/bookings`, {
-        headers: { 'Authorization': `Bearer ${token}` },
         credentials: 'include'
       })
       const list = await res.json().catch(() => ({}))
@@ -277,7 +274,7 @@ export function BookingsProvider({ children }) {
     try {
       const response = await fetch(`${API_BASE}/bookings/${booking.id}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({ scheduledAt: newAt })
       })
@@ -291,7 +288,6 @@ export function BookingsProvider({ children }) {
 
       try {
         const res = await fetch(`${API_BASE}/bookings`, {
-          headers: { Authorization: `Bearer ${token}` },
           credentials: 'include',
         })
         const list = await res.json().catch(() => ({}))
@@ -319,7 +315,7 @@ export function BookingsProvider({ children }) {
     try {
       const response = await fetch(`${API_BASE}/bookings/${booking.id}/occurrences/${occurrenceId}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({ scheduledAt: newAt })
       })
@@ -331,7 +327,6 @@ export function BookingsProvider({ children }) {
 
       // Re-read the server state so the visit list and history match the backend exactly.
       const res = await fetch(`${API_BASE}/bookings`, {
-        headers: { 'Authorization': `Bearer ${token}` },
         credentials: 'include'
       })
       const list = await res.json().catch(() => ({}))
@@ -354,7 +349,7 @@ export function BookingsProvider({ children }) {
     try {
       const response = await fetch(`${API_BASE}/bookings/${booking.id}/occurrences/${occurrenceId}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({ status: 'cancelled' })
       })
@@ -365,7 +360,6 @@ export function BookingsProvider({ children }) {
       }
 
       const res = await fetch(`${API_BASE}/bookings`, {
-        headers: { 'Authorization': `Bearer ${token}` },
         credentials: 'include'
       })
       const list = await res.json().catch(() => ({}))

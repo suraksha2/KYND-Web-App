@@ -31,6 +31,7 @@ COPY --from=builder --chown=node:node /app/dist ./dist
 COPY --chown=node:node backend/db/db.sql ./db.sql
 COPY --chown=node:node backend/db/scripts/migrate-vendor-finance.mjs ./scripts/migrate-vendor-finance.mjs
 COPY --chown=node:node backend/db/scripts/reconcile-flat-booking-prices.mjs ./scripts/reconcile-flat-booking-prices.mjs
+COPY --chown=node:node backend/db/scripts/create-admin.mjs ./scripts/create-admin.mjs
 # Service artwork, served statically at /images and listed by GET /api/images.
 COPY --chown=node:node backend/db/public ./public
 # Hero / lifestyle photos referenced at /images/people/* (storefront public/).

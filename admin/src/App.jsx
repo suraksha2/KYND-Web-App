@@ -1,7 +1,6 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import AdminLayout from './components/AdminLayout'
 import Login from './pages/Login'
-import Signup from './pages/Signup'
 import Dashboard from './pages/Dashboard'
 import Orders from './pages/Orders'
 import Services from './pages/Services'
@@ -12,7 +11,6 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
-      <Route path="/secret-signup" element={<Signup />} />
 
       <Route element={<AdminLayout />}>
         <Route path="/dashboard" element={<Dashboard />} />

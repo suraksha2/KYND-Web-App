@@ -1,4 +1,4 @@
-import { API_BASE } from './api'
+import { API_BASE, apiFetch } from './api'
 
 export const OFFERS = [
   { id: 'first', badge: 'S$10 off', title: 'First booking', subtitle: 'On any service', action: 'Apply at checkout' },
@@ -50,14 +50,13 @@ export function offerIsApplicable(offer, selectedServiceCount = 1, hasBooked = f
 
 export function getReferralCode(user) {
   if (!user) return null
-  if (user.referralCode) return user.referralCode
-  if (user.id) return `KYND-${user.id}`
+  if (user.referralCode && !/^KYND-\d+$/i.test(user.referralCode)) return user.referralCode
   return null
 }
 
 export async function fetchReferralCode(token) {
-  const res = await fetch(`${API_BASE}/auth/referral-code`, {
-    headers: { Authorization: `Bearer ${token}` }
+  const res = await apiFetch(`${API_BASE}/auth/referral-code`, {
+    credentials: 'include',
   })
   if (!res.ok) throw new Error('Unable to fetch referral code.')
   const data = await res.json()
@@ -97,10 +96,12 @@ export async function copyReferralCode(user, token) {
   return code
 }
 
-export async function validateReferralCode(code) {
-  const res = await fetch(`${API_BASE}/auth/validate-referral`, {
+export async function validateReferralCode(code, token) {
+  const headers = { 'Content-Type': 'application/json' }
+  const res = await apiFetch(`${API_BASE}/auth/validate-referral`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    headers,
     body: JSON.stringify({ code: code.trim() })
   })
   if (!res.ok) throw new Error('Invalid referral code.')

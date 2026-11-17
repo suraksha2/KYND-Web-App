@@ -19,6 +19,7 @@ router.post('/quote', async (req, res) => {
       items: body.items,
       addOns: body.addOns,
       schedule: body.schedule,
+      recurrence: body.recurrence,
       offer: body.offer,
       referralCode: body.referralCode,
       userId: session.id,
@@ -37,7 +38,7 @@ router.post('/quote', async (req, res) => {
 /**
  * Creates an Airwallex PaymentIntent for a checkout.
  *
- * Body: { items, addOns?, schedule, scheduledAt?, contact, offer?, returnUrl? }
+ * Body: { items, addOns?, schedule, recurrence?, scheduledAt?, contact, offer?, returnUrl? }
  * Amount and merchant order reference are generated server-side.
  */
 router.post('/create-intent', async (req, res) => {
@@ -47,7 +48,7 @@ router.post('/create-intent', async (req, res) => {
     const body = req.body || {};
     const {
       returnUrl, items, addOns, schedule, offer, contact,
-      referralCode,
+      referralCode, recurrence,
     } = body;
 
     if (!Array.isArray(items) || !items.length) {
@@ -78,10 +79,11 @@ router.post('/create-intent', async (req, res) => {
       items,
       addOns,
       schedule,
+      recurrence,
       offer,
       referralCode,
       userId: session.id,
-      scheduledAt: scheduledDate?.toISOString() || null,
+      scheduledAt: body.scheduledAt || null,
     });
 
     const bookingId = newBookingReference();

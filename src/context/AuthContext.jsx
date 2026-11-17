@@ -1,38 +1,16 @@
-import { createContext, useCallback, useContext, useEffect, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { API_BASE } from '../lib/api'
 
 const AuthContext = createContext(null)
 const USER_KEY = 'kynd.auth.user.v1'
 
-/**
- * Session tokens are `base64url(payload).signature` and expire server-side after
- * 8 hours (SESSION_MAX_AGE_SECONDS). The payload is readable — not trusted —
- * client-side, which lets us drop a dead session instead of rendering a
- * signed-in UI whose every API call comes back 401.
- */
-function sessionExpiresAt(token) {
-  if (typeof token !== 'string') return null
-  const [payload] = token.split('.')
-  if (!payload) return null
-  try {
-    const b64 = payload.replace(/-/g, '+').replace(/_/g, '/')
-    const { exp } = JSON.parse(atob(b64.padEnd(Math.ceil(b64.length / 4) * 4, '=')))
-    return typeof exp === 'number' ? exp * 1000 : null
-  } catch { return null }
-}
-
-/** Returns the session only while its token is still valid, otherwise null. */
-const liveSession = (session) => {
-  const expiresAt = sessionExpiresAt(session?.token)
-  return expiresAt && expiresAt > Date.now() ? session : null
-}
-
 function readStoredSession() {
   try {
     const raw = localStorage.getItem(USER_KEY)
     if (!raw) return { session: null, expired: false }
-    const session = liveSession(JSON.parse(raw))
-    return { session, expired: !session }
+    const session = JSON.parse(raw)
+    delete session.token
+    return { session, expired: false }
   } catch { return { session: null, expired: false } }
 }
 
@@ -40,22 +18,68 @@ export function AuthProvider({ children }) {
   const [stored] = useState(readStoredSession)
   const [user, setUser] = useState(stored.session)
   const [sessionExpired, setSessionExpired] = useState(stored.expired)
+  const [sessionReady, setSessionReady] = useState(false)
+  const authGeneration = useRef(0)
 
   // Drop the session and flag it, so the UI can say why the user was signed out
   // instead of silently showing an empty account.
   const expireSession = useCallback(() => {
+    authGeneration.current += 1
     setUser(null)
     setSessionExpired(true)
+    setSessionReady(true)
+    fetch(`${API_BASE}/auth/logout`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'X-Helpr-Expected-Role': 'user' },
+    }).catch(() => {})
   }, [])
 
-  // Sign out the moment the token expires, so a long-lived tab never keeps
-  // firing requests that the backend will reject.
+  // The cached identity is only for display; don't use it for private data until
+  // the API confirms the customer session.
   useEffect(() => {
-    const expiresAt = sessionExpiresAt(user?.token)
-    if (!expiresAt) return
-    const timer = setTimeout(expireSession, Math.max(0, expiresAt - Date.now()))
-    return () => clearTimeout(timer)
-  }, [user?.token, expireSession])
+    const generation = authGeneration.current
+    fetch(`${API_BASE}/auth/session`, {
+      credentials: 'include',
+      headers: { 'X-Helpr-Expected-Role': 'user' },
+    })
+      .then(async (response) => {
+        if (generation !== authGeneration.current) return
+        if (response.status === 401) {
+          setUser(null)
+          setSessionExpired(Boolean(user))
+          return
+        }
+        if (response.ok) {
+          const session = await response.json()
+          if (generation !== authGeneration.current) return
+          if (session?.role === 'user') {
+            setUser((current) => (
+              current && Number(current.id) === Number(session.id)
+                ? { ...current, ...session, token: undefined }
+                : { ...session, token: undefined }
+            ))
+          } else {
+            setUser(null)
+            setSessionExpired(false)
+          }
+        } else {
+          setUser(null)
+        }
+      })
+      .catch(() => {
+        if (generation === authGeneration.current) setUser(null)
+      })
+      .finally(() => {
+        if (generation === authGeneration.current) setSessionReady(true)
+      })
+  }, [])
+
+  useEffect(() => {
+    const onExpired = () => expireSession()
+    window.addEventListener('helpr:session-expired', onExpired)
+    return () => window.removeEventListener('helpr:session-expired', onExpired)
+  }, [expireSession])
 
   useEffect(() => {
     try {
@@ -78,9 +102,9 @@ export function AuthProvider({ children }) {
       }
       try {
         const next = JSON.parse(e.newValue)
-        const session = liveSession(next)
-        setUser(session)
-        setSessionExpired(!session && !!next?.token)
+        delete next.token
+        setUser(next)
+        setSessionExpired(false)
       } catch {
         setUser(null)
         setSessionExpired(false)
@@ -95,44 +119,67 @@ export function AuthProvider({ children }) {
     if (!name || !normalizedEmail || !password) throw new Error('All fields are required.')
     if (password.length < 8) throw new Error('Password must be at least 8 characters.')
 
-    const response = await fetch(`${API_BASE}/auth/signup`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, email: normalizedEmail, password })
-    })
+    const generation = ++authGeneration.current
+    setSessionReady(false)
+    try {
+      const response = await fetch(`${API_BASE}/auth/signup`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, email: normalizedEmail, password })
+      })
 
-    const data = await response.json()
-    if (!response.ok) throw new Error(data.error || 'Unable to create account.')
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || 'Unable to create account.')
 
-    const session = { name: data.name, email: data.email, id: data.id, role: data.role, referralCode: data.referralCode || null, createdAt: data.createdAt, token: data.token }
-    setUser(session)
-    setSessionExpired(false)
-    return session
+      const session = { name: data.name, email: data.email, id: data.id, role: data.role, referralCode: data.referralCode || null, createdAt: data.createdAt }
+      setUser(session)
+      setSessionExpired(false)
+      return session
+    } finally {
+      if (generation === authGeneration.current) setSessionReady(true)
+    }
   }
 
   const login = async ({ email, password }) => {
     const normalizedEmail = String(email).trim().toLowerCase()
     if (!normalizedEmail || !password) throw new Error('Email and password are required.')
 
-    const response = await fetch(`${API_BASE}/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: normalizedEmail, password })
-    })
+    const generation = ++authGeneration.current
+    setSessionReady(false)
+    try {
+      const response = await fetch(`${API_BASE}/auth/login`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: normalizedEmail, password })
+      })
 
-    const data = await response.json()
-    if (!response.ok) throw new Error(data.error || 'Unable to sign in.')
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || 'Unable to sign in.')
 
-    const session = { name: data.name, email: data.email, id: data.id, role: data.role, referralCode: data.referralCode || null, createdAt: data.createdAt, token: data.token }
-    setUser(session)
-    setSessionExpired(false)
-    return session
+      const session = { name: data.name, email: data.email, id: data.id, role: data.role, referralCode: data.referralCode || null, createdAt: data.createdAt }
+      setUser(session)
+      setSessionExpired(false)
+      return session
+    } finally {
+      if (generation === authGeneration.current) setSessionReady(true)
+    }
   }
 
   // Stable identity so consumers can depend on it inside effects.
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
+    authGeneration.current += 1
     setUser(null)
     setSessionExpired(false)
+    setSessionReady(true)
+    try {
+      await fetch(`${API_BASE}/auth/logout`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'X-Helpr-Expected-Role': 'user' },
+      })
+    } catch {}
   }, [])
 
   const requestPasswordReset = async ({ email }) => {
@@ -141,6 +188,7 @@ export function AuthProvider({ children }) {
 
     const response = await fetch(`${API_BASE}/auth/forgot-password`, {
       method: 'POST',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: normalizedEmail })
     })
@@ -157,6 +205,7 @@ export function AuthProvider({ children }) {
 
     const response = await fetch(`${API_BASE}/auth/reset-password`, {
       method: 'POST',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token, password })
     })
@@ -170,7 +219,7 @@ export function AuthProvider({ children }) {
   const isAdmin = !!user && (user.role === 'admin' || user.role === 'super_admin')
 
   return (
-    <AuthContext.Provider value={{ user, token: user?.token || null, isAuthenticated: !!user, isAdmin, sessionExpired, signup, login, logout, expireSession, requestPasswordReset, resetPassword }}>
+    <AuthContext.Provider value={{ user, token: user ? 'cookie' : null, isAuthenticated: !!user, isAdmin, sessionExpired, sessionReady, signup, login, logout, expireSession, requestPasswordReset, resetPassword }}>
       {children}
     </AuthContext.Provider>
   )

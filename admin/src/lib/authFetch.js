@@ -1,5 +1,5 @@
 import { useCallback } from 'react'
-import { useAuth, API_BASE } from '../context/AuthContext'
+import { API_BASE } from '../context/AuthContext'
 
 /** Origin that serves the API, with the trailing `/api` stripped — images live there. */
 export const ASSET_BASE = API_BASE.replace(/\/api$/, '')
@@ -11,21 +11,17 @@ export function imageUrl(path) {
   return `${ASSET_BASE}${path.startsWith('/') ? '' : '/'}${path}`
 }
 
-/**
- * fetch() bound to the admin session token so the backend RBAC middleware
- * authorizes these cross-origin requests. Paths are relative to API_BASE.
- */
+/** Cookie-authenticated API fetch. Paths are relative to API_BASE. */
 export function useAuthFetch() {
-  const { token } = useAuth()
   return useCallback(
-    (path, options = {}) =>
-      fetch(path.startsWith('http') ? path : `${API_BASE}${path}`, {
+    async (path, options = {}) => {
+      const response = await fetch(path.startsWith('http') ? path : `${API_BASE}${path}`, {
         ...options,
-        headers: {
-          ...(options.headers || {}),
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-      }),
-    [token]
+        credentials: 'include',
+      })
+      if (response.status === 401) window.dispatchEvent(new Event('helpr:session-expired'))
+      return response
+    },
+    []
   )
 }

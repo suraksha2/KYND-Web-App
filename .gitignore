@@ -29,6 +29,9 @@ ios
 **/*[Dd]ump*.sql
 **/*[Ee]xport*.sql
 **/*[Ss]napshot*.sql
+# Ad-hoc database exports often use names without "dump" or "backup".
+**/*__db.sql
+**/*__database.sql
 *.sql.*
 *.dump
 *.dump.*

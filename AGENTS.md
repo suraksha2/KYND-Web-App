@@ -352,8 +352,8 @@ today is the Home-screen slice:
 - `backend/db/scripts/seed-vendor-demo.mjs` creates a demo vendor + owner login
   + team + today's jobs + an open offer + a pending payout + an expiring cert
   for local testing — it is **not** part of `db.sql` (schema only, no seed
-  rows). Run it after importing the schema, then sign in to `/vendor` with the
-  email/password it prints.
+  rows). Run it after importing the schema with a 12+ character
+  `VENDOR_DEMO_PASSWORD`; the script does not print credentials.
 - Home, Jobs, Team, Schedule and the owner-only Money/Forecast/
   Expenses/Payouts/Services/Invoices pages are backed by `vendor.ts` routes.
 

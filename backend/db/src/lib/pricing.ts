@@ -7,8 +7,8 @@ import {
   parseCatalogDurationHours,
   startTimeFromScheduledAt,
 } from './pricingRules';
+import { officeRecurringVisitTotal, recurringDiscountPct } from './recurringPricing';
 
-const RECURRING_DISCOUNT = 0.85;
 const MAX_ORDER_TOTAL = 50_000;
 
 export class PricingError extends Error {
@@ -101,6 +101,7 @@ type RawItem = {
   qty?: number;
   duration?: string;
   img?: string;
+  officeSize?: string;
 };
 
 type RawAddon = { id?: number | string; source?: string };
@@ -130,6 +131,7 @@ export async function priceOrder(input: {
   items: RawItem[];
   addOns?: RawAddon[];
   schedule?: string;
+  recurrence?: unknown;
   offer?: { id?: string } | string | null;
   userId?: number;
   scheduledAt?: string | null;
@@ -141,8 +143,12 @@ export async function priceOrder(input: {
   }
 
   const [serviceRows] = await db.query(
-    `SELECT id, name, image, duration, default_partner_cost, markup_pct_override, status
-     FROM catalog_services`
+    `SELECT s.id, s.name, s.image, s.duration, s.default_partner_cost,
+            s.markup_pct_override, s.status, sc.booking_behavior,
+            sc.office_pricing, cc.name AS category_name
+       FROM catalog_services s
+       LEFT JOIN catalog_subcategories sc ON sc.id = s.subcategory_id
+       LEFT JOIN catalog_categories cc ON cc.id = s.category_id`
   );
   const catalog = serviceRows as any[];
   const byId = new Map<number, any>();
@@ -241,8 +247,35 @@ export async function priceOrder(input: {
     });
   }
 
-  if (input.schedule === 'recurring') {
-    base = Math.round(base * RECURRING_DISCOUNT);
+  let officePlanApplied = false;
+  if (input.schedule === 'recurring' && resolvedServices.length === 1) {
+    const { service, raw, qty } = resolvedServices[0];
+    const behavior = service.booking_behavior;
+    const isOfficePlan = (behavior === 'office_cleaning'
+      || /office cleaning/i.test(String(service.category_name || '')))
+      && ['threeWeek', 'daily'].includes(String((input.recurrence as any)?.plan || ''));
+    if (isOfficePlan) {
+      const visitTotal = officeRecurringVisitTotal(
+        service,
+        { officeSize: raw.officeSize, qty },
+        input.recurrence,
+        input.scheduledAt
+      );
+      if (visitTotal === null) {
+        throw new PricingError('This office cleaning plan requires a custom quote.');
+      }
+      base = visitTotal;
+      officePlanApplied = true;
+    }
+  }
+
+  if (input.schedule === 'recurring' && !officePlanApplied) {
+    const discountPct = recurringDiscountPct(
+      resolvedServices.map(({ service }) => service),
+      input.recurrence,
+      input.scheduledAt
+    );
+    base = Math.round(base * (1 - discountPct));
   }
 
   // Add-ons come from two id spaces: `addons` rows (source 'addon') and

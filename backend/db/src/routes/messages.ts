@@ -6,10 +6,28 @@ import { sgtDateTime } from '../lib/sgt';
 
 const router = Router();
 
+// The browser apps share an API cookie. Require each app to state its expected
+// role so a provider cookie cannot accidentally populate the customer inbox.
+router.use(async (req, res, next) => {
+  const expectedRole = req.get('X-Helpr-Expected-Role');
+  if (expectedRole !== 'user' && expectedRole !== 'provider') {
+    return res.status(400).json({ error: 'A customer or provider client role is required.' });
+  }
+
+  const session = await getSession(req);
+  if (!session) return res.status(401).json({ error: 'Authentication required.' });
+  if (session.role !== expectedRole) {
+    return res.status(403).json({ error: 'Your sign-in is for a different account type. Please sign in again.' });
+  }
+
+  req.session = session;
+  return next();
+});
+
 // GET /api/messages - Get all conversations for the current user
 router.get('/', async (req, res) => {
   try {
-    const session = await getSession(req);
+    const session = req.session || await getSession(req);
     if (!session) {
       return res.status(401).json({ error: 'Authentication required.' });
     }
@@ -109,7 +127,7 @@ router.get('/', async (req, res) => {
 // GET /api/messages/unread-count - Get total unread message count for notification
 router.get('/unread-count', async (req, res) => {
   try {
-    const session = await getSession(req);
+    const session = req.session || await getSession(req);
     if (!session) {
       return res.status(401).json({ error: 'Authentication required.' });
     }
@@ -153,7 +171,7 @@ router.get('/unread-count', async (req, res) => {
 // GET /api/messages/:bookingId - List messages for a booking
 router.get('/:bookingId', async (req, res) => {
   try {
-    const session = await getSession(req);
+    const session = req.session || await getSession(req);
     if (!session) {
       return res.status(401).json({ error: 'Authentication required.' });
     }
@@ -224,7 +242,7 @@ router.get('/:bookingId', async (req, res) => {
 // POST /api/messages/:bookingId - Send a message for a booking
 router.post('/:bookingId', async (req, res) => {
   try {
-    const session = await getSession(req);
+    const session = req.session || await getSession(req);
     if (!session) {
       return res.status(401).json({ error: 'Authentication required.' });
     }
@@ -317,7 +335,7 @@ router.post('/:bookingId', async (req, res) => {
 // PUT /api/messages/:bookingId/read - Mark messages as read (optional explicit endpoint)
 router.put('/:bookingId/read', async (req, res) => {
   try {
-    const session = await getSession(req);
+    const session = req.session || await getSession(req);
     if (!session) {
       return res.status(401).json({ error: 'Authentication required.' });
     }

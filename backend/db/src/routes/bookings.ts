@@ -13,6 +13,7 @@ import { normalizeRecurrence } from '../lib/recurrence';
 import { createOccurrences, withOccurrences, topUpOccurrences } from '../lib/occurrences';
 import { sgtDateTime, parseSgt } from '../lib/sgt';
 import { priceOrder, PricingError } from '../lib/pricing';
+import { claimFirstBookingDiscount } from '../lib/firstBookingDiscount';
 import { approvedVendorQuote, assignVendorFinancials, VendorPricingError } from '../lib/vendorFinance';
 import { verifyCardPaymentForBooking, PaymentVerificationError } from '../lib/paymentVerification';
 import {
@@ -128,10 +129,11 @@ router.post('/', requireCustomerSession, async (req, res) => {
       items,
       addOns,
       schedule,
+      recurrence,
       offer,
       referralCode,
       userId,
-      scheduledAt: schedule === 'instant' ? null : requestedDate.toISOString(),
+      scheduledAt: schedule === 'instant' ? null : String(scheduledAt),
     });
     const total = priced.total;
     const pricedItems = priced.items;
@@ -186,6 +188,13 @@ router.post('/', requireCustomerSession, async (req, res) => {
     let bookingDbId: number;
     try {
       await conn.beginTransaction();
+      if (priced.offerId === 'first'
+        && !await claimFirstBookingDiscount(conn, userId)) {
+        throw new PricingError(
+          'The first-booking discount was used by another checkout. Please restart checkout.',
+          409
+        );
+      }
       // Lock the city's eligible roster before checking schedules so concurrent
       // customer bookings cannot both claim the same free worker.
       const [rows]: any = await conn.query(
@@ -247,6 +256,14 @@ router.post('/', requireCustomerSession, async (req, res) => {
         ]
       );
       bookingDbId = (result as any).insertId;
+      if (priced.offerId === 'first') {
+        await conn.query(
+          `UPDATE first_booking_discount_redemptions
+              SET booking_id = ?
+            WHERE user_id = ?`,
+          [bookingDbId, userId]
+        );
+      }
       const [[savedBooking]]: any = await conn.query('SELECT id, items, total FROM bookings WHERE id = ? FOR UPDATE', [bookingDbId]);
       const approved = new Map<number, boolean>();
       const candidates: any[] = [];

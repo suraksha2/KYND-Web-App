@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from 'react'
+import { createContext, useContext, useEffect, useRef, useState } from 'react'
 
 const AuthContext = createContext(null)
 const USER_KEY = 'helpr.provider.auth.v1'
@@ -10,10 +10,15 @@ export const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:3001/
 const isProviderRole = (role) => role === 'provider'
 
 export function AuthProvider({ children }) {
+  const [authReady, setAuthReady] = useState(false)
+  const sessionCheckId = useRef(0)
   const [user, setUser] = useState(() => {
     try {
       const raw = localStorage.getItem(USER_KEY)
-      return raw ? JSON.parse(raw) : null
+      if (!raw) return null
+      const user = JSON.parse(raw)
+      delete user.token
+      return user
     } catch { return null }
   })
 
@@ -29,7 +34,9 @@ export function AuthProvider({ children }) {
     const onStorage = (e) => {
       if (e.key !== USER_KEY) return
       try {
-        setUser(e.newValue ? JSON.parse(e.newValue) : null)
+        const next = e.newValue ? JSON.parse(e.newValue) : null
+        if (next) delete next.token
+        setUser(next)
       } catch {
         setUser(null)
       }
@@ -38,35 +45,97 @@ export function AuthProvider({ children }) {
     return () => window.removeEventListener('storage', onStorage)
   }, [])
 
+  useEffect(() => {
+    const checkId = ++sessionCheckId.current
+    fetch(`${API_BASE}/auth/session`, {
+      credentials: 'include',
+      headers: { 'X-Helpr-Expected-Role': 'provider' },
+    })
+      .then(async (response) => {
+        if (checkId !== sessionCheckId.current) return
+        if (response.status === 401) {
+          setUser(null)
+          return
+        }
+        if (response.ok) {
+          const session = await response.json()
+          if (checkId === sessionCheckId.current) {
+            setUser(session?.role === 'provider' ? session : null)
+          }
+        } else {
+          setUser(null)
+        }
+      })
+      .catch(() => {
+        if (checkId === sessionCheckId.current) setUser(null)
+      })
+      .finally(() => {
+        if (checkId === sessionCheckId.current) setAuthReady(true)
+      })
+  }, [])
+
+  useEffect(() => {
+    const onExpired = () => {
+      setUser(null)
+      fetch(`${API_BASE}/auth/logout`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'X-Helpr-Expected-Role': 'provider' },
+      }).catch(() => {})
+    }
+    window.addEventListener('helpr:session-expired', onExpired)
+    return () => window.removeEventListener('helpr:session-expired', onExpired)
+  }, [])
+
   const login = async ({ email, password }) => {
     const normalizedEmail = String(email).trim().toLowerCase()
     if (!normalizedEmail || !password) throw new Error('Email and password are required.')
 
-    const response = await fetch(`${API_BASE}/auth/provider-login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: normalizedEmail, password })
-    })
+    const checkId = ++sessionCheckId.current
+    setUser(null)
+    setAuthReady(false)
+    try {
+      const response = await fetch(`${API_BASE}/auth/provider-login`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: normalizedEmail, password })
+      })
 
-    const data = await response.json()
-    if (!response.ok) throw new Error(data.error || 'Unable to sign in.')
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || 'Unable to sign in.')
 
-    if (!isProviderRole(data.role)) {
-      throw new Error('This account does not have provider access.')
+      if (!isProviderRole(data.role)) {
+        throw new Error('This account does not have provider access.')
+      }
+
+      const session = { name: data.name, email: data.email, id: data.id, role: data.role }
+      setUser(session)
+      return session
+    } finally {
+      if (checkId === sessionCheckId.current) setAuthReady(true)
     }
-
-    const session = { name: data.name, email: data.email, id: data.id, role: data.role, token: data.token }
-    setUser(session)
-    return session
   }
 
-  const logout = () => setUser(null)
+  const logout = async () => {
+    sessionCheckId.current += 1
+    setUser(null)
+    setAuthReady(true)
+    try {
+      await fetch(`${API_BASE}/auth/logout`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'X-Helpr-Expected-Role': 'provider' },
+      })
+    } catch {}
+  }
 
   return (
     <AuthContext.Provider
       value={{
         user,
-        token: user?.token || null,
+        authReady,
+        token: user ? 'cookie' : null,
         isAuthenticated: !!user,
         isProvider: !!user && isProviderRole(user.role),
         login,

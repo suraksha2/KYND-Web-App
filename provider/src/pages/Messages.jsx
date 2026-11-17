@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { MessageCircle, Clock, ChevronRight, Loader2, ArrowLeft, Send, X } from 'lucide-react'
 import { useAuth, API_BASE } from '../context/AuthContext'
+import { providerFetch } from '../lib/api'
 
 const SGT = { timeZone: 'Asia/Singapore' }
 const fmtTime = (d) => new Date(d).toLocaleTimeString('en-SG', { hour: 'numeric', minute: '2-digit', ...SGT })
@@ -8,7 +9,7 @@ const fmtDay = (d) => new Date(d).toLocaleDateString('en-GB', { weekday: 'short'
 const fmtShortDay = (d) => new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', ...SGT }).toUpperCase()
 
 export default function Messages() {
-  const { token, user } = useAuth()
+  const { user } = useAuth()
   const [conversations, setConversations] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -20,14 +21,12 @@ export default function Messages() {
 
   useEffect(() => {
     fetchConversations()
-  }, [token])
+  }, [user?.id])
 
   const fetchConversations = async () => {
     try {
-      const res = await fetch(`${API_BASE}/messages`, {
-        headers: {
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
+      const res = await providerFetch(`${API_BASE}/messages`, {
+        headers: { 'X-Helpr-Expected-Role': 'provider' },
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Failed to load conversations')
@@ -44,10 +43,8 @@ export default function Messages() {
   const fetchChatMessages = async (bookingId) => {
     setChatLoading(true)
     try {
-      const res = await fetch(`${API_BASE}/messages/${bookingId}`, {
-        headers: {
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
+      const res = await providerFetch(`${API_BASE}/messages/${bookingId}`, {
+        headers: { 'X-Helpr-Expected-Role': 'provider' },
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Failed to load messages')
@@ -73,11 +70,11 @@ export default function Messages() {
     setSending(true)
     setError('')
     try {
-      const res = await fetch(`${API_BASE}/messages/${activeChat}`, {
+      const res = await providerFetch(`${API_BASE}/messages/${activeChat}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          'X-Helpr-Expected-Role': 'provider',
         },
         body: JSON.stringify({ content: newMessage.trim() }),
       })

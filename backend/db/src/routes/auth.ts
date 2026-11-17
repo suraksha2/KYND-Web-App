@@ -1,37 +1,14 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
-import { createHash, timingSafeEqual } from 'crypto';
 import pool from '../lib/mysql';
-import { createSessionToken } from '../lib/auth';
+import { createSessionToken, SESSION_COOKIE_NAME, verifySessionToken } from '../lib/auth';
+import { ensureReferralCode, newReferralCode, validateReferralCode } from '../lib/referrals';
 import {
-  clearSessionCookie, getSession, requireCustomerSession, setSessionCookie,
+  clearSessionCookie, CUSTOMER_SESSION_COOKIE_NAME, getSession,
+  PROVIDER_SESSION_COOKIE_NAME, requireCustomerSession, setSessionCookie,
 } from '../http/session';
 
 const router = Router();
-
-// Simple per-IP sliding window for auth endpoints (login/signup/reset).
-// In-memory is enough for a single API process; multi-instance deploys
-// should front this with a reverse-proxy limit as well.
-const AUTH_WINDOW_MS = 15 * 60 * 1000;
-const AUTH_MAX_ATTEMPTS = 30;
-const authAttempts = new Map<string, { count: number; resetAt: number }>();
-
-function authRateLimit(req: any, res: any, next: any) {
-  const ip = String(req.ip || req.socket?.remoteAddress || 'unknown');
-  const now = Date.now();
-  const entry = authAttempts.get(ip);
-  if (!entry || entry.resetAt <= now) {
-    authAttempts.set(ip, { count: 1, resetAt: now + AUTH_WINDOW_MS });
-    return next();
-  }
-  entry.count += 1;
-  if (entry.count > AUTH_MAX_ATTEMPTS) {
-    return res.status(429).json({ error: 'Too many attempts. Please try again later.' });
-  }
-  return next();
-}
-
-router.use(authRateLimit);
 
 router.post('/login', async (req, res) => {
   try {
@@ -46,7 +23,7 @@ router.post('/login', async (req, res) => {
 
     // Find user by email
     const [users] = await pool.query(
-      'SELECT id, name, email, password_hash, role, status, created_at, referral_code FROM users WHERE email = ?',
+      'SELECT id, name, email, password_hash, role, status, session_version, created_at, referral_code FROM users WHERE email = ?',
       [normalizedEmail]
     );
 
@@ -69,13 +46,12 @@ router.post('/login', async (req, res) => {
     }
 
     // Ensure every user has a shareable referral code for the "Refer a friend" offer.
-    if (!user.referral_code) {
-      const referralCode = `KYND-${user.id}`;
+    if (!user.referral_code || /^KYND-\d+$/i.test(user.referral_code)) {
       try {
-        await pool.query('UPDATE users SET referral_code = ? WHERE id = ?', [referralCode, user.id]);
-        user.referral_code = referralCode;
+        user.referral_code = await ensureReferralCode(user.id, user.referral_code, pool);
       } catch (e) {
         console.error('Failed to set referral code on login:', e);
+        user.referral_code = null;
       }
     }
 
@@ -86,9 +62,11 @@ router.post('/login', async (req, res) => {
       id: user.id,
       email: user.email,
       role: user.role,
+      name: user.name,
+      sessionVersion: Number(user.session_version),
     });
 
-    setSessionCookie(res, token);
+    setSessionCookie(res, token, user.role);
 
     return res.json({
       id: user.id,
@@ -97,10 +75,6 @@ router.post('/login', async (req, res) => {
       role: user.role,
       createdAt: user.created_at,
       referralCode: user.referral_code,
-      // Token is also returned in the body so cross-origin clients (e.g. the
-      // customer app on :5173) can authenticate via an Authorization header,
-      // since cross-site cookies are unreliable in browsers.
-      token,
     });
   } catch (error) {
     console.error('Login error:', error);
@@ -108,20 +82,50 @@ router.post('/login', async (req, res) => {
   }
 });
 
-router.post('/logout', async (_req, res) => {
-  // Clear the session cookie.
-  clearSessionCookie(res);
+router.post('/logout', async (req, res) => {
+  // Clear only the app-specific cookie so switching roles doesn't log out the
+  // other app in the same browser.
+  const expectedRole = req.get('X-Helpr-Expected-Role');
+  if (expectedRole === 'user' || expectedRole === 'provider') {
+    const scopedCookie = expectedRole === 'user'
+      ? CUSTOMER_SESSION_COOKIE_NAME
+      : PROVIDER_SESSION_COOKIE_NAME;
+    const legacySession = req.cookies?.[scopedCookie]
+      ? null
+      : await verifySessionToken(req.cookies?.[SESSION_COOKIE_NAME]);
+    clearSessionCookie(res, expectedRole);
+    if (legacySession?.role === expectedRole) clearSessionCookie(res);
+  } else {
+    clearSessionCookie(res);
+  }
 
   return res.json({ message: 'Logged out.' });
+});
+
+router.get('/session', async (req, res) => {
+  const session = await getSession(req);
+  if (!session) return res.status(401).json({ error: 'Authentication required.' });
+  return res.json({
+    id: session.id,
+    name: session.name,
+    email: session.email,
+    role: session.role,
+    vendorId: session.vendorId,
+    providerId: session.providerId,
+  });
 });
 
 router.post('/signup', async (req, res) => {
   try {
     const body = req.body;
-    const { name, email, password, secret } = body;
+    const { name, email, password } = body;
 
     if (!name || !email || !password) {
       return res.status(400).json({ error: 'All fields are required.' });
+    }
+
+    if (Object.prototype.hasOwnProperty.call(body, 'secret')) {
+      return res.status(403).json({ error: 'Admin signup is disabled. Use the controlled bootstrap process.' });
     }
 
     if (password.length < 8) {
@@ -130,29 +134,7 @@ router.post('/signup', async (req, res) => {
 
     const normalizedEmail = email.trim().toLowerCase();
 
-    // Require an explicit production opt-in for one-time admin bootstrap.
-    let assignedRole = 'user';
-    if (secret !== undefined && secret !== null && secret !== '') {
-      if (process.env.NODE_ENV === 'production' && process.env.ADMIN_SIGNUP_ENABLED !== 'true') {
-        return res.status(403).json({ error: 'Admin signup is disabled.' });
-      }
-
-      const adminSecret = process.env.ADMIN_SIGNUP_SECRET;
-      const suppliedHash = createHash('sha256')
-        .update(typeof secret === 'string' ? secret : '')
-        .digest();
-      const configuredHash = createHash('sha256')
-        .update(adminSecret || '')
-        .digest();
-      const secretsMatch = timingSafeEqual(suppliedHash, configuredHash);
-
-      if (adminSecret && Buffer.byteLength(adminSecret, 'utf8') >= 16
-        && typeof secret === 'string' && secretsMatch) {
-        assignedRole = 'super_admin';
-      } else {
-        return res.status(403).json({ error: 'Invalid admin signup secret.' });
-      }
-    }
+    const assignedRole = 'user';
 
     // Check if user already exists
     const [existingUsers] = await pool.query(
@@ -167,10 +149,12 @@ router.post('/signup', async (req, res) => {
     // Hash password
     const passwordHash = await bcrypt.hash(password, 10);
 
+    const referralCode = newReferralCode();
+
     // Insert user without explicitly listing 'joined', relying on DEFAULT CURRENT_DATE
     const [result] = await pool.query(
-      'INSERT INTO users (name, email, password_hash, role, status) VALUES (?, ?, ?, ?, ?)',
-      [name.trim(), normalizedEmail, passwordHash, assignedRole, 'active']
+      'INSERT INTO users (name, email, password_hash, role, status, referral_code) VALUES (?, ?, ?, ?, ?, ?)',
+      [name.trim(), normalizedEmail, passwordHash, assignedRole, 'active', referralCode]
     );
 
     const insertResult = result as any;
@@ -182,22 +166,16 @@ router.post('/signup', async (req, res) => {
     );
     const createdAt = (newUsers as any[])[0]?.created_at;
 
-    // Generate and store a shareable referral code for the new account.
-    const referralCode = `KYND-${userId}`;
-    try {
-      await pool.query('UPDATE users SET referral_code = ? WHERE id = ?', [referralCode, userId]);
-    } catch (e) {
-      console.error('Failed to store referral code on signup:', e);
-    }
-
     // Issue session token
     const token = await createSessionToken({
       id: userId,
       email: normalizedEmail,
       role: assignedRole,
+      name: name.trim(),
+      sessionVersion: 1,
     });
 
-    setSessionCookie(res, token);
+    setSessionCookie(res, token, assignedRole);
 
     return res.status(201).json({
       id: userId,
@@ -206,7 +184,6 @@ router.post('/signup', async (req, res) => {
       role: assignedRole,
       createdAt,
       referralCode,
-      token,
     });
   } catch (error: any) {
     console.error('Signup error:', error);
@@ -231,15 +208,12 @@ router.get('/referral-code', requireCustomerSession, async (req, res) => {
     }
 
     const user = userArray[0];
-    let referralCode = user.referral_code;
-    if (!referralCode) {
-      referralCode = `KYND-${user.id}`;
-      try {
-        await pool.query('UPDATE users SET referral_code = ? WHERE id = ?', [referralCode, user.id]);
-      } catch (e) {
-        console.error('Failed to generate referral code:', e);
-        return res.status(500).json({ error: 'Unable to generate referral code.' });
-      }
+    let referralCode: string;
+    try {
+      referralCode = await ensureReferralCode(user.id, user.referral_code, pool);
+    } catch (e) {
+      console.error('Failed to generate referral code:', e);
+      return res.status(500).json({ error: 'Unable to generate referral code.' });
     }
 
     return res.json({ referralCode });
@@ -251,29 +225,11 @@ router.get('/referral-code', requireCustomerSession, async (req, res) => {
 
 router.post('/validate-referral', async (req, res) => {
   try {
-    const { code } = req.body;
-    if (!code || typeof code !== 'string') {
-      return res.status(400).json({ error: 'Referral code is required.' });
-    }
-
-    const normalizedCode = code.trim().toUpperCase();
-    const [users] = await pool.query(
-      'SELECT id, name FROM users WHERE referral_code = ?',
-      [normalizedCode]
-    );
-    const userArray = users as any[];
-    if (!userArray || userArray.length === 0) {
-      return res.status(404).json({ valid: false, error: 'Invalid referral code.' });
-    }
-
-    const referrer = userArray[0];
-    return res.json({
-      valid: true,
-      discount: 15,
-      referrerId: referrer.id,
-      referrerName: referrer.name,
-      code: normalizedCode,
-    });
+    const code = req.body?.code;
+    const session = await getSession(req);
+    const customerId = session?.role === 'user' ? session.id : undefined;
+    const result = await validateReferralCode(code, customerId, pool);
+    return res.json(result);
   } catch (error) {
     console.error('Validate referral error:', error);
     return res.status(500).json({ error: 'Unable to validate referral code.' });
@@ -296,7 +252,7 @@ router.post('/provider-login', async (req, res) => {
     const normalizedEmail = email.trim().toLowerCase();
 
     const [rows] = await pool.query(
-      'SELECT id, name, email, password_hash, status FROM service_providers WHERE email = ?',
+      'SELECT id, name, email, password_hash, status, session_version FROM service_providers WHERE email = ?',
       [normalizedEmail]
     );
 
@@ -324,16 +280,17 @@ router.post('/provider-login', async (req, res) => {
       id: provider.id,
       email: provider.email,
       role: 'provider',
+      name: provider.name,
+      sessionVersion: Number(provider.session_version),
     });
 
-    setSessionCookie(res, token);
+    setSessionCookie(res, token, 'provider');
 
     return res.json({
       id: provider.id,
       name: provider.name,
       email: provider.email,
       role: 'provider',
-      token,
     });
   } catch (error) {
     console.error('Provider login error:', error);
@@ -359,6 +316,7 @@ router.post('/vendor-login', async (req, res) => {
 
     const [rows] = await pool.query(
       `SELECT vu.id, vu.vendor_id, vu.provider_id, vu.name, vu.email, vu.password_hash,
+              vu.session_version,
               vu.role, vu.status, v.name AS vendor_name, v.categories AS vendor_categories,
               v.status AS vendor_status
          FROM vendor_users vu
@@ -392,6 +350,7 @@ router.post('/vendor-login', async (req, res) => {
       id: seat.id,
       email: seat.email,
       role,
+      sessionVersion: Number(seat.session_version),
       vendorId: seat.vendor_id,
       providerId: seat.provider_id ?? undefined,
       name: seat.name,
@@ -407,7 +366,6 @@ router.post('/vendor-login', async (req, res) => {
       vendorId: seat.vendor_id,
       vendorName: seat.vendor_name,
       vendorCategories: seat.vendor_categories,
-      token,
     });
   } catch (error) {
     console.error('Vendor login error:', error);
@@ -429,11 +387,14 @@ router.post('/reset-password', async (_req, res) => {
   });
 });
 
-router.post('/change-password', requireCustomerSession, async (req, res) => {
+router.post('/change-password', async (req, res) => {
   try {
     const session = await getSession(req);
     if (!session) {
       return res.status(401).json({ error: 'Authentication required.' });
+    }
+    if (!['user', 'admin', 'super_admin'].includes(session.role)) {
+      return res.status(403).json({ error: 'Password changes are not available for this account.' });
     }
 
     const body = req.body;
@@ -475,10 +436,11 @@ router.post('/change-password', requireCustomerSession, async (req, res) => {
 
     // Update password
     await pool.query(
-      'UPDATE users SET password_hash = ? WHERE id = ?',
+      'UPDATE users SET password_hash = ?, session_version = session_version + 1 WHERE id = ?',
       [newPasswordHash, userId]
     );
 
+    clearSessionCookie(res, session.role);
     return res.json({
       message: 'Password changed successfully.'
     });

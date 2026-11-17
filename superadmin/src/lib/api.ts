@@ -10,7 +10,7 @@ export const API_ORIGIN = API_BASE.replace(/\/api\/?$/, '')
 
 const TOKEN_KEY = 'helpr.superadmin.auth.v1'
 
-export function getStoredSession(): { token?: string } | null {
+export function getStoredSession(): Record<string, unknown> | null {
   try {
     const raw = localStorage.getItem(TOKEN_KEY)
     return raw ? JSON.parse(raw) : null
@@ -21,20 +21,16 @@ export function getStoredSession(): { token?: string } | null {
 
 export { TOKEN_KEY }
 
-// Drop-in replacement for the `fetch("/api/...")` calls the Next.js pages used
-// to make. Rewrites the "/api" prefix onto API_BASE and attaches the bearer
-// token, since this console is now a separate origin from the API and cannot
-// rely on the httpOnly session cookie.
+// Rewrites the "/api" prefix onto API_BASE and sends the httpOnly cookie.
 export function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
   const relative = path.startsWith('/api') ? path.slice(4) : path
-  const token = getStoredSession()?.token
-
   const headers = new Headers(init.headers)
-  if (token && !headers.has('Authorization')) {
-    headers.set('Authorization', `Bearer ${token}`)
-  }
-
-  return fetch(`${API_BASE}${relative}`, { ...init, headers, credentials: 'include' })
+  return fetch(`${API_BASE}${relative}`, { ...init, headers, credentials: 'include' }).then((response) => {
+    if (response.status === 401 && !relative.startsWith('/auth/')) {
+      window.dispatchEvent(new Event('helpr:session-expired'))
+    }
+    return response
+  })
 }
 
 // Service artwork lives in the backend's own public folder, so a root-relative
