@@ -14,6 +14,7 @@ import { canonicalSkillTags, providerSupportsServices, skillRequirementsForJob, 
 import { handleBookingAssignment } from '../lib/bookingAssignment';
 import { topUpOccurrences } from '../lib/occurrences';
 import { recordVendorCompletion, VendorPricingError } from '../lib/vendorFinance';
+import { claimLockedVendorOffer, lockVendorOffer } from '../lib/vendorOffers';
 
 const router = Router();
 
@@ -1200,14 +1201,24 @@ router.post('/offers/:id/accept', async (req, res) => {
     const session = await requireVendorSession(req, res);
     if (!session) return;
 
-    const [rows]: any = await conn.query(
-      'SELECT * FROM offers WHERE id = ?',
-      [req.params.id]
-    );
-    const offer = (rows as any[])[0];
-    if (!offer || Number(offer.vendor_id) !== Number(session.vendorId)) {
+    await conn.beginTransaction();
+    const lockedOffer = await lockVendorOffer(conn, session.vendorId, req.params.id);
+    if (lockedOffer.state === 'not_found') {
+      await conn.rollback();
       return res.status(404).json({ error: 'Offer not found.' });
     }
+
+    // A retried request after a successful commit is idempotent. Sibling
+    // offers closed by the winner remain conflicts, not successful accepts.
+    if (lockedOffer.state === 'accepted') {
+      await conn.commit();
+      return res.json({ success: true, jobId: lockedOffer.jobId });
+    }
+    if (lockedOffer.state !== 'open') {
+      await conn.rollback();
+      return res.status(409).json({ error: 'This offer is no longer available.' });
+    }
+    const offer = lockedOffer.offer;
 
     let assigneeId: number | null = null;
     const requestedAssignee = req.body?.assigneeId;
@@ -1218,35 +1229,20 @@ router.post('/offers/:id/accept', async (req, res) => {
       );
       const provider = (memberRows as any[])[0];
       if (!provider) {
+        await conn.rollback();
         return res.status(400).json({ error: 'That worker is not on your team.' });
       }
       const skill = await jobSkillState({ ...offer, source: 'kynd' }, provider, conn);
       if (!skill.qualified) {
+        await conn.rollback();
         return res.status(400).json({ error: `${provider.name} does not have the skill required for '${offer.service_label}'.` });
       }
       assigneeId = Number(requestedAssignee);
     }
 
-    await conn.beginTransaction();
-    const [upd]: any = await conn.query(
-      `UPDATE offers SET status = 'accepted', accepted_at = NOW()
-        WHERE id = ? AND status = 'open' AND expires_at > NOW()`,
-      [offer.id]
-    );
-    if (upd.affectedRows === 0) {
+    if (!await claimLockedVendorOffer(conn, offer)) {
       await conn.rollback();
       return res.status(409).json({ error: 'This offer is no longer available.' });
-    }
-
-    // Broadcast fan-out means siblings may exist for the same booking at
-    // other vendors — this accept wins the race, so they never get a second
-    // chance at a job that's already spoken for.
-    if (offer.booking_id) {
-      await conn.query(
-        `UPDATE offers SET status = 'taken'
-          WHERE booking_id = ? AND id != ? AND status = 'open'`,
-        [offer.booking_id, offer.id]
-      );
     }
 
     // Same source as the marketplace path (`notifyProviderAssignment`) and

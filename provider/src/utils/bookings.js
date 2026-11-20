@@ -127,7 +127,12 @@ export function bookingTotal(booking) {
 }
 
 export function formatSgd(value) {
-  return `S$${Math.round(value).toLocaleString('en-SG')}`
+  const amount = Number(value)
+  const formatted = (Number.isFinite(amount) ? amount : 0).toLocaleString('en-SG', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })
+  return `S$${formatted}`
 }
 
 export function lastSevenDays(bookings) {

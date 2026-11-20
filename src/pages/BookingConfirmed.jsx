@@ -71,17 +71,28 @@ export default function BookingConfirmed() {
   const [order, setOrder] = useState(state || (() => readLastOrder(user?.id))())
   const [verifying, setVerifying] = useState(false)
   const [verificationError, setVerificationError] = useState(null)
+  const [retryAttempt, setRetryAttempt] = useState(0)
 
   useEffect(() => {
     let active = true
     const verifyPayment = async () => {
       try {
         const pendingOrderStr = localStorage.getItem('kynd.pendingOrder')
-        if (!pendingOrderStr) return
-        const pendingOrder = JSON.parse(pendingOrderStr)
-        if (!pendingOrder.intentId || !pendingOrder.order) return
+        let pendingOrder = pendingOrderStr ? JSON.parse(pendingOrderStr) : null
         setVerifying(true)
         setVerificationError(null)
+        if (!pendingOrder?.intentId || !pendingOrder.order) {
+          // Browser state lost: ask the server for a paid checkout with no booking yet.
+          const res = await fetch(`${API_BASE}/api/payments/recoverable`, { credentials: 'include' })
+          if (res.status === 401) expireSession()
+          const found = await res.json().catch(() => ({}))
+          if (!res.ok || !found.intentId || !found.order) return
+          pendingOrder = {
+            bookingId: found.bookingId,
+            intentId: found.intentId,
+            order: { ...found.order, payment: 'card', total: found.order.total ?? 0 },
+          }
+        }
 
         const confirmedOrder = await confirmPaidOrder(pendingOrder, token, user?.id, expireSession)
         if (active) setOrder(confirmedOrder)
@@ -98,7 +109,7 @@ export default function BookingConfirmed() {
       verifyPayment()
     }
     return () => { active = false }
-  }, [state, token, user?.id, expireSession])
+  }, [state, token, user?.id, expireSession, retryAttempt])
 
 
   if (!order && !verifying) return <Navigate to="/" replace />
@@ -125,6 +136,17 @@ export default function BookingConfirmed() {
           <div className="rounded-3xl bg-white ring-1 ring-lightstone shadow-soft p-8 text-center">
             <h1 className="font-heading mt-5 text-3xl md:text-4xl font-extrabold text-red-600">Payment verification failed</h1>
             <p className="mt-2 text-warmgrey">{verificationError}</p>
+            <p className="mt-3 text-sm text-warmgrey">Retrying checks the existing payment and booking; it will not start another charge.</p>
+            <button
+              type="button"
+              onClick={() => {
+                setVerificationError(null)
+                setRetryAttempt((attempt) => attempt + 1)
+              }}
+              className="mt-6 inline-block rounded-full bg-terracotta hover:bg-charcoal text-white font-semibold px-6 py-3 text-sm"
+            >
+              Retry booking confirmation
+            </button>
             <Link to="/services" className="mt-6 inline-block rounded-full bg-terracotta hover:bg-charcoal text-white font-semibold px-6 py-3 text-sm">Return to services</Link>
           </div>
         </div>

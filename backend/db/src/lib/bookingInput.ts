@@ -13,6 +13,10 @@ export type BookingContact = {
   pincode: string;
 };
 
+export function isSupportedBookingPayment(value: unknown): value is 'cod' | 'card' {
+  return value === 'cod' || value === 'card';
+}
+
 export function normalizeBookingContact(value: unknown): BookingContact | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const contact = value as Record<string, unknown>;

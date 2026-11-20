@@ -2,87 +2,30 @@ import React, { useState, useEffect, useRef } from 'react'
 import { Send, MessageCircle, X, Loader2 } from 'lucide-react'
 import { useAuth, API_BASE } from '../context/AuthContext'
 import { providerFetch } from '../lib/api'
+import useBookingMessages from '../../../src/hooks/useBookingMessages'
+
+const providerRequest = (url, options) => providerFetch(url, options)
 
 export default function BookingMessaging({ bookingId, isOpen: externalIsOpen, onClose: externalOnClose }) {
   const { user } = useAuth()
-  const [messages, setMessages] = useState([])
   const [newMessage, setNewMessage] = useState('')
-  const [loading, setLoading] = useState(true)
-  const [sending, setSending] = useState(false)
-  const [error, setError] = useState('')
   // Use external control if provided, otherwise use internal state
   const [internalIsOpen, setInternalIsOpen] = useState(false)
   const isOpen = externalIsOpen !== undefined ? externalIsOpen : internalIsOpen
   const setIsOpen = externalOnClose !== undefined ? externalOnClose : setInternalIsOpen
   const messagesEndRef = useRef(null)
-  const pollIntervalRef = useRef(null)
-
-  // If externally controlled, we need to fetch messages when isOpen becomes true
-  useEffect(() => {
-    if (externalIsOpen !== undefined && externalIsOpen && bookingId) {
-      fetchMessages()
-    }
-  }, [externalIsOpen, bookingId])
-
-  const fetchMessages = async () => {
-    try {
-      const res = await providerFetch(`${API_BASE}/messages/${bookingId}`, {
-        headers: { 'X-Helpr-Expected-Role': 'provider' },
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Failed to load messages')
-      setMessages(data.data || [])
-      setError('')
-    } catch (err) {
-      console.error('Failed to fetch messages:', err)
-      setError(err.message || 'Failed to load messages')
-    } finally {
-      setLoading(false)
-    }
-  }
+  const { messages, loading, sending, error, sendMessage: submitMessage } = useBookingMessages({
+    apiBase: API_BASE,
+    bookingId,
+    isOpen,
+    role: 'provider',
+    request: providerRequest,
+  })
 
   const sendMessage = async (e) => {
     e.preventDefault()
-    if (!newMessage.trim() || sending) return
-
-    setSending(true)
-    setError('')
-    try {
-      const res = await providerFetch(`${API_BASE}/messages/${bookingId}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Helpr-Expected-Role': 'provider',
-        },
-        body: JSON.stringify({ content: newMessage.trim() }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Failed to send message')
-      
-      setMessages(prev => [...prev, data.data])
-      setNewMessage('')
-      setError('')
-    } catch (err) {
-      console.error('Failed to send message:', err)
-      setError(err.message || 'Failed to send message')
-    } finally {
-      setSending(false)
-    }
+    if (await submitMessage(newMessage)) setNewMessage('')
   }
-
-  useEffect(() => {
-    if (isOpen && bookingId) {
-      fetchMessages()
-      // Poll for new messages every 10 seconds when chat is open
-      pollIntervalRef.current = setInterval(fetchMessages, 10000)
-    }
-    
-    return () => {
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current)
-      }
-    }
-  }, [isOpen, bookingId])
 
   useEffect(() => {
     // Scroll to bottom when messages change

@@ -19,8 +19,14 @@ test('production refuses the retired public admin-bootstrap switch', () => {
   assert.throws(validateProductionConfig, /Public admin signup is removed/);
 
   process.env.ADMIN_SIGNUP_ENABLED = 'false';
+  assert.throws(validateProductionConfig, /AIRWALLEX_ENV must be prod/);
+  process.env.AIRWALLEX_ENV = 'prod';
+  process.env.AIRWALLEX_CLIENT_ID = 'test-client-id-123456';
+  process.env.AIRWALLEX_API_KEY = 'test-api-key-123456';
   assert.doesNotThrow(validateProductionConfig);
   delete process.env.ADMIN_SIGNUP_ENABLED;
+  delete process.env.AIRWALLEX_CLIENT_ID;
+  delete process.env.AIRWALLEX_API_KEY;
 });
 
 test('admin SPA and signup API contain no public admin creation path', () => {

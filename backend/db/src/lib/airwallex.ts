@@ -175,5 +175,34 @@ export async function retrievePaymentIntent(id: string): Promise<PaymentIntent> 
   return data as PaymentIntent;
 }
 
+/**
+ * Cancels an unpaid intent so an abandoned first-discount checkout can release
+ * its reservation. Airwallex rejects cancellation once an intent has succeeded.
+ */
+export async function cancelPaymentIntent(
+  id: string
+): Promise<{ id: string; status: string }> {
+  const token = await getAccessToken();
+  const res = await fetch(`${API_BASE}/api/v1/pa/payment_intents/${encodeURIComponent(id)}/cancel`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      request_id: randomUUID(),
+      cancellation_reason: 'Superseded by a new checkout',
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
+
+  if (!res.ok || !data?.id || !data?.status) {
+    const message = data?.message || data?.code || `HTTP ${res.status}`;
+    throw new Error(`Failed to cancel Airwallex PaymentIntent: ${message}`);
+  }
+
+  return { id: String(data.id), status: String(data.status) };
+}
+
 export const airwallexEnv = AIRWALLEX_ENV;
 export const paymentCurrency = process.env.PAYMENT_CURRENCY || 'SGD';

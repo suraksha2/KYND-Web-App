@@ -1,7 +1,8 @@
 import {
-  Loader2, Calendar, Clock, MapPin, Phone, User, IndianRupee, CheckCircle2, XCircle, StickyNote, Briefcase,
+  Loader2, Calendar, Clock, MapPin, Phone, User, Banknote, CheckCircle2, XCircle, StickyNote, Briefcase,
 } from 'lucide-react'
-import { STATUS_META, URGENCY_META, parseItems, formatDateTime, nextVisit, getEffectiveStatus, hasUpcomingOccurrences, urgencyLevel, timeUntil, bookingDate } from '../utils/bookings'
+import { STATUS_META, URGENCY_META, parseItems, formatDateTime, formatSgd, nextVisit, getEffectiveStatus, hasUpcomingOccurrences, urgencyLevel, timeUntil, bookingDate } from '../utils/bookings'
+import { safeTelHref } from '../utils/phone'
 import BookingMessaging from './BookingMessaging'
 
 export default function BookingCard({ booking, updating, onUpdate }) {
@@ -15,6 +16,7 @@ export default function BookingCard({ booking, updating, onUpdate }) {
   const urgency = urgencyLevel(booking)
   const umeta = urgency ? URGENCY_META[urgency] : null
   const UrgencyIcon = umeta?.icon
+  const phoneHref = safeTelHref(booking.contact_phone)
   const relative =
     urgency === 'today' || urgency === 'overdue' ? timeUntil(bookingDate(booking)) : null
 
@@ -67,7 +69,7 @@ export default function BookingCard({ booking, updating, onUpdate }) {
           ) : (
             <>
               <Detail icon={User} label={booking.contact_name} />
-              <Detail icon={Phone} label={booking.contact_phone} isLink={`tel:${booking.contact_phone}`} />
+              <Detail icon={Phone} label={booking.contact_phone} isLink={phoneHref} />
             </>
           )}
           <Detail
@@ -78,10 +80,10 @@ export default function BookingCard({ booking, updating, onUpdate }) {
             className="sm:col-span-2"
           />
           <Detail
-            icon={booking.vendorJob ? Briefcase : IndianRupee}
+            icon={booking.vendorJob ? Briefcase : Banknote}
             label={booking.vendorJob
               ? `External job${booking.vendorName ? ` · ${booking.vendorName}` : ''}`
-              : `${Number(booking.total).toLocaleString('en-IN')} · ${booking.payment}`}
+              : `${formatSgd(booking.total)} · ${booking.payment}`}
           />
         </div>
 

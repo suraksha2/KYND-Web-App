@@ -95,9 +95,12 @@ test('checkout uses the configured API base exactly once for payment intent rout
     path.join(projectRoot, 'src/pages/BookingConfirmed.jsx'),
     'utf8'
   );
-  assert.match(checkout, /import \{ API_BASE, appUrl \} from '\.\.\/lib\/api'/);
+  assert.match(checkout, /import \{ API_BASE, apiFetch, appUrl \} from '\.\.\/lib\/api'/);
   assert.match(checkout, /`\$\{API_BASE\}\/payments\/create-intent`/);
   assert.doesNotMatch(checkout, /`\$\{API_BASE\}\/api\/payments\/create-intent`/);
+  assert.match(confirmation, /import \{ API_ORIGIN as API_BASE, serviceImageUrl \} from '\.\.\/lib\/api'/);
+  assert.match(confirmation, /`\$\{API_BASE\}\/api\/payments\/\$\{encodeURIComponent\(key\)\}`/);
+  assert.match(confirmation, /`\$\{API_BASE\}\/api\/bookings`/);
   assert.match(confirmation, /encodeURIComponent\(key\)/);
 });
 

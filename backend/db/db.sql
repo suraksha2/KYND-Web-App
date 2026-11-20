@@ -253,9 +253,26 @@ CREATE TABLE IF NOT EXISTS bookings (
 CREATE TABLE IF NOT EXISTS first_booking_discount_redemptions (
   user_id INT NOT NULL PRIMARY KEY,
   booking_id INT NULL UNIQUE,
+  payment_intent_id VARCHAR(128) NULL,
+  status ENUM('reserved', 'redeemed') NOT NULL DEFAULT 'redeemed',
   redeemed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY unique_first_booking_payment_intent (payment_intent_id),
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
   FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE SET NULL
+);
+
+-- Server-side snapshot of each card checkout so a paid order can be recovered
+-- even if the browser loses its saved pending order.
+CREATE TABLE IF NOT EXISTS payment_checkouts (
+  payment_intent_id VARCHAR(128) NOT NULL PRIMARY KEY,
+  user_id INT NOT NULL,
+  booking_ref VARCHAR(50) NOT NULL,
+  order_json JSON NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  last_reconciled_at DATETIME NULL,
+  KEY idx_payment_checkouts_user (user_id, created_at),
+  KEY idx_payment_checkouts_reconcile (last_reconciled_at, created_at),
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 -- Migration: add user_id to bookings tables created before it existed.
@@ -961,6 +978,7 @@ CREATE TABLE IF NOT EXISTS offers (
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   KEY idx_offers_vendor_status (vendor_id, status),
+  UNIQUE KEY unique_offers_vendor_booking (vendor_id, booking_id),
   FOREIGN KEY (vendor_id) REFERENCES vendors(id) ON DELETE CASCADE,
   FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE SET NULL
 );
@@ -1001,6 +1019,7 @@ CREATE TABLE IF NOT EXISTS jobs (
   KEY idx_jobs_vendor_status (vendor_id, status),
   KEY idx_jobs_assignee (assignee_provider_id),
   KEY idx_jobs_payout (payout_id),
+  UNIQUE KEY unique_jobs_offer (offer_id),
   FOREIGN KEY (vendor_id) REFERENCES vendors(id) ON DELETE CASCADE,
   FOREIGN KEY (offer_id) REFERENCES offers(id) ON DELETE SET NULL,
   FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE SET NULL,

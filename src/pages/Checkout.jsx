@@ -289,6 +289,9 @@ export default function Checkout() {
           scheduledAt: order.scheduledAt || null,
           offer: order.offer || null,
           referralCode: order.referralCode || null,
+          recurrence: order.recurrence || null,
+          cadence: order.cadence || null,
+          notes: order.notes || '',
           contact: order.contact,
           returnUrl: appUrl('/booking/confirmed'),
         }),
@@ -302,13 +305,11 @@ export default function Checkout() {
       order.discount = data.discount ?? order.discount
 
       // Store order data for verification after payment redirect
-      try {
-        localStorage.setItem('kynd.pendingOrder', JSON.stringify({
-          bookingId: data.bookingId,
-          intentId: data.id,
-          order,
-        }))
-      } catch {}
+      localStorage.setItem('kynd.pendingOrder', JSON.stringify({
+        bookingId: data.bookingId,
+        intentId: data.id,
+        order,
+      }))
 
       // Redirect to Hosted Payment Page
       const { init } = await import('@airwallex/components-sdk')

@@ -46,12 +46,14 @@ export function validateProductionConfig(): void {
     throw new Error('Public admin signup is removed. Create administrators through the controlled bootstrap script.');
   }
 
-  // The production default is live payments, so don't boot with checkout
-  // configured to fail only after a customer submits an order.
-  if ((process.env.AIRWALLEX_ENV || 'prod').toLowerCase() === 'prod') {
-    requiredIntegrationValue('AIRWALLEX_CLIENT_ID');
-    requiredIntegrationValue('AIRWALLEX_API_KEY');
+  // Demo intents can be fulfilled as real bookings, so production must use
+  // Airwallex's live environment rather than merely having valid credentials.
+  const airwallexEnv = (process.env.AIRWALLEX_ENV || 'prod').trim().toLowerCase();
+  if (airwallexEnv !== 'prod') {
+    throw new Error('AIRWALLEX_ENV must be prod in production.');
   }
+  requiredIntegrationValue('AIRWALLEX_CLIENT_ID');
+  requiredIntegrationValue('AIRWALLEX_API_KEY');
   const internalToken = process.env.INTERNAL_API_TOKEN?.trim();
   if (internalToken && (internalToken.length < 16 || PLACEHOLDER_SECRET.test(internalToken))) {
     throw new Error('INTERNAL_API_TOKEN must be at least 16 non-placeholder characters in production.');

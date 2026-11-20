@@ -135,7 +135,6 @@ export function AuthProvider({ children }) {
       value={{
         user,
         authReady,
-        token: user ? 'cookie' : null,
         isAuthenticated: !!user,
         isProvider: !!user && isProviderRole(user.role),
         login,

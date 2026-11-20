@@ -46,6 +46,7 @@ function pricingDb({
   },
   rule = { service_id: 1, strategy: 'flat', params: { amount: 100 } },
   previousBookings = [],
+  firstDiscountReservation = null,
   referrerId = 2,
 } = {}) {
   const calls = [];
@@ -60,6 +61,9 @@ function pricingDb({
         assert.match(normalized, /WHERE user_id = \? LIMIT 1/);
         assert.doesNotMatch(normalized, /status/i);
         return [previousBookings, []];
+      }
+      if (normalized.includes('FROM first_booking_discount_redemptions')) {
+        return [firstDiscountReservation ? [firstDiscountReservation] : [], []];
       }
       if (normalized.includes('FROM users') && normalized.includes('referral_code')) {
         const [code, userId] = params;
@@ -239,4 +243,24 @@ test('cancelled bookings still consume first-booking eligibility', async () => {
   const firstBooking = await priceOrder(baseInput({ offer: { id: 'first' } }), newCustomer);
   assert.equal(firstBooking.offerId, 'first');
   assert.equal(firstBooking.discount, 10);
+});
+
+test('a first-discount reservation is usable only by its matching payment intent', async () => {
+  const reservation = {
+    status: 'reserved',
+    payment_intent_id: 'pi_reserved_for_this_user',
+  };
+  const matching = await priceOrder(
+    baseInput({ offer: 'first', paymentIntentId: 'pi_reserved_for_this_user' }),
+    pricingDb({ firstDiscountReservation: reservation })
+  );
+  assert.equal(matching.offerId, 'first');
+  assert.equal(matching.discount, 10);
+
+  const competing = await priceOrder(
+    baseInput({ offer: 'first', paymentIntentId: 'pi_other_intent' }),
+    pricingDb({ firstDiscountReservation: reservation })
+  );
+  assert.equal(competing.offerId, null);
+  assert.equal(competing.discount, 0);
 });

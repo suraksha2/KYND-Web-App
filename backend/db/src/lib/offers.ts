@@ -121,12 +121,14 @@ export async function fanOutOffersForBooking(input: FanOutInput): Promise<number
     );
   }
 
-  await pool.query(
-    `INSERT INTO offers
+  const [insertResult]: any = await pool.query(
+    `INSERT IGNORE INTO offers
        (vendor_id, booking_id, service_label, category, area, window_start, window_end, price, fee_pct, status, expires_at)
      VALUES ${placeholders}`,
     params
   );
 
-  return vendorIds.length;
+  // A caller retry or overlapping fan-out can encounter the unique
+  // (vendor_id, booking_id) key; count only rows this call actually created.
+  return Number(insertResult.affectedRows) || 0;
 }

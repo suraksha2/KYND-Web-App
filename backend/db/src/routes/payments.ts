@@ -1,9 +1,19 @@
 import { Router } from 'express';
-import { createPaymentIntent, paymentCurrency, AirwallexConfigError, retrievePaymentIntent } from '../lib/airwallex';
+import {
+  cancelPaymentIntent, createPaymentIntent, paymentCurrency,
+  AirwallexConfigError, retrievePaymentIntent,
+} from '../lib/airwallex';
 import { requireCustomerSession } from '../http/session';
 import { priceOrder, PricingError } from '../lib/pricing';
 import { paymentIntentBelongsToUser } from '../lib/paymentVerification';
 import { validatePaymentReturnUrl } from '../lib/paymentReturnUrl';
+import pool from '../lib/mysql';
+import { findPaidUnbookedCheckout, saveCheckoutSnapshot } from '../lib/paymentCheckouts';
+import {
+  getFirstBookingDiscountReservation,
+  releaseAbandonedFirstBookingDiscount,
+  reserveFirstBookingDiscount,
+} from '../lib/firstBookingDiscount';
 import {
   newBookingReference, normalizeBookingContact, parseIsoDateTime,
 } from '../lib/bookingInput';
@@ -50,6 +60,7 @@ router.post('/create-intent', async (req, res) => {
       returnUrl, items, addOns, schedule, offer, contact,
       referralCode, recurrence,
     } = body;
+    const requestedOffer = typeof offer === 'string' ? offer : offer?.id;
 
     if (!Array.isArray(items) || !items.length) {
       return res.status(400).json({ error: 'Order items are required to price the payment.' });
@@ -75,6 +86,20 @@ router.post('/create-intent', async (req, res) => {
       validatedReturnUrl = validated;
     }
 
+    const existingFirstReservation = await getFirstBookingDiscountReservation(pool, session.id);
+    if (existingFirstReservation?.status === 'reserved') {
+      const canStartCheckout = await releaseAbandonedFirstBookingDiscount(
+        pool,
+        session.id,
+        { retrieve: retrievePaymentIntent, cancel: cancelPaymentIntent }
+      );
+      if (!canStartCheckout) {
+        return res.status(409).json({
+          error: 'A first-booking checkout is already reserved or has completed payment. Resume that checkout before starting another.',
+        });
+      }
+    }
+
     const priced = await priceOrder({
       items,
       addOns,
@@ -85,6 +110,9 @@ router.post('/create-intent', async (req, res) => {
       userId: session.id,
       scheduledAt: body.scheduledAt || null,
     });
+    if (requestedOffer === 'first' && priced.offerId !== 'first') {
+      return res.status(409).json({ error: 'The first-booking discount is no longer available.' });
+    }
 
     const bookingId = newBookingReference();
     const intent = await createPaymentIntent({
@@ -100,6 +128,35 @@ router.post('/create-intent', async (req, res) => {
       returnUrl: validatedReturnUrl,
       descriptor: 'Helpr Services',
     });
+
+    if (priced.offerId === 'first') {
+      let reserved: boolean;
+      try {
+        reserved = await reserveFirstBookingDiscount(pool, session.id, intent.id);
+      } catch (error) {
+        await cancelPaymentIntent(intent.id).catch((cancelError) => {
+          console.error('[POST /api/payments/create-intent] could not cancel unreserved intent:', cancelError);
+        });
+        throw error;
+      }
+      if (!reserved) {
+        await cancelPaymentIntent(intent.id).catch((cancelError) => {
+          console.error('[POST /api/payments/create-intent] could not cancel competing intent:', cancelError);
+        });
+        return res.status(409).json({
+          error: 'Another checkout claimed the first-booking discount. Please restart checkout.',
+        });
+      }
+    }
+
+    try {
+      await saveCheckoutSnapshot(session.id, intent.id, bookingId, body);
+    } catch (error) {
+      await cancelPaymentIntent(intent.id).catch((cancelError) => {
+        console.error('[POST /api/payments/create-intent] could not cancel unrecoverable intent:', cancelError);
+      });
+      throw error;
+    }
 
     return res.status(201).json({
       id: intent.id,
@@ -121,6 +178,21 @@ router.post('/create-intent', async (req, res) => {
       return res.status(503).json({ error: 'Payments are temporarily unavailable.' });
     }
     return res.status(500).json({ error: 'Failed to create payment intent.' });
+  }
+});
+
+/**
+ * Server-side recovery: finds this customer's paid checkout that never became a
+ * booking (e.g. browser lost its saved order). The client then POSTs /bookings
+ * with just the paymentIntentId and the stored snapshot completes the order.
+ */
+router.get('/recoverable', async (req, res) => {
+  try {
+    const found = await findPaidUnbookedCheckout(req.session!.id);
+    return res.status(200).json(found || {});
+  } catch (error) {
+    console.error('[GET /api/payments/recoverable]', error);
+    return res.status(500).json({ error: 'Failed to look up payments.' });
   }
 });
 

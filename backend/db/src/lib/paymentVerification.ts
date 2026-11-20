@@ -1,4 +1,5 @@
 import pool from './mysql';
+import type { Pool } from 'mysql2/promise';
 import { paymentCurrency, retrievePaymentIntent, type PaymentIntent } from './airwallex';
 
 const PAID_STATUSES = new Set(['SUCCEEDED']);
@@ -9,6 +10,47 @@ export class PaymentVerificationError extends Error {
     super(message);
     this.status = status;
   }
+}
+
+export type ExistingCardBooking = {
+  id: number;
+  booking_id: string;
+  user_id: number;
+  total: number;
+  payment_intent_id: string;
+  placed_at: string;
+  items: unknown;
+  cadence: string | null;
+  recurrence: unknown;
+  provider_id: number | null;
+  provider_name: string | null;
+  provider_rating: number | null;
+  provider_total_jobs: number | null;
+  provider_avatar: string | null;
+  provider_working_hours: unknown;
+  provider_services: unknown;
+};
+
+/** Find only a booking owned by this customer; used to make paid retries idempotent. */
+export async function findExistingCardBooking(
+  userId: number,
+  paymentIntentId: string,
+  db: Pick<Pool, 'query'> = pool
+): Promise<ExistingCardBooking | null> {
+  const [rows]: any = await db.query(
+    `SELECT b.id, b.booking_id, b.user_id, b.total, b.payment_intent_id,
+            DATE_FORMAT(b.placed_at, '%Y-%m-%d %H:%i:%s') AS placed_at,
+            b.items, b.cadence, b.recurrence, b.provider_id,
+            sp.name AS provider_name, sp.rating AS provider_rating,
+            sp.total_jobs AS provider_total_jobs, sp.avatar AS provider_avatar,
+            sp.working_hours AS provider_working_hours, sp.services AS provider_services
+       FROM bookings b
+       LEFT JOIN service_providers sp ON sp.id = b.provider_id
+      WHERE b.user_id = ? AND b.payment_intent_id = ?
+      LIMIT 1`,
+    [userId, paymentIntentId]
+  );
+  return rows?.[0] || null;
 }
 
 export function paymentIntentBelongsToUser(intent: PaymentIntent, userId: number): boolean {

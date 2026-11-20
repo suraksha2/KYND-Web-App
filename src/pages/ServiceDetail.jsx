@@ -2482,13 +2482,11 @@ export default function ServiceDetail() {
       order.addOns = data.addOns || order.addOns
       order.discount = data.discount ?? order.discount
 
-      try {
-        localStorage.setItem('kynd.pendingOrder', JSON.stringify({
-          bookingId: data.bookingId,
-          intentId: data.id,
-          order,
-        }))
-      } catch {}
+      localStorage.setItem('kynd.pendingOrder', JSON.stringify({
+        bookingId: data.bookingId,
+        intentId: data.id,
+        order,
+      }))
 
       const { init } = await import('@airwallex/components-sdk')
       const AIRWALLEX_ENV = import.meta.env.VITE_AIRWALLEX_ENV || 'prod'

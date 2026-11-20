@@ -53,6 +53,7 @@ async function resolveEligibleOffers(
   requested: string | null,
   serviceLineCount: number,
   requestedReferralCode: string | undefined,
+  paymentIntentId: string | undefined,
   db: PricingDatabase
 ): Promise<EligibleOffers> {
   let offerId: string | null = null;
@@ -67,7 +68,20 @@ async function resolveEligibleOffers(
          LIMIT 1`,
         [userId]
       );
-      if (!rows?.length) offerId = 'first';
+      if (!rows?.length) {
+        const [redemptions]: any = await db.query(
+          `SELECT status, payment_intent_id
+             FROM first_booking_discount_redemptions
+            WHERE user_id = ?
+            LIMIT 1`,
+          [userId]
+        );
+        const reservation = redemptions?.[0];
+        const ownsReservation = reservation?.status === 'reserved'
+          && typeof paymentIntentId === 'string'
+          && reservation.payment_intent_id === paymentIntentId;
+        if (!reservation || ownsReservation) offerId = 'first';
+      }
     }
   }
 
@@ -136,6 +150,7 @@ export async function priceOrder(input: {
   userId?: number;
   scheduledAt?: string | null;
   referralCode?: string;
+  paymentIntentId?: string;
 }, db: PricingDatabase = pool): Promise<PricedOrder> {
   const rawItems = Array.isArray(input.items) ? input.items : [];
   if (!rawItems.length) {
@@ -383,6 +398,7 @@ export async function priceOrder(input: {
     requestedOffer,
     pricedItems.length,
     input.referralCode,
+    input.paymentIntentId,
     db
   );
 

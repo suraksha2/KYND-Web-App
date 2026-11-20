@@ -9,15 +9,27 @@ import {
   requireCustomerSession,
 } from '../http/session';
 import { handleBookingAssignment } from '../lib/bookingAssignment';
+import { cancelPaymentIntent, retrievePaymentIntent } from '../lib/airwallex';
 import { normalizeRecurrence } from '../lib/recurrence';
 import { createOccurrences, withOccurrences, topUpOccurrences } from '../lib/occurrences';
 import { sgtDateTime, parseSgt } from '../lib/sgt';
 import { priceOrder, PricingError } from '../lib/pricing';
-import { claimFirstBookingDiscount } from '../lib/firstBookingDiscount';
-import { approvedVendorQuote, assignVendorFinancials, VendorPricingError } from '../lib/vendorFinance';
-import { verifyCardPaymentForBooking, PaymentVerificationError } from '../lib/paymentVerification';
 import {
-  newBookingReference, normalizeBookingContact, parseIsoDateTime,
+  attachFirstBookingDiscountToBooking,
+  claimFirstBookingDiscount,
+  getFirstBookingDiscountReservation,
+  releaseAbandonedFirstBookingDiscount,
+} from '../lib/firstBookingDiscount';
+import { approvedVendorQuote, assignVendorFinancials, VendorPricingError } from '../lib/vendorFinance';
+import {
+  findExistingCardBooking,
+  verifyCardPaymentForBooking,
+  verifyStoredCardPayment,
+  PaymentVerificationError,
+} from '../lib/paymentVerification';
+import { loadCheckoutSnapshot } from '../lib/paymentCheckouts';
+import {
+  isSupportedBookingPayment, newBookingReference, normalizeBookingContact, parseIsoDateTime,
 } from '../lib/bookingInput';
 // Offer inbox deferred until the multi-vendor stage.
 // import { fanOutOffersForBooking } from '../lib/offers';
@@ -29,6 +41,53 @@ import {
 } from '../lib/providerSchedule';
 
 const router = Router();
+
+function parseStoredJson(value: unknown): unknown {
+  if (typeof value !== 'string') return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
+
+async function existingCardBookingResponse(
+  userId: number,
+  paymentIntentId: string,
+  requestedBookingId?: string
+) {
+  const booking = await findExistingCardBooking(userId, paymentIntentId);
+  if (!booking || (requestedBookingId && requestedBookingId !== booking.booking_id)) return null;
+
+  await verifyStoredCardPayment({
+    userId,
+    paymentIntentId,
+    merchantOrderId: booking.booking_id,
+    expectedTotal: Number(booking.total),
+  });
+
+  return {
+    success: true,
+    bookingId: booking.booking_id,
+    id: Number(booking.id),
+    placedAt: booking.placed_at,
+    total: Number(booking.total),
+    items: parseStoredJson(booking.items),
+    cadence: booking.cadence,
+    recurrence: parseStoredJson(booking.recurrence),
+    provider: booking.provider_id
+      ? {
+        id: Number(booking.provider_id),
+        name: booking.provider_name,
+        rating: booking.provider_rating,
+        total_jobs: booking.provider_total_jobs,
+        avatar: booking.provider_avatar,
+        working_hours: parseStoredJson(booking.provider_working_hours),
+        services: parseStoredJson(booking.provider_services),
+      }
+      : null,
+  };
+}
 
 async function notifyProviderAssignment(bookingDbId: number, providerId: number) {
   const [bookingRows]: any = await pool.query(
@@ -73,8 +132,27 @@ async function notifyProviderAssignment(bookingDbId: number, providerId: number)
 }
 
 router.post('/', requireCustomerSession, async (req, res) => {
+  let recoveryContext: {
+    userId: number;
+    paymentIntentId: string;
+    requestedBookingId?: string;
+  } | null = null;
   try {
-    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    let body = req.body && typeof req.body === 'object' ? req.body : {};
+    // Recovery: a paid card checkout whose browser state was lost sends only the
+    // intent id; the order snapshot saved at create-intent time fills the rest.
+    if (body.payment === 'card' && typeof body.paymentIntentId === 'string'
+      && body.paymentIntentId.trim() && !Array.isArray(body.items)) {
+      const snapshot = await loadCheckoutSnapshot(req.session!.id, body.paymentIntentId.trim());
+      if (snapshot) {
+        body = {
+          ...snapshot.order,
+          payment: 'card',
+          paymentIntentId: body.paymentIntentId.trim(),
+          bookingId: snapshot.bookingRef,
+        };
+      }
+    }
     const {
       items,
       schedule,
@@ -102,8 +180,7 @@ router.post('/', requireCustomerSession, async (req, res) => {
     if (typeof payment !== 'string' || payment.length > 64) {
       return res.status(400).json({ error: 'Invalid payment method.' });
     }
-    const allowedPayments = new Set(['cod', 'card', 'wallet', 'paynow']);
-    if (!allowedPayments.has(payment)) {
+    if (!isSupportedBookingPayment(payment)) {
       return res.status(400).json({ error: 'Unsupported payment method.' });
     }
 
@@ -118,6 +195,37 @@ router.post('/', requireCustomerSession, async (req, res) => {
     const session = req.session;
     if (!session) return res.status(401).json({ error: 'Authentication required.' });
     const userId = session.id;
+    const requestedPaymentIntentId = typeof paymentIntentId === 'string'
+      ? paymentIntentId.trim()
+      : null;
+    if (payment === 'card' && requestedPaymentIntentId) {
+      recoveryContext = {
+        userId,
+        paymentIntentId: requestedPaymentIntentId,
+        requestedBookingId: typeof body.bookingId === 'string' ? body.bookingId : undefined,
+      };
+      const existing = await existingCardBookingResponse(
+        recoveryContext.userId,
+        recoveryContext.paymentIntentId,
+        recoveryContext.requestedBookingId
+      );
+      if (existing) return res.status(200).json(existing);
+    }
+
+    const firstReservation = await getFirstBookingDiscountReservation(pool, userId);
+    if (firstReservation?.status === 'reserved'
+      && firstReservation.payment_intent_id !== requestedPaymentIntentId) {
+      const released = await releaseAbandonedFirstBookingDiscount(
+        pool,
+        userId,
+        { retrieve: retrievePaymentIntent, cancel: cancelPaymentIntent }
+      );
+      if (!released) {
+        return res.status(409).json({
+          error: 'A first-booking checkout is already reserved or has completed payment. Resume that checkout before creating another booking.',
+        });
+      }
+    }
 
     // Server-side pricing — ignore client total / item prices.
     const requestedDate = schedule === 'instant' ? new Date() : parseIsoDateTime(scheduledAt);
@@ -134,6 +242,7 @@ router.post('/', requireCustomerSession, async (req, res) => {
       referralCode,
       userId,
       scheduledAt: schedule === 'instant' ? null : String(scheduledAt),
+      paymentIntentId: requestedPaymentIntentId || undefined,
     });
     const total = priced.total;
     const pricedItems = priced.items;
@@ -156,7 +265,7 @@ router.post('/', requireCustomerSession, async (req, res) => {
     let bookingId: string;
     let storedPaymentIntentId: string | null = null;
     if (payment === 'card') {
-      const intentId = typeof paymentIntentId === 'string' ? paymentIntentId.trim() : '';
+      const intentId = requestedPaymentIntentId || '';
       bookingId = await verifyCardPaymentForBooking({
         userId,
         paymentIntentId: intentId,
@@ -189,9 +298,9 @@ router.post('/', requireCustomerSession, async (req, res) => {
     try {
       await conn.beginTransaction();
       if (priced.offerId === 'first'
-        && !await claimFirstBookingDiscount(conn, userId)) {
+        && !await claimFirstBookingDiscount(conn, userId, storedPaymentIntentId)) {
         throw new PricingError(
-          'The first-booking discount was used by another checkout. Please restart checkout.',
+          'This checkout no longer holds the first-booking discount. Please restart checkout.',
           409
         );
       }
@@ -257,12 +366,7 @@ router.post('/', requireCustomerSession, async (req, res) => {
       );
       bookingDbId = (result as any).insertId;
       if (priced.offerId === 'first') {
-        await conn.query(
-          `UPDATE first_booking_discount_redemptions
-              SET booking_id = ?
-            WHERE user_id = ?`,
-          [bookingDbId, userId]
-        );
+        await attachFirstBookingDiscountToBooking(conn, userId, bookingDbId);
       }
       const [[savedBooking]]: any = await conn.query('SELECT id, items, total FROM bookings WHERE id = ? FOR UPDATE', [bookingDbId]);
       const approved = new Map<number, boolean>();
@@ -290,6 +394,14 @@ router.post('/', requireCustomerSession, async (req, res) => {
         await conn.query('UPDATE service_providers SET total_jobs = total_jobs + 1 WHERE id = ?', [provider.id]);
       }
       if (plan) await createOccurrences(bookingDbId, provider?.id ?? null, plan, conn);
+      if (storedPaymentIntentId) {
+        // The booking now owns the order data; remove its duplicate PII snapshot
+        // only after all booking rows are ready, in the same transaction.
+        await conn.query(
+          'DELETE FROM payment_checkouts WHERE payment_intent_id = ? AND user_id = ?',
+          [storedPaymentIntentId, userId]
+        );
+      }
       await conn.commit();
     } catch (error) {
       await conn.rollback();
@@ -340,6 +452,18 @@ router.post('/', requireCustomerSession, async (req, res) => {
       recurrence: plan
     });
   } catch (error) {
+    if (recoveryContext) {
+      try {
+        const existing = await existingCardBookingResponse(
+          recoveryContext.userId,
+          recoveryContext.paymentIntentId,
+          recoveryContext.requestedBookingId
+        );
+        if (existing) return res.status(200).json(existing);
+      } catch (recoveryError) {
+        console.error('[POST /api/bookings] idempotent payment retry failed:', recoveryError);
+      }
+    }
     if (error instanceof PricingError) {
       return res.status(error.status).json({ error: error.message });
     }

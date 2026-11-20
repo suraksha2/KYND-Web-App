@@ -7,6 +7,7 @@ import {
 import { findMissedBookings, findMissedOccurrences, markMissedNotified } from '../lib/missed';
 import { sendProviderAssignmentWhatsApp, sendMissedJobsWhatsApp } from '../lib/whatsapp';
 import { runVendorPayoutBatch } from '../lib/payouts';
+import { reconcileStalePaymentCheckouts } from '../lib/paymentCheckouts';
 
 const router = Router();
 
@@ -188,6 +189,34 @@ router.post('/run-payouts', async (req, res) => {
     if (error?.status === 409) return res.status(409).json({ error: error.message });
     console.error('[POST /api/internal/run-payouts]', error);
     return res.status(500).json({ error: 'Failed to run the payout batch.' });
+  }
+});
+
+/**
+ * Reconcile old paid checkouts and discard snapshots only after Airwallex
+ * confirms a terminal unpaid state. Paid or unknown intents remain recoverable.
+ * Suggested schedule: hourly, using the INTERNAL_API_TOKEN.
+ *
+ *   0 * * * * curl -fsS -X POST http://127.0.0.1:3001/api/internal/reconcile-payment-checkouts \
+ *     -H "Authorization: Bearer $INTERNAL_API_TOKEN" >> /var/log/kynd-payments.log 2>&1
+ */
+router.post('/reconcile-payment-checkouts', async (req, res) => {
+  if (!isAuthorizedCaller(req.headers.authorization)) {
+    return res.status(401).json({ error: 'Invalid internal token.' });
+  }
+
+  try {
+    const limit = Number(req.body?.limit) || 100;
+    const result = await reconcileStalePaymentCheckouts(limit);
+    if (result.paidUnbooked) {
+      console.error('[POST /api/internal/reconcile-payment-checkouts] paid bookings need recovery:', {
+        count: result.paidUnbooked,
+      });
+    }
+    return res.status(200).json(result);
+  } catch (error) {
+    console.error('[POST /api/internal/reconcile-payment-checkouts]', error);
+    return res.status(500).json({ error: 'Failed to reconcile payment checkouts.' });
   }
 });
 

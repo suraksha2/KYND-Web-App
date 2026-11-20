@@ -9,6 +9,7 @@ const require = createRequire(import.meta.url);
 const { normalizePhoneToE164 } = require('../dist/lib/phone');
 const { validateImageUpload } = require('../dist/lib/imageUpload');
 const {
+  isSupportedBookingPayment,
   newBookingReference,
   normalizeBookingContact,
   parseIsoDateTime,
@@ -60,6 +61,14 @@ test('normalizes and validates booking contact details before charging or creati
     pincode: '123456',
   });
   assert.equal(normalizeBookingContact({ ...contact, phone: '9910483315' }), null);
+});
+
+test('booking creation only supports payment methods the server can honor', () => {
+  assert.equal(isSupportedBookingPayment('card'), true);
+  assert.equal(isSupportedBookingPayment('cod'), true);
+  assert.equal(isSupportedBookingPayment('wallet'), false);
+  assert.equal(isSupportedBookingPayment('paynow'), false);
+  assert.equal(isSupportedBookingPayment('upi'), false);
 });
 
 test('allows only forward booking status transitions', () => {

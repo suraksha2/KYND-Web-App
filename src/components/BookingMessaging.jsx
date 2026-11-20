@@ -1,115 +1,36 @@
-import React, { useCallback, useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { Send, MessageCircle, X, Loader2 } from 'lucide-react'
 import { API_BASE } from '../lib/api'
 import { useAuth } from '../context/AuthContext'
+import useBookingMessages from '../hooks/useBookingMessages'
 
 export default function BookingMessaging({ bookingId, isProvider = false, bookingDbId, isOpen: externalIsOpen, onClose: externalOnClose, isFullPage = false }) {
   // Use bookingDbId if provided, otherwise use bookingId
   const dbId = bookingDbId || bookingId
-  const { token, user, expireSession } = useAuth()
-  const [messages, setMessages] = useState([])
+  const { user, expireSession } = useAuth()
   const [newMessage, setNewMessage] = useState('')
-  const [loading, setLoading] = useState(true)
-  const [sending, setSending] = useState(false)
-  const [error, setError] = useState('')
   // Use external control if provided, otherwise use internal state
   const [internalIsOpen, setInternalIsOpen] = useState(false)
   const isOpen = externalIsOpen !== undefined ? externalIsOpen : internalIsOpen
   const setIsOpen = externalOnClose !== undefined ? externalOnClose : setInternalIsOpen
   const messagesEndRef = useRef(null)
-  const pollIntervalRef = useRef(null)
-  const requestControllerRef = useRef(null)
-
-  const fetchMessages = useCallback(async (signal) => {
-    try {
-      const res = await fetch(`${API_BASE}/messages/${dbId}`, {
-        credentials: 'include',
-        headers: { 'X-Helpr-Expected-Role': isProvider ? 'provider' : 'user' },
-        signal,
-      })
-      const data = await res.json().catch(() => ({}))
-      if (signal?.aborted) return
-      if (res.status === 401) {
-        expireSession()
-        throw new Error(data.error || 'Please sign in again to view messages.')
-      }
-      if (res.status === 403 && data.error?.includes('different account type')) {
-        throw new Error(data.error)
-      }
-      if (!res.ok) throw new Error(data.error || 'Failed to load messages')
-      setMessages(data.data || [])
-      setError('')
-    } catch (err) {
-      if (err.name === 'AbortError') return
-      console.error('Failed to fetch messages:', err)
-      setError(err.message || 'Failed to load messages')
-    } finally {
-      if (!signal?.aborted) setLoading(false)
-    }
-  }, [dbId, token, isProvider, expireSession])
-
-  const sendMessage = async (e) => {
-    e.preventDefault()
-    if (!newMessage.trim() || sending) return
-
-    setSending(true)
-    setError('')
-    try {
-      const res = await fetch(`${API_BASE}/messages/${dbId}`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Helpr-Expected-Role': isProvider ? 'provider' : 'user',
-        },
-        body: JSON.stringify({ content: newMessage.trim() }),
-        signal: requestControllerRef.current?.signal,
-      })
-      const data = await res.json().catch(() => ({}))
-      if (requestControllerRef.current?.signal.aborted) return
-      if (res.status === 401) {
-        expireSession()
-        throw new Error(data.error || 'Please sign in again to send messages.')
-      }
-      if (res.status === 403 && data.error?.includes('different account type')) {
-        throw new Error(data.error)
-      }
-      if (!res.ok) throw new Error(data.error || 'Failed to send message')
-      
-      setMessages(prev => [...prev, data.data])
-      setNewMessage('')
-      setError('')
-    } catch (err) {
-      if (err.name === 'AbortError') return
-      console.error('Failed to send message:', err)
-      setError(err.message || 'Failed to send message')
-    } finally {
-      setSending(false)
-    }
-  }
-
-  useEffect(() => {
-    if (!isOpen || !dbId) return undefined
-    const controller = new AbortController()
-    requestControllerRef.current = controller
-    setMessages([])
-    setLoading(true)
-    setError('')
-    fetchMessages(controller.signal)
-    pollIntervalRef.current = setInterval(() => fetchMessages(controller.signal), 10000)
-    return () => {
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current)
-      }
-      controller.abort()
-      if (requestControllerRef.current === controller) requestControllerRef.current = null
-    }
-  }, [isOpen, dbId, fetchMessages])
+  const { messages, loading, sending, error, sendMessage: submitMessage } = useBookingMessages({
+    apiBase: API_BASE,
+    bookingId: dbId,
+    isOpen,
+    role: isProvider ? 'provider' : 'user',
+    onUnauthorized: expireSession,
+  })
 
   useEffect(() => {
     // Scroll to bottom when messages change
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
+
+  const sendMessage = async (e) => {
+    e.preventDefault()
+    if (await submitMessage(newMessage)) setNewMessage('')
+  }
 
   if (!isOpen) {
     return (
