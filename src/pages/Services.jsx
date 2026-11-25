@@ -93,7 +93,7 @@ export default function Services() {
     <div className="pt-32 pb-20 bg-warmlinen min-h-[60vh]">
       <Seo
         title="All services"
-        description="Browse trusted Kynd services in Singapore — cleaning, childcare, elderly care, tutors and more. Transparent flat pricing."
+        description="Browse trusted Kynd services in Singapore — home and office cleaning, wellness, beauty and pest control. Transparent flat pricing."
         path="/services"
       />
       <div className="max-w-6xl mx-auto px-6">

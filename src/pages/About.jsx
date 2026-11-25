@@ -75,7 +75,7 @@ export default function About() {
         <div className="max-w-5xl mx-auto px-6">
           <div className="rounded-3xl overflow-hidden bg-warmlinen ring-1 ring-black/5 aspect-[16/7]">
             <img
-              src={peopleImage('Elderly care.png')}
+              src={peopleImage('home cleaning.png')}
               alt="A Kynd pro sharing a moment with a customer"
               className="w-full h-full object-cover"
               draggable="false"
@@ -91,15 +91,15 @@ export default function About() {
           <div className="mt-6 space-y-4 text-sm text-charcoal/80 leading-relaxed">
             <p>
               Kynd started with a simple frustration: finding someone you could actually
-              trust to help around the house or care for family took too much luck.
+              trust to help around the house took too much luck.
               Word-of-mouth only stretches so far, and directory listings don't tell you
               who's really behind the profile.
             </p>
             <p>
               So we built a marketplace where every professional is background-checked,
               identity-verified, and insured before they ever show up at your door — for
-              home cleaning, AC servicing, tutoring, babysitting, and elderly care and
-              companionship.
+              home and office cleaning, pest control, and at-home wellness and beauty
+              treatments.
             </p>
             <p>
               Today Kynd operates across Singapore and is expanding across Southeast Asia,

@@ -14,15 +14,6 @@ const LOCAL_SERVICE_IMAGES = {
   'air conditioning cleaning': 'AC Cleaning.png',
   'home cleaning': 'home cleaning.png',
   'office cleaning': 'Office Cleaning.png',
-  'baby sitter': 'Baby Sitter.png',
-  'babysitter': 'Baby Sitter.png',
-  'baby sitting': 'Baby Sitter.png',
-  'child care': 'Baby Sitter.png',
-  'childcare': 'Baby Sitter.png',
-  'elderly care': 'Elderly care.png',
-  'tutor': 'tutor.png',
-  'tutoring': 'tutor.png',
-  'tuition': 'tutor.png',
 }
 
 // Accepts either a service name ("Home Cleaning") or a slug ("home-cleaning").

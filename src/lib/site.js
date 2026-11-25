@@ -8,7 +8,7 @@ export const SITE_NAME = 'Kynd'
 export const SITE_TAGLINE = "Trusted help for life's moments"
 export const DEFAULT_TITLE = `${SITE_NAME} — ${SITE_TAGLINE}`
 export const DEFAULT_DESCRIPTION =
-  'Book verified house help in Singapore — cleaning, childcare, elderly care, tutors and more. Transparent pricing, on-demand or scheduled.'
+  'Book verified house help in Singapore — home and office cleaning, wellness, beauty and pest control. Transparent pricing, on-demand or scheduled.'
 
 export const DEFAULT_OG_IMAGE = `${SITE_URL}/images/people/verified%20pros.png`
 export const TWITTER_HANDLE = '@kynd'

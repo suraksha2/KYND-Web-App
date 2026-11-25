@@ -96,10 +96,8 @@ const ServiceTile = ({ s }) => {
 }
 
 const defaultMoments = [
-  { slug: 'new-baby', image: null, label: 'New baby moment', title: 'Getting ready for a new baby', tags: ['Babysitting', 'Cleaning'] },
-  { slug: 'elder-care', image: null, label: 'Elder care moment', title: 'Looking after mum & dad', tags: ['Companionship', 'Care'] },
-  { slug: 'back-to-school', image: null, label: 'Back to school moment', title: 'Back to school', tags: ['Tutors', 'Sitters'] },
-  { slug: 'date-night', image: null, label: 'Date night moment', title: 'Planning a date night', tags: ['Babysitting', 'Cleaning'] }
+  { slug: 'new-baby', image: null, label: 'New baby moment', title: 'Getting ready for a new baby', tags: ['Cleaning'] },
+  { slug: 'date-night', image: null, label: 'Date night moment', title: 'Planning a date night', tags: ['Cleaning'] }
 ]
 
 export default function Services() {

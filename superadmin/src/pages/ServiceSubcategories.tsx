@@ -481,7 +481,7 @@ export default function ServiceSubcategoriesPage() {
                   <label className="block text-xs font-semibold text-warmgrey mb-1.5">Parent category</label>
                   <input
                     type="text"
-                    placeholder="e.g. Childcare"
+                    placeholder="e.g. Home Cleaning"
                     value={form.category}
                     onChange={(e) => setForm((p) => ({ ...p, category: e.target.value }))}
                     className={inputCls}

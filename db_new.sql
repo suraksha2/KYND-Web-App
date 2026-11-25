@@ -376,8 +376,6 @@ ON DUPLICATE KEY UPDATE
 
 INSERT INTO catalog_categories (id, name, description, variant_schema) VALUES
   (1, 'Home Cleaning', 'Cleaning', JSON_ARRAY()),
-  (2, 'Tutor', 'Tutoring', JSON_ARRAY()),
-  (3, 'Elderly care', 'Elder support', JSON_ARRAY()),
   (4, 'AC Cleaning', 'Aircon', JSON_ARRAY())
 ON DUPLICATE KEY UPDATE
   name = VALUES(name),
@@ -385,8 +383,6 @@ ON DUPLICATE KEY UPDATE
 
 INSERT INTO catalog_services (id, category_id, name, description, image, duration, status, default_partner_cost, markup_pct_override) VALUES
   (1, 1, 'Home Cleaning', NULL, '/images/Home Cleaning.png', NULL, 'live', 30.00, 20.00),
-  (2, 2, 'Tutor', NULL, '/images/Tutor.png', NULL, 'live', 30.00, 10.00),
-  (3, 3, 'Elderly care', NULL, '/images/Baby Sitter.png', '60 mins', 'live', 30.00, 10.00),
   (4, 4, 'AC Cleaning', NULL, '/images/AC Cleaning.png', NULL, 'live', 25.00, 20.00)
 ON DUPLICATE KEY UPDATE
   category_id = VALUES(category_id),
@@ -401,18 +397,12 @@ INSERT INTO service_booking_modes (service_id, mode, min_lead_time_hours, blacko
   (1, 'on_demand', 0, JSON_ARRAY()),
   (1, 'scheduled', 0, JSON_ARRAY()),
   (1, 'recurring', 0, JSON_ARRAY()),
-  (2, 'on_demand', 0, JSON_ARRAY()),
-  (3, 'on_demand', 0, JSON_ARRAY()),
-  (3, 'scheduled', 0, JSON_ARRAY()),
-  (3, 'recurring', 0, JSON_ARRAY()),
   (4, 'on_demand', 0, JSON_ARRAY()),
   (4, 'scheduled', 0, JSON_ARRAY())
 ON DUPLICATE KEY UPDATE min_lead_time_hours = VALUES(min_lead_time_hours);
 
 INSERT INTO service_pricing_rules (id, service_id, strategy, params) VALUES
   (1, 1, 'flat', JSON_OBJECT('amount', 36)),
-  (2, 2, 'flat', JSON_OBJECT('amount', 33)),
-  (3, 3, 'hourly', JSON_OBJECT('rate_schedule', JSON_ARRAY(JSON_OBJECT('start', '08:00', 'end', '10:00', 'rate', '20')))),
   (4, 4, 'flat', JSON_OBJECT('amount', 30))
 ON DUPLICATE KEY UPDATE
   service_id = VALUES(service_id),
@@ -420,26 +410,21 @@ ON DUPLICATE KEY UPDATE
   params = VALUES(params);
 
 INSERT INTO addons (id, name, customer_price, partner_cost) VALUES
-  (1, 'Room Cleaning', 5.00, 2.00),
-  (2, 'Helping Elders', 2.00, 4.00)
+  (1, 'Room Cleaning', 5.00, 2.00)
 ON DUPLICATE KEY UPDATE
   name = VALUES(name),
   customer_price = VALUES(customer_price),
   partner_cost = VALUES(partner_cost);
 
 INSERT INTO service_addons (id, service_id, category_id, addon_id) VALUES
-  (1, 1, NULL, 1),
-  (2, 1, NULL, 2),
-  (3, 3, NULL, 1)
+  (1, 1, NULL, 1)
 ON DUPLICATE KEY UPDATE
   service_id = VALUES(service_id),
   addon_id = VALUES(addon_id);
 
 INSERT INTO service_subcategories (id, slug, category, label, title, image, sort_order) VALUES
-  (1, 'new-baby', 'Childcare', 'New baby moment', 'Getting ready for a new baby', '/images/people-image-service/Baby-prep.png', 1),
-  (2, 'elder-care', 'Care', 'Elder care moment', 'Looking after mum & dad', '/images/people-image-service/Elderly care.png', 2),
-  (3, 'back-to-school', 'Tutor', 'Back to school moment', 'Back to school', '/images/people-image-service/tutor.png', 3),
-  (4, 'date-night', 'Childcare', 'Date night moment', 'Planning a date night', '/images/people-image-service/Date.png', 4)
+  (1, 'new-baby', 'Home Cleaning', 'New baby moment', 'Getting ready for a new baby', '/images/people-image-service/Baby-prep.png', 1),
+  (4, 'date-night', 'Home Cleaning', 'Date night moment', 'Planning a date night', '/images/people-image-service/Date.png', 4)
 ON DUPLICATE KEY UPDATE
   slug = VALUES(slug),
   category = VALUES(category),
@@ -451,20 +436,8 @@ ON DUPLICATE KEY UPDATE
 INSERT IGNORE INTO service_subcategory_services (subcategory_id, service_id)
 SELECT sc.id, cs.id
 FROM service_subcategories sc
-JOIN catalog_services cs ON cs.name IN ('Home Cleaning', 'Tutor')
+JOIN catalog_services cs ON cs.name IN ('Home Cleaning')
 WHERE sc.slug = 'new-baby';
-
-INSERT IGNORE INTO service_subcategory_services (subcategory_id, service_id)
-SELECT sc.id, cs.id
-FROM service_subcategories sc
-JOIN catalog_services cs ON cs.name IN ('Elderly care')
-WHERE sc.slug = 'elder-care';
-
-INSERT IGNORE INTO service_subcategory_services (subcategory_id, service_id)
-SELECT sc.id, cs.id
-FROM service_subcategories sc
-JOIN catalog_services cs ON cs.name IN ('Tutor')
-WHERE sc.slug = 'back-to-school';
 
 INSERT IGNORE INTO service_subcategory_services (subcategory_id, service_id)
 SELECT sc.id, cs.id
@@ -475,8 +448,6 @@ WHERE sc.slug = 'date-night';
 -- Legacy `services` mirror (admin UIs that still read this table)
 INSERT INTO services (id, name, category, price, availability, status, image) VALUES
   (1, 'Home Cleaning', 'Home Cleaning', 36.00, 'Mon-Sat', 'Available', '/images/Home Cleaning.png'),
-  (2, 'Tutor', 'Tutor', 33.00, 'Mon-Sat', 'Available', '/images/Tutor.png'),
-  (3, 'Elderly care', 'Elderly care', 33.00, 'Mon-Sun', 'Available', '/images/Baby Sitter.png'),
   (4, 'AC Cleaning', 'AC Cleaning', 30.00, 'Mon-Sat', 'Available', '/images/AC Cleaning.png')
 ON DUPLICATE KEY UPDATE
   name = VALUES(name),
@@ -486,8 +457,6 @@ ON DUPLICATE KEY UPDATE
 
 INSERT INTO service_categories (id, name, description, createdAt, updatedAt) VALUES
   (1, 'Home Cleaning', '', NOW(), NOW()),
-  (2, 'Tutor', '', NOW(), NOW()),
-  (3, 'Elderly care', '', NOW(), NOW()),
   (4, 'AC Cleaning', '', NOW(), NOW())
 ON DUPLICATE KEY UPDATE name = VALUES(name);
 

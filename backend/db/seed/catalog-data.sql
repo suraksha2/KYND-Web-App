@@ -368,8 +368,6 @@ LOCK TABLES `service_categories` WRITE;
 /*!40000 ALTER TABLE `service_categories` DISABLE KEYS */;
 REPLACE INTO `service_categories` (`id`, `name`, `description`, `createdAt`, `updatedAt`) VALUES (10,'Home Cleaning','','2026-08-14 07:32:37','2026-08-14 07:32:37');
 REPLACE INTO `service_categories` (`id`, `name`, `description`, `createdAt`, `updatedAt`) VALUES (11,'AC Cleaning','','2026-08-14 07:50:01','2026-08-14 07:50:01');
-REPLACE INTO `service_categories` (`id`, `name`, `description`, `createdAt`, `updatedAt`) VALUES (12,'Tutor','','2026-08-14 07:52:12','2026-08-14 07:52:12');
-REPLACE INTO `service_categories` (`id`, `name`, `description`, `createdAt`, `updatedAt`) VALUES (13,'Baby Sitter','','2026-08-14 07:54:51','2026-08-14 07:54:51');
 /*!40000 ALTER TABLE `service_categories` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -377,14 +375,12 @@ LOCK TABLES `services` WRITE;
 /*!40000 ALTER TABLE `services` DISABLE KEYS */;
 REPLACE INTO `services` (`id`, `name`, `category`, `price`, `availability`, `status`, `image`, `duration`, `rating`, `review_count`) VALUES (9,'Home Cleaning','Home Cleaning',20.00,'Mon-Sat','Available','/images/Home Cleaning.png',NULL,0.00,0);
 REPLACE INTO `services` (`id`, `name`, `category`, `price`, `availability`, `status`, `image`, `duration`, `rating`, `review_count`) VALUES (10,'AC Cleaning','AC Cleaning',10.00,'Mon-Sat','Available','/images/AC Cleaning.png',NULL,0.00,0);
-REPLACE INTO `services` (`id`, `name`, `category`, `price`, `availability`, `status`, `image`, `duration`, `rating`, `review_count`) VALUES (11,'Tutor','Tutor',15.00,'Mon-Sat','Available','/images/Tutor.png',NULL,0.00,0);
-REPLACE INTO `services` (`id`, `name`, `category`, `price`, `availability`, `status`, `image`, `duration`, `rating`, `review_count`) VALUES (12,'Baby Sitter','Baby Sitter',30.00,'Mon-Sun','Available','/images/Baby Sitter.png',NULL,0.00,0);
 /*!40000 ALTER TABLE `services` ENABLE KEYS */;
 UNLOCK TABLES;
 
 LOCK TABLES `cities` WRITE;
 /*!40000 ALTER TABLE `cities` DISABLE KEYS */;
-REPLACE INTO `cities` (`id`, `cityName`, `pinCode`, `serviceCategoryId`, `createdAt`, `updatedAt`) VALUES (7,'Singapore','[{\"areaName\":\"Singapore Changi Airport\",\"pinCode\":\"819643\"}]','[\"2\",\"10\",\"11\",\"12\"]','2026-07-11 08:33:09','2026-09-10 09:41:48');
+REPLACE INTO `cities` (`id`, `cityName`, `pinCode`, `serviceCategoryId`, `createdAt`, `updatedAt`) VALUES (7,'Singapore','[{\"areaName\":\"Singapore Changi Airport\",\"pinCode\":\"819643\"}]','[\"2\",\"10\",\"11\"]','2026-07-11 08:33:09','2026-09-10 09:41:48');
 /*!40000 ALTER TABLE `cities` ENABLE KEYS */;
 UNLOCK TABLES;
 
