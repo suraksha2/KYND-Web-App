@@ -7,8 +7,6 @@ export function taglineForService(name = '') {
   if (n.includes('plumb')) return 'Leaks sorted properly, the first time.'
   if (n.includes('laundry') || n.includes('wash')) return 'Fresh laundry, folded and back where it belongs.'
   if (n.includes('iron') || n.includes('cloth')) return 'Crisp clothes, ready when you are.'
-  if (n.includes('child') || n.includes('baby')) return 'Warm, watchful care for your little ones.'
-  if (n.includes('elder') || n.includes('care')) return 'Kind, patient company for the people you love.'
   if (n.includes('sofa') || n.includes('uphol')) return 'Sofas that look and smell new again.'
   if (n.includes('paint')) return 'Fresh walls, neat edges, no mess left behind.'
   if (n.includes('electric')) return 'Safe, certified fixes for every socket and switch.'

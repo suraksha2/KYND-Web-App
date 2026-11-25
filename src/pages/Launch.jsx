@@ -29,10 +29,10 @@ const HERO_FADE = [
 // The subcategory table has no description column, so the launch cards fall back
 // to this copy (keyed by title) and then to the services linked to the card.
 const CARD_COPY = {
-  'new parents': 'Extra hands during the newborn weeks — feeding, naps, and a bit of sleep for you.',
-  'elderly support': 'Someone trustworthy to check in, help around the house, and keep company.',
-  'date night': 'A vetted sitter at home so you can actually leave the house.',
-  'home gathering': 'Cleaning and cooking help before and after guests arrive.'
+  'home cleaning': 'Regular or one-off cleans, with move-out and deep-clean options.',
+  'wellness at home': 'Head, body and foot massage in the comfort of your own home.',
+  'beauty at home': 'Hair, nails, facials and makeup without the salon trip.',
+  'pest control': 'General treatment, termites and rodent control.'
 }
 
 const FALLBACK_CARDS = Object.entries(CARD_COPY).map(([key, description], i) => ({
@@ -256,14 +256,17 @@ export default function Launch() {
     fetch(`${API_BASE}/service-subcategories`)
       .then((r) => r.json())
       .then((json) => {
-        if (!active || !Array.isArray(json.data) || json.data.length === 0) return
+        if (!active || !Array.isArray(json.data)) return
+        // Only moments with live services linked to them are worth teasing.
+        const live = json.data.filter((s) => Array.isArray(s.tags) && s.tags.length > 0)
+        if (live.length === 0) return
         setCards(
-          json.data.slice(0, 4).map((s) => ({
+          live.slice(0, 4).map((s) => ({
             id: s.id,
             title: s.title || s.label,
             image: s.image,
             description: CARD_COPY[(s.title || '').toLowerCase()] || s.label,
-            tags: s.tags?.slice(0, 3) || []
+            tags: s.tags.slice(0, 3)
           }))
         )
       })
@@ -306,8 +309,8 @@ export default function Launch() {
             </h1>
 
             <p className="mt-5 text-base sm:text-lg text-warmgrey leading-relaxed max-w-xl">
-              Kynd is bringing background-checked, insured babysitters, elderly care companions, home chefs, and
-              ironing help to Singapore this {launchMonth}. Join the waitlist for early access and a launch discount.
+              Kynd is bringing background-checked, insured cleaners, pest control, and at-home wellness and beauty
+              pros to Singapore this {launchMonth}. Join the waitlist for early access and a launch discount.
             </p>
 
             <div className="mt-7">

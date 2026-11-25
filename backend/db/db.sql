@@ -11,11 +11,11 @@ CREATE TABLE IF NOT EXISTS service_categories (
   updatedAt DATETIME
 );
 
--- Service Subcategories table (e.g. "New baby moment" under a parent category like "Childcare")
+-- Service Subcategories table (e.g. "New baby moment" under a parent category like "Home Cleaning")
 CREATE TABLE IF NOT EXISTS service_subcategories (
   id INT AUTO_INCREMENT PRIMARY KEY,
   slug VARCHAR(100) NOT NULL,       -- URL slug, e.g. "new-baby" → /help/new-baby
-  category VARCHAR(100),            -- parent category name, e.g. "Tutor"
+  category VARCHAR(100),            -- parent category name, e.g. "Home Cleaning"
   label VARCHAR(255) NOT NULL,      -- display label, e.g. "Back to school moment"
   title VARCHAR(255) NOT NULL,      -- card title, e.g. "Back to school"
   image VARCHAR(255),               -- image path

@@ -7,8 +7,6 @@ import {
   Sparkles,
   WashingMachine,
   Shirt,
-  Baby,
-  HeartHandshake,
   Sofa,
   PaintRoller,
   Zap,
@@ -25,8 +23,6 @@ export function iconForService(name = '') {
   if (n.includes('plumb')) return Wrench
   if (n.includes('laundry') || n.includes('wash')) return WashingMachine
   if (n.includes('iron') || n.includes('cloth')) return Shirt
-  if (n.includes('child') || n.includes('baby')) return Baby
-  if (n.includes('elder') || n.includes('care')) return HeartHandshake
   if (n.includes('sofa') || n.includes('uphol')) return Sofa
   if (n.includes('paint')) return PaintRoller
   if (n.includes('electric')) return Zap
