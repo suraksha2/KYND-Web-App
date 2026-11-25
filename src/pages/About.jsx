@@ -76,7 +76,7 @@ export default function About() {
           <div className="rounded-3xl overflow-hidden bg-warmlinen ring-1 ring-black/5 aspect-[16/7]">
             <img
               src={peopleImage('home cleaning.png')}
-              alt="A Kynd pro sharing a moment with a customer"
+              alt="A Kynd pro vacuuming a sofa"
               className="w-full h-full object-cover"
               draggable="false"
             />

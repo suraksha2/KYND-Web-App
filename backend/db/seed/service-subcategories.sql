@@ -23,11 +23,11 @@ ALTER TABLE service_subcategories AUTO_INCREMENT = 5;
 INSERT IGNORE INTO service_subcategory_services (subcategory_id, service_id)
 SELECT sc.id, cs.id
 FROM service_subcategories sc
-JOIN catalog_services cs ON cs.name IN ('Home Cleaning')
+JOIN catalog_services cs ON cs.name IN ('One-Time Cleaning 2.0 hr')
 WHERE sc.slug = 'new-baby';
 
 INSERT IGNORE INTO service_subcategory_services (subcategory_id, service_id)
 SELECT sc.id, cs.id
 FROM service_subcategories sc
-JOIN catalog_services cs ON cs.name IN ('Home Cleaning')
+JOIN catalog_services cs ON cs.name IN ('One-Time Cleaning 2.0 hr')
 WHERE sc.slug = 'date-night';
