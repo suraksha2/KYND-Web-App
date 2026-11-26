@@ -1950,9 +1950,9 @@ export default function ServiceDetail() {
     setAddress(prev => prev || prefill.address || '')
     setPincode(prev => prev || prefill.pincode || '')
     const remembered = rememberedPayment(prefill.payment, PAY_METHODS)
-    if (remembered) setPay(prev => (prev === 'card' ? remembered : prev))
+    if (remembered && !draft) setPay(prev => (prev === 'card' ? remembered : prev))
     if (prefill.source && prefill.address) setAutofilled(prefill.source)
-  }, [prefill])
+  }, [prefill, draft])
 
   // Booking for somewhere else: drop the remembered address, keep the account
   // name and phone.
