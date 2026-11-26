@@ -2226,7 +2226,11 @@ export default function ServiceDetail() {
     fetchAddons()
   }, [primary?.catalogId])
 
+  // A slot picked for one city isn't valid in another.
+  const slotCity = useRef(city)
   useEffect(() => {
+    if (slotCity.current === city) return
+    slotCity.current = city
     setDate('')
     setTime('')
   }, [city])
