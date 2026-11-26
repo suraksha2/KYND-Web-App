@@ -2,7 +2,7 @@
 // creates an account, so they come back to the same selections instead of an
 // empty form. sessionStorage keeps it to this tab.
 const KEY = 'kynd.bookingDraft.v1'
-const MAX_AGE_MS = 60 * 60 * 1000
+const MAX_AGE_MS = 30 * 60 * 1000
 
 export function saveBookingDraft(slug, draft) {
   try {

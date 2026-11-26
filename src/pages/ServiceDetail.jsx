@@ -1859,9 +1859,11 @@ export default function ServiceDetail() {
   const navigate = useNavigate()
   const location = useLocation()
   const [availableCities, setAvailableCities] = useState([])
-  // Selections saved before a sign-in/sign-up detour; restored once on mount.
-  const [draft] = useState(() => readBookingDraft(slug))
-  useEffect(() => { if (draft) clearBookingDraft() }, [draft])
+  // Selections saved before a sign-in/sign-up detour; restored once on mount,
+  // and only for a signed-in customer so a guest's details never reappear for
+  // whoever opens the page next in the tab.
+  const [draft] = useState(() => (token ? readBookingDraft(slug) : null))
+  useEffect(() => { clearBookingDraft() }, [])
 
   const [openSections, setOpenSections] = useState(() => (
     draft
