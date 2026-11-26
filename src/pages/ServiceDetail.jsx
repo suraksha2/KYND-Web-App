@@ -2205,8 +2205,12 @@ export default function ServiceDetail() {
 
   // Switching variant re-fetches: a tick made against the previous service's
   // add-on list must not survive into a list it may not belong to.
+  const addonsFor = useRef(null)
   useEffect(() => {
-    setSelectedAddons({})
+    const id = primary?.catalogId
+    if (!id) return
+    if (addonsFor.current !== null && addonsFor.current !== id) setSelectedAddons({})
+    addonsFor.current = id
   }, [primary?.catalogId])
 
   useEffect(() => {
