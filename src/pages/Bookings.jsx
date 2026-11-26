@@ -460,7 +460,7 @@ export default function Bookings() {
   // Redirect unauthenticated users to login
   useEffect(() => {
     if (!isAuthenticated && !sessionExpired) {
-      navigate('/login')
+      navigate('/login', { replace: true, state: { from: '/bookings' } })
     }
   }, [isAuthenticated, sessionExpired, navigate])
 

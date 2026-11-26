@@ -106,12 +106,14 @@ export default function Messages() {
               <div className="flex gap-3 w-full max-w-xs">
                 <Link
                   to="/login"
+                  state={{ from: '/messages' }}
                   className="flex-1 rounded-full bg-terracotta hover:bg-charcoal text-white font-semibold px-6 py-3 text-sm transition text-center"
                 >
                   Sign in
                 </Link>
                 <Link
                   to="/signup"
+                  state={{ from: '/messages' }}
                   className="flex-1 rounded-full bg-white border border-lightstone hover:border-terracotta text-charcoal font-semibold px-6 py-3 text-sm transition text-center"
                 >
                   Sign up

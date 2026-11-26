@@ -8,20 +8,23 @@ import { API_BASE, apiFetch, appUrl } from '../lib/api'
 import { useLastBookingDetails, rememberedPayment } from '../lib/lastBooking'
 import { saveLastOrder } from '../lib/lastOrder'
 import { formatSingaporePhoneInput, isValidSingaporePhone } from '../lib/phone'
+import { authRedirectState } from '../lib/authRedirect'
 
 const PAY_METHODS = [
   { id: 'card', label: 'Card', icon: CreditCard },
   { id: 'cod', label: 'Cash after service', icon: Banknote }
 ]
 
-const Field = ({ label, children }) => (
+const Field = ({ label, error, children }) => (
   <label className="block">
     <span className="block text-xs font-semibold text-charcoal mb-1.5">{label}</span>
     {children}
+    {error && <span className="mt-1 block text-xs text-red-600">{error}</span>}
   </label>
 )
 
 const inputCls = 'w-full rounded-lg border border-lightstone px-3 py-2 text-sm focus:outline-none focus:border-terracotta focus:ring-2 focus:ring-terracotta/25'
+const errorCls = (error) => (error ? `${inputCls} !border-red-500` : inputCls)
 
 const NOTES_MAX = 500
 
@@ -29,7 +32,8 @@ export default function Checkout() {
   const { items, subtotal, clear } = useCart()
   const { addBooking } = useBookings()
   const { token, user } = useAuth()
-  const { state, pathname } = useLocation()
+  const location = useLocation()
+  const { state } = location
   const navigate = useNavigate()
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
@@ -42,6 +46,7 @@ export default function Checkout() {
   const [pay, setPay] = useState('card')
   const [submitting, setSubmitting] = useState(false)
   const [payError, setPayError] = useState(null)
+  const [errors, setErrors] = useState({})
   const [serverQuote, setServerQuote] = useState(null)
   const [quoteLoading, setQuoteLoading] = useState(false)
 
@@ -244,7 +249,7 @@ export default function Checkout() {
   const submit = async (e) => {
     e.preventDefault()
     if (!token) {
-      navigate('/login', { state: { from: pathname } })
+      navigate('/login', { state: authRedirectState(location) })
       return
     }
     if (!quoteMatchesCurrent || quoteLoading || !pricedQuote) {
@@ -252,10 +257,8 @@ export default function Checkout() {
       return
     }
     const nextErrors = hasErrors()
-    if (Object.keys(nextErrors).length) {
-      alert(nextErrors.phone || nextErrors.pincode || nextErrors.address || 'Please complete your address.')
-      return
-    }
+    setErrors(nextErrors)
+    if (Object.keys(nextErrors).length) return
     setPayError(null)
     setSubmitting(true)
 
@@ -350,16 +353,25 @@ export default function Checkout() {
           <span className="text-charcoal">Checkout</span>
         </nav>
         <h1 className="font-heading text-3xl md:text-4xl font-extrabold text-charcoal">Checkout</h1>
+        {!token && (
+          <div className="mt-4 rounded-2xl bg-accent-50 ring-1 ring-terracotta/20 p-4 text-sm text-charcoal flex flex-wrap items-center justify-between gap-3">
+            <span>Sign in or create an account to place this booking. Your cart and schedule are kept.</span>
+            <span className="flex gap-2">
+              <Link to="/login" state={authRedirectState(location)} className="rounded-full bg-terracotta hover:bg-charcoal text-white font-semibold px-4 py-2 text-xs transition">Sign in</Link>
+              <Link to="/signup" state={authRedirectState(location)} className="rounded-full bg-white ring-1 ring-lightstone hover:ring-terracotta text-charcoal font-semibold px-4 py-2 text-xs transition">Create account</Link>
+            </span>
+          </div>
+        )}
 
         <form onSubmit={submit} className="mt-8 grid lg:grid-cols-[1fr_360px] gap-8">
           <div className="space-y-6">
             <div className="rounded-2xl bg-white ring-1 ring-lightstone p-5">
               <h2 className="font-heading font-bold text-charcoal">Contact</h2>
               <div className="mt-4 grid sm:grid-cols-2 gap-4">
-                <Field label="Full name"><input className={inputCls} value={name} onChange={e => setName(e.target.value)} required /></Field>
-                <Field label="Phone">
+                <Field label="Full name" error={errors.name}><input className={errorCls(errors.name)} value={name} onChange={e => setName(e.target.value)} required /></Field>
+                <Field label="Phone" error={errors.phone}>
                   <input
-                    className={inputCls}
+                    className={errorCls(errors.phone)}
                     type="tel"
                     value={phone}
                     onChange={e => setPhone(formatSingaporePhoneInput(e.target.value))}
@@ -382,10 +394,10 @@ export default function Checkout() {
                 </p>
               )}
               <div className="mt-4 grid gap-4">
-                <Field label="Address"><textarea rows={2} className={inputCls} value={address} onChange={e => setAddress(e.target.value)} required /></Field>
+                <Field label="Address" error={errors.address}><textarea rows={2} className={errorCls(errors.address)} value={address} onChange={e => setAddress(e.target.value)} required /></Field>
                 <div className="grid sm:grid-cols-2 gap-4">
-                  <Field label="Area">
-                    <select className={inputCls} value={selectedArea} onChange={handleAreaChange} required>
+                  <Field label="Area" error={errors.area}>
+                    <select className={errorCls(errors.area)} value={selectedArea} onChange={handleAreaChange} required>
                       <option value="">Select area</option>
                       {cityAreas.map(area => (
                         <option key={area} value={area}>{area}</option>
@@ -397,9 +409,9 @@ export default function Checkout() {
                   </Field>
                 </div>
                 <Field label="Country"><input className={inputCls} value="Singapore" readOnly tabIndex={-1} /></Field>
-                <Field label="Pincode">
+                <Field label="Postal code" error={errors.pincode}>
                   <input
-                    className={inputCls}
+                    className={errorCls(errors.pincode)}
                     value={pincode}
                     onChange={e => {
                       const digits = e.target.value.replace(/\D/g, '').slice(0, 6)
@@ -408,7 +420,7 @@ export default function Checkout() {
                     inputMode="numeric"
                     pattern="\d{6}"
                     maxLength={6}
-                    placeholder="Enter your pincode"
+                    placeholder="6-digit postal code"
                     required
                   />
                 </Field>
@@ -471,7 +483,9 @@ export default function Checkout() {
               >
                 {submitting
                   ? 'Processing…'
-                  : token && quoteLoading
+                  : !token
+                    ? 'Sign in to continue'
+                  : quoteLoading
                     ? 'Updating price…'
                   : pay === 'cod'
                     ? `Place booking · S$${displayTotal.toFixed(2)}`

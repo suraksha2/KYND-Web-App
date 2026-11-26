@@ -1,15 +1,21 @@
 import { useMemo, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Eye, EyeOff, Mail, Lock, User, Loader2, Check } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import KyndWordmark from '../components/KyndWordmark'
 import BottomNav from '../components/BottomNav'
+import Seo from '../components/Seo'
+import { authReturnTarget } from '../lib/authRedirect'
+
+const MIN_PASSWORD = 8
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 const scorePassword = (pwd) => {
   let score = 0
   if (!pwd) return 0
-  if (pwd.length >= 6) score++
-  if (pwd.length >= 10) score++
+  if (pwd.length < MIN_PASSWORD) return 0
+  score++
+  if (pwd.length >= 12) score++
   if (/[A-Z]/.test(pwd) && /[a-z]/.test(pwd)) score++
   if (/\d/.test(pwd)) score++
   if (/[^A-Za-z0-9]/.test(pwd)) score++
@@ -19,6 +25,7 @@ const scorePassword = (pwd) => {
 export default function Signup() {
   const { signup } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
 
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
@@ -36,12 +43,16 @@ export default function Signup() {
   const onSubmit = async (e) => {
     e.preventDefault()
     setError('')
+    if (!name.trim()) { setError('Please enter your full name.'); return }
+    if (!EMAIL_RE.test(email.trim())) { setError('Please enter a valid email address.'); return }
+    if (password.length < MIN_PASSWORD) { setError(`Password must be at least ${MIN_PASSWORD} characters.`); return }
     if (password !== confirm) { setError('Passwords do not match.'); return }
     if (!accept) { setError('Please accept the Terms to continue.'); return }
     setLoading(true)
     try {
-      await signup({ name, email, password })
-      navigate('/', { replace: true })
+      await signup({ name: name.trim(), email, password })
+      const { to, state } = authReturnTarget(location)
+      navigate(to, { replace: true, state })
     } catch (err) {
       setError(err.message || 'Unable to create account.')
     } finally {
@@ -51,6 +62,7 @@ export default function Signup() {
 
   return (
     <section className="pt-28 md:pt-32 pb-24 min-h-screen">
+      <Seo title="Create account" description="Create your Kynd account." path="/signup" noindex />
       <div className="max-w-md mx-auto px-5 sm:px-6">
         <div className="bg-white rounded-3xl ring-1 ring-lightstone shadow-soft p-6 sm:p-8">
           <div className="text-center">
@@ -60,7 +72,7 @@ export default function Signup() {
           </div>
 
           <div className="mt-6 grid grid-cols-2 gap-1 rounded-full bg-warmlinen p-1">
-            <Link to="/login" className="rounded-full py-2.5 text-center text-sm font-medium text-warmgrey hover:text-charcoal transition">Sign in</Link>
+            <Link to="/login" state={location.state} replace className="rounded-full py-2.5 text-center text-sm font-medium text-warmgrey hover:text-charcoal transition">Sign in</Link>
             <div className="rounded-full bg-white py-2.5 text-center text-sm font-semibold text-charcoal shadow-sm" aria-current="page">Sign up</div>
           </div>
 
@@ -115,10 +127,10 @@ export default function Signup() {
                   type={showPwd ? 'text' : 'password'}
                   autoComplete="new-password"
                   required
-                  minLength={6}
+                  minLength={MIN_PASSWORD}
                   value={password}
                   onChange={e => setPassword(e.target.value)}
-                  placeholder="At least 6 characters"
+                  placeholder={`At least ${MIN_PASSWORD} characters`}
                   className="w-full rounded-xl border border-lightstone bg-white pl-10 pr-11 py-3 text-sm focus:outline-none focus:border-terracotta focus:ring-2 focus:ring-terracotta/25"
                 />
                 <button

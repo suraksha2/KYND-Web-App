@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { Link, NavLink, useNavigate } from 'react-router-dom'
+import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { ChevronDown, User, LogOut, ShoppingBag as Package, UserCircle, Bell } from 'lucide-react'
 // import { useCart } from '../context/CartContext'
 import { useAuth } from '../context/AuthContext'
@@ -7,10 +7,12 @@ import { API_BASE } from '../lib/api'
 import { fetchCatalogCategories } from '../lib/catalogCategories'
 import { iconForService } from '../lib/serviceIcon'
 import KyndWordmark from './KyndWordmark'
+import { authRedirectState } from '../lib/authRedirect'
 
 function AuthButton({ compact = false }) {
   const { user, isAuthenticated, logout } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
   const [open, setOpen] = useState(false)
   const timer = useRef(null)
   const onEnter = () => { clearTimeout(timer.current); setOpen(true) }
@@ -20,6 +22,7 @@ function AuthButton({ compact = false }) {
     return (
       <Link
         to="/login"
+        state={authRedirectState(location)}
         className={`inline-flex items-center justify-center rounded-full bg-terracotta hover:bg-charcoal text-white font-semibold transition ${compact ? 'px-3 h-9 text-xs' : 'px-4 py-2 text-sm'}`}
       >
         Sign in

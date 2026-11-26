@@ -17,6 +17,8 @@ import { usePrefillDetails, rememberedPayment } from '../lib/lastBooking'
 import { saveLastOrder } from '../lib/lastOrder'
 import { slugify } from '../lib/catalogCategories'
 import { formatSingaporePhoneInput, isValidSingaporePhone } from '../lib/phone'
+import { saveBookingDraft, readBookingDraft, clearBookingDraft } from '../lib/bookingDraft'
+import { authRedirectState } from '../lib/authRedirect'
 
 /** Payment methods this form offers — anything else cannot be prefilled. */
 const PAY_METHODS = ['card', 'cod']
@@ -345,7 +347,7 @@ const OfferModal = ({ open, onClose, subtotal, selectedServicesCount, hasBooked,
 /* ---------- Sticky bottom booking bar ---------- */
 // The Details toggle unfolds a summary card above the total: what was picked,
 // when it repeats and how the price builds up.
-const BookingBar = ({ price, discount, submitting, disabled = false, quoteError = '', note, subnote, details = [] }) => {
+const BookingBar = ({ price, discount, submitting, disabled = false, signedIn = true, quoteError = '', note, subnote, details = [] }) => {
   const [open, setOpen] = useState(false)
   return (
     <div className="fixed bottom-[calc(76px_+_var(--safe-bottom)_+_0.5rem)] md:bottom-0 left-0 right-0 z-50 bg-terracotta shadow-[0_-8px_24px_-12px_rgba(74,46,31,0.35)]">
@@ -392,7 +394,7 @@ const BookingBar = ({ price, discount, submitting, disabled = false, quoteError 
             disabled={submitting || disabled}
             className="shrink-0 inline-flex items-center justify-center rounded-full bg-white hover:bg-white/90 disabled:opacity-60 text-terracotta font-semibold text-sm sm:text-base px-6 sm:px-8 py-3 transition"
           >
-            {submitting ? 'Confirming...' : disabled ? 'Checking price...' : 'Confirm booking'}
+            {submitting ? 'Confirming...' : disabled ? 'Checking price...' : signedIn ? 'Confirm booking' : 'Sign in to book'}
           </button>
         </div>
         {quoteError && <p className="mt-2 text-right text-xs text-white">{quoteError}</p>}
@@ -1727,7 +1729,7 @@ const AddressPaymentPanel = ({
               tabIndex={-1}
             />
           </Field>
-          <Field label="Pincode" error={errors?.pincode}>
+          <Field label="Postal code" error={errors?.pincode}>
             <input
               className={fieldInputClass('pincode')}
               value={pincode}
@@ -1738,7 +1740,7 @@ const AddressPaymentPanel = ({
               inputMode="numeric"
               pattern="\d{6}"
               maxLength={6}
-              placeholder="Enter your pincode"
+              placeholder="6-digit postal code"
               required
             />
           </Field>
@@ -1857,8 +1859,17 @@ export default function ServiceDetail() {
   const navigate = useNavigate()
   const location = useLocation()
   const [availableCities, setAvailableCities] = useState([])
+  // Selections saved before a sign-in/sign-up detour; restored once on mount,
+  // and only for a signed-in customer so a guest's details never reappear for
+  // whoever opens the page next in the tab.
+  const [draft] = useState(() => (token ? readBookingDraft(slug) : null))
+  useEffect(() => { clearBookingDraft() }, [])
 
-  const [openSections, setOpenSections] = useState({ variant: false, how: true, addons: false, payment: false })
+  const [openSections, setOpenSections] = useState(() => (
+    draft
+      ? { variant: false, how: false, addons: false, payment: true }
+      : { variant: false, how: true, addons: false, payment: false }
+  ))
   const goToHow = () => setOpenSections({ variant: false, how: true, addons: false, payment: false })
   const goToAddons = () => {
     if (addonsLoading || addons.length > 0) {
@@ -1887,31 +1898,31 @@ export default function ServiceDetail() {
   }, [selectedOffer, hasBooked])
   const [offerModalOpen, setOfferModalOpen] = useState(false)
   const [promoCodeInput, setPromoCodeInput] = useState('')
-  const [promoDiscount, setPromoDiscount] = useState(0)
-  const [appliedReferralCode, setAppliedReferralCode] = useState(null)
+  const [promoDiscount, setPromoDiscount] = useState(draft?.promoDiscount ?? 0)
+  const [appliedReferralCode, setAppliedReferralCode] = useState(draft?.appliedReferralCode ?? null)
   const [promoError, setPromoError] = useState('')
   const [promoLoading, setPromoLoading] = useState(false)
-  const [schedule, setSchedule] = useState('instant')
-  const [date, setDate] = useState('')
-  const [time, setTime] = useState('')
-  const [recurrence, setRecurrence] = useState({ type: 'preset', value: 'weekly' })
-  const [homeSize, setHomeSize] = useState(null)
-  const [cleaners, setCleaners] = useState(1)
-  const [officeSize, setOfficeSize] = useState(DEFAULT_OFFICE_PRICING.sizes[0].id)
-  const [officeHours, setOfficeHours] = useState(DEFAULT_OFFICE_PRICING.hours[1])
-  const [customTimes, setCustomTimes] = useState(3)
-  const [customUnit, setCustomUnit] = useState('week')
-  const [name, setName] = useState('')
-  const [phone, setPhone] = useState('+65')
-  const [address, setAddress] = useState('')
-  const [city, setCity] = useState('Singapore')
-  const [area, setArea] = useState('')
-  const [pincode, setPincode] = useState('')
-  const [notes, setNotes] = useState('')
-  const [pay, setPay] = useState('card')
+  const [schedule, setSchedule] = useState(draft?.schedule ?? 'instant')
+  const [date, setDate] = useState(draft?.date ?? '')
+  const [time, setTime] = useState(draft?.time ?? '')
+  const [recurrence, setRecurrence] = useState(draft?.recurrence ?? { type: 'preset', value: 'weekly' })
+  const [homeSize, setHomeSize] = useState(draft?.homeSize ?? null)
+  const [cleaners, setCleaners] = useState(draft?.cleaners ?? 1)
+  const [officeSize, setOfficeSize] = useState(draft?.officeSize ?? DEFAULT_OFFICE_PRICING.sizes[0].id)
+  const [officeHours, setOfficeHours] = useState(draft?.officeHours ?? DEFAULT_OFFICE_PRICING.hours[1])
+  const [customTimes, setCustomTimes] = useState(draft?.customTimes ?? 3)
+  const [customUnit, setCustomUnit] = useState(draft?.customUnit ?? 'week')
+  const [name, setName] = useState(draft?.name ?? '')
+  const [phone, setPhone] = useState(draft?.phone ?? '+65')
+  const [address, setAddress] = useState(draft?.address ?? '')
+  const [city, setCity] = useState(draft?.city ?? 'Singapore')
+  const [area, setArea] = useState(draft?.area ?? '')
+  const [pincode, setPincode] = useState(draft?.pincode ?? '')
+  const [notes, setNotes] = useState(draft?.notes ?? '')
+  const [pay, setPay] = useState(draft?.pay ?? 'card')
   const [addons, setAddons] = useState([])
   const [addonsLoading, setAddonsLoading] = useState(false)
-  const [selectedAddons, setSelectedAddons] = useState({})
+  const [selectedAddons, setSelectedAddons] = useState(draft?.selectedAddons ?? {})
   const [submitting, setSubmitting] = useState(false)
   const [serverQuote, setServerQuote] = useState(null)
   const [quoteLoading, setQuoteLoading] = useState(false)
@@ -1939,9 +1950,9 @@ export default function ServiceDetail() {
     setAddress(prev => prev || prefill.address || '')
     setPincode(prev => prev || prefill.pincode || '')
     const remembered = rememberedPayment(prefill.payment, PAY_METHODS)
-    if (remembered) setPay(prev => (prev === 'card' ? remembered : prev))
+    if (remembered && !draft) setPay(prev => (prev === 'card' ? remembered : prev))
     if (prefill.source && prefill.address) setAutofilled(prefill.source)
-  }, [prefill])
+  }, [prefill, draft])
 
   // Booking for somewhere else: drop the remembered address, keep the account
   // name and phone.
@@ -2109,9 +2120,10 @@ export default function ServiceDetail() {
   const showPickerCard = hasVariants || officeMode
   // Once the catalog has loaded, the choice of variant comes before everything
   // else — it sets the price the rest of the form is built on.
+  // A restored draft already has its variant, so it stays on Address & payment.
   useEffect(() => {
-    if (showPickerCard) setOpenSections({ variant: true, how: false, addons: false, payment: false })
-  }, [showPickerCard])
+    if (showPickerCard && !draft) setOpenSections({ variant: true, how: false, addons: false, payment: false })
+  }, [showPickerCard, draft])
 
   // Picking a variant only swaps the service in place — the card stays open
   // so the customer can compare options; the Continue button advances.
@@ -2193,8 +2205,12 @@ export default function ServiceDetail() {
 
   // Switching variant re-fetches: a tick made against the previous service's
   // add-on list must not survive into a list it may not belong to.
+  const addonsFor = useRef(null)
   useEffect(() => {
-    setSelectedAddons({})
+    const id = primary?.catalogId
+    if (!id) return
+    if (addonsFor.current !== null && addonsFor.current !== id) setSelectedAddons({})
+    addonsFor.current = id
   }, [primary?.catalogId])
 
   useEffect(() => {
@@ -2214,7 +2230,11 @@ export default function ServiceDetail() {
     fetchAddons()
   }, [primary?.catalogId])
 
+  // A slot picked for one city isn't valid in another.
+  const slotCity = useRef(city)
   useEffect(() => {
+    if (slotCity.current === city) return
+    slotCity.current = city
     setDate('')
     setTime('')
   }, [city])
@@ -2377,10 +2397,6 @@ export default function ServiceDetail() {
 
   const onSubmit = async (e) => {
     e.preventDefault()
-    if (!token) {
-      navigate('/login', { state: { from: location.pathname } })
-      return
-    }
     const nextErrors = {}
     if (schedule !== 'instant' && (!date || !time)) nextErrors.datetime = 'Please pick a date & time'
     if (!name.trim()) nextErrors.name = 'Required'
@@ -2397,6 +2413,17 @@ export default function ServiceDetail() {
       return
     }
     setErrors({})
+    // Sign-in comes last so the customer finds everything they picked and
+    // typed still in place when they return.
+    if (!token) {
+      saveBookingDraft(slug, {
+        schedule, date, time, recurrence, homeSize, cleaners, officeSize, officeHours,
+        customTimes, customUnit, name, phone, address, city, area, pincode, notes, pay,
+        selectedAddons, promoDiscount, appliedReferralCode,
+      })
+      navigate('/login', { state: authRedirectState(location) })
+      return
+    }
     setSubmitting(true)
 
     const scheduledAt = schedule !== 'instant' && date && time
@@ -2890,6 +2917,7 @@ export default function ServiceDetail() {
         discount={planDiscount}
         submitting={submitting}
         disabled={!!token && (quoteLoading || !quoteMatchesCurrent)}
+        signedIn={!!token}
         quoteError={quoteError}
         note={totalNote}
         subnote={barSubnote}

@@ -5,12 +5,12 @@ import { useAuth } from '../context/AuthContext'
 import KyndWordmark from '../components/KyndWordmark'
 import Seo from '../components/Seo'
 import BottomNav from '../components/BottomNav'
+import { authReturnTarget } from '../lib/authRedirect'
 
 export default function Login() {
   const { login } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
-  const redirectTo = location.state?.from || '/'
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -25,9 +25,8 @@ export default function Login() {
     setLoading(true)
     try {
       await login({ email, password })
-      // Avoid login loops: never send a user back to /login.
-      const dest = redirectTo === '/login' ? '/' : redirectTo
-      navigate(dest, { replace: true })
+      const { to, state } = authReturnTarget(location)
+      navigate(to, { replace: true, state })
     } catch (err) {
       setError(err.message || 'Unable to sign in.')
     } finally {
@@ -48,7 +47,7 @@ export default function Login() {
 
           <div className="mt-6 grid grid-cols-2 gap-1 rounded-full bg-warmlinen p-1">
             <div className="rounded-full bg-white py-2.5 text-center text-sm font-semibold text-charcoal shadow-sm" aria-current="page">Sign in</div>
-            <Link to="/signup" className="rounded-full py-2.5 text-center text-sm font-medium text-warmgrey hover:text-charcoal transition">Sign up</Link>
+            <Link to="/signup" state={location.state} replace className="rounded-full py-2.5 text-center text-sm font-medium text-warmgrey hover:text-charcoal transition">Sign up</Link>
           </div>
 
           {error && (

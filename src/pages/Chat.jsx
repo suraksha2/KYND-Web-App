@@ -22,7 +22,7 @@ export default function Chat() {
         <Lock className="mb-4 h-10 w-10 text-terracotta" />
         <h1 className="mb-2 text-lg font-semibold text-charcoal">Sign in to view this conversation</h1>
         <p className="mb-6 text-sm text-warmgrey">Customer conversations are only available to the signed-in customer.</p>
-        <Link to="/login" className="rounded-full bg-terracotta px-6 py-3 text-sm font-semibold text-white">
+        <Link to="/login" state={{ from: `/chat/${bookingId}` }} className="rounded-full bg-terracotta px-6 py-3 text-sm font-semibold text-white">
           Sign in
         </Link>
       </div>
