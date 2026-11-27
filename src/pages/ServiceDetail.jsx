@@ -1526,7 +1526,7 @@ const HowSoonPanel = ({ open, setOpen, summary, goToAddons, schedule, setSchedul
         <Pill
           selected={schedule === 'instant'}
           onClick={() => { setSchedule('instant'); setDate(''); setTime(''); goToAddons() }}
-          title="Instant"
+          title="ASAP"
           subtitle={`arrives by ${arrivalTime}`}
         />
         <Pill
@@ -1891,7 +1891,7 @@ export default function ServiceDetail() {
   const [appliedReferralCode, setAppliedReferralCode] = useState(null)
   const [promoError, setPromoError] = useState('')
   const [promoLoading, setPromoLoading] = useState(false)
-  const [schedule, setSchedule] = useState('instant')
+  const [schedule, setSchedule] = useState('scheduled')
   const [date, setDate] = useState('')
   const [time, setTime] = useState('')
   const [recurrence, setRecurrence] = useState({ type: 'preset', value: 'weekly' })
@@ -2511,7 +2511,7 @@ export default function ServiceDetail() {
   const paymentSummary = city ? `${city}${area ? ', ' + area : ''} — ${pay === 'card' ? 'Card' : 'Cash'}` : 'Enter your details'
 
   const howSummary = schedule === 'instant'
-    ? 'Instant'
+    ? 'ASAP'
     : schedule === 'scheduled'
       ? wellnessMode ? 'One-time' : 'Scheduled'
       : `Recurring (${cadence})`

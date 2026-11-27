@@ -27,6 +27,7 @@ import Account from './pages/Account'
 import Bookings from './pages/Bookings'
 import BookingDetail from './pages/BookingDetail'
 import SubcategoryDetail from './pages/SubcategoryDetail'
+import NotFound from './pages/NotFound'
 
 // Cart feature removed — AuthCartSync no longer required
 // function AuthCartSync() { ... }
@@ -87,7 +88,7 @@ export default function App() {
         <Route path="/privacy-policy" element={<PrivacyPolicy />} />
         <Route path="/cancellation-policy" element={<CancellationPolicy />} />
         <Route path="/credits" element={<Credits />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="*" element={<NotFound />} />
       </Route>
       </Routes>
     </LaunchGate>
